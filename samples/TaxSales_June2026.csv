@@ -1,0 +1,4 @@
+InvoiceNo;TaxRate;Amount;Country
+INV-2026-001;18%;5000;India
+INV-2026-002;12%;12000;India
+INV-2026-003;5%;2500;India

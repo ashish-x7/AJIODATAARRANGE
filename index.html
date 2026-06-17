@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AJIO DATA ARRANGE</title>
+    <link rel="icon" type="image/png" href="icon.png">
+    <meta name="description" content="Process ZIP, CSV and Excel files entirely in your browser. Auto-detect delimiters, convert CSV to XLSX, and smart rename files according to rules.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for beautiful icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Main Style Sheet -->
+    <link rel="stylesheet" href="styles.css">
+    
+    <!-- Client-Side Libraries -->
+    <!-- JSZip for Zip creation/extraction -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- PapaParse for high-performance CSV Parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- SheetJS for writing Excel files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="glass-bg"></div>
+    <div class="glow-sphere glow-1"></div>
+    <div class="glow-sphere glow-2"></div>
+
+    <div class="app-container">
+        <header class="app-header">
+            <div class="brand">
+                <img src="icon.png" class="logo-image" alt="AJIO Logo" style="height: 38px; width: auto; object-fit: contain;">
+                <h1>AJIO DATA <span>ARRANGE</span></h1>
+            </div>
+            <p class="subtitle">Convert & process files client-side with full privacy</p>
+        </header>
+
+        <!-- Tab Navigation -->
+        <div class="tab-navigation">
+            <button class="tab-btn active" data-tab="tab-converter">
+                <i class="fa-solid fa-arrows-spin"></i> File Converter
+            </button>
+            <button class="tab-btn" data-tab="tab-merger">
+                <i class="fa-solid fa-code-merge"></i> OD & Account Merger
+            </button>
+            <button class="tab-btn" data-tab="tab-vendor">
+                <i class="fa-solid fa-address-book"></i> Vendor Data
+            </button>
+        </div>
+
+        <!-- Tab 1: Converter Pane -->
+        <div id="tab-converter" class="tab-pane active-pane">
+            <main class="app-grid">
+                <!-- Left Panel: Upload & Config -->
+                <section class="panel upload-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-cloud-arrow-up"></i> Upload Source Files</h2>
+                        <span class="badge">Local Only</span>
+                    </div>
+                    
+                    <!-- Dropzone -->
+                    <div class="dropzone" id="dropzone">
+                        <input type="file" id="fileInput" multiple accept=".zip,.csv,.xlsx,.xls" class="file-input-hidden">
+                        <input type="file" id="zipInput" accept=".zip" class="file-input-hidden">
+                        <input type="file" id="folderInput" webkitdirectory directory multiple class="file-input-hidden">
+                        <div class="dropzone-content">
+                            <div class="icon-wrapper">
+                                <i class="fa-solid fa-folder-open upload-icon"></i>
+                            </div>
+                            <h3>Drag & drop your files or folder here</h3>
+                            <p>Upload ZIP, folder, or files to convert, merge, update Google Sheets & package reports automatically!</p>
+                            <div class="dropzone-actions" style="display: flex; gap: 0.5rem; justify-content: center; pointer-events: auto; flex-wrap: wrap;">
+                                <button type="button" class="btn btn-primary" id="browseBtn">
+                                    <i class="fa-solid fa-file-lines"></i> Browse Files
+                                </button>
+                                <button type="button" class="btn btn-primary" id="browseZipBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
+                                    <i class="fa-solid fa-file-zipper"></i> Browse ZIP
+                                </button>
+                                <button type="button" class="btn btn-primary" id="browseFolderBtn">
+                                    <i class="fa-solid fa-folder-open"></i> Browse Folder
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Settings / Rules Config -->
+                    <div class="settings-card">
+                        <h3><i class="fa-solid fa-sliders"></i> Processing Options</h3>
+                        <div class="options-group">
+                            <div class="checkbox-wrapper">
+                                <label class="switch">
+                                    <input type="checkbox" id="optCsvToXlsx" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <span class="option-label">Convert CSV to XLSX</span>
+                            </div>
+                            <div class="checkbox-wrapper">
+                                <label class="switch">
+                                    <input type="checkbox" id="optRenameFiles" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <span class="option-label">Apply Smart Renaming Rules</span>
+                            </div>
+                            <div class="checkbox-wrapper">
+                                <label class="switch">
+                                    <input type="checkbox" id="optSmartSuffix" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <span class="option-label">Prevent duplicates using suffixes (-1, -2)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Uploaded Files List -->
+                    <div class="file-list-card" id="fileListCard">
+                        <div class="card-header">
+                            <h3><i class="fa-solid fa-list"></i> Selected Files (<span id="selectedCount">0</span>)</h3>
+                            <button class="btn-clear text-btn" id="clearBtn"><i class="fa-solid fa-trash-can"></i> Clear All</button>
+                        </div>
+                        <div class="file-list" id="uploadFileList">
+                            <div class="empty-list-msg">No files selected yet.</div>
+                        </div>
+                    </div>
+
+                    <!-- Process CTA Button Group -->
+                    <div style="display: flex; gap: 0.5rem; width: 100%; margin-top: 1rem;">
+                        <button class="btn btn-large btn-glow" id="processBtn" disabled style="flex: 2; background: linear-gradient(135deg, #059669, #10b981); color: white; font-weight: 800; font-family: 'Space Grotesk', sans-serif;">
+                            <i class="fa-solid fa-bolt"></i> START AJIO ARANGE
+                        </button>
+                        <button type="button" class="btn btn-large" id="clearFilesBtn" style="flex: 1; background: #e5e7eb; color: #374151; font-weight: 600; border: 1px solid #d1d5db; font-family: 'Space Grotesk', sans-serif; display: flex; align-items: center; justify-content: center; gap: 0.3rem;">
+                            <i class="fa-solid fa-trash-can"></i> CLEAR
+                        </button>
+                        <button type="button" class="btn btn-large" id="resetBtn" style="flex: 1; background: linear-gradient(135deg, #ef4444, #dc2626); color: white; font-weight: 600; font-family: 'Space Grotesk', sans-serif; display: flex; align-items: center; justify-content: center; gap: 0.3rem;">
+                            <i class="fa-solid fa-arrows-rotate"></i> RESET
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Right Panel: Status & Output -->
+                <section class="panel output-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-square-poll-horizontal"></i> Process Dashboard</h2>
+                        <span class="status-indicator idle" id="processStatus">Idle</span>
+                    </div>
+
+                    <!-- Progress Tracker -->
+                    <div class="progress-card hidden" id="progressCard">
+                        <div class="overall-progress-bar-container">
+                            <div class="progress-bar-glow" id="overallProgressBar"></div>
+                        </div>
+                        <div class="progress-details">
+                            <span id="progressPercent">0% Completed</span>
+                            <span id="progressStepText">Initializing...</span>
+                        </div>
+
+                        <!-- Steps Timeline -->
+                        <div class="steps-timeline">
+                            <div class="timeline-step" id="stepExtract">
+                                <i class="fa-solid fa-circle-notch fa-spin step-icon"></i>
+                                <span class="step-label">Extracting ZIP Files</span>
+                            </div>
+                            <div class="timeline-step" id="stepConvert">
+                                <i class="fa-solid fa-circle-notch fa-spin step-icon"></i>
+                                <span class="step-label">Converting CSVs to XLSX</span>
+                            </div>
+                            <div class="timeline-step" id="stepRename">
+                                <i class="fa-solid fa-circle-notch fa-spin step-icon"></i>
+                                <span class="step-label">Renaming & Packaging</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Processed Files Output -->
+                    <div class="processed-container empty" id="processedContainer">
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-gears-gear placeholder-icon"></i>
+                            <p>Upload files and click convert to see results here.</p>
+                        </div>
+
+                        <!-- Processed List Header (shown only when files processed) -->
+                        <div class="processed-header hidden" id="processedHeader">
+                            <h3><i class="fa-solid fa-circle-check text-success"></i> Converted Files (<span id="processedCount">0</span>)</h3>
+                            <button class="btn btn-primary btn-glow" id="downloadAllBtn">
+                                <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
+                            </button>
+                        </div>
+
+                        <!-- Processed Files List -->
+                        <div class="processed-list hidden" id="processedList">
+                            <!-- Populated via JS -->
+                        </div>
+                    </div>
+
+                    <!-- Console / Logger -->
+                    <div class="console-card">
+                        <div class="console-header">
+                            <h3><i class="fa-solid fa-terminal"></i> Activity Log</h3>
+                            <button class="btn-clear text-btn" id="clearLogBtn"><i class="fa-solid fa-eraser"></i> Clear</button>
+                        </div>
+                        <div class="console-log" id="consoleLog">
+                            <div class="log-line info">[System] Ready. Drag files to begin.</div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <!-- Tab 2: Merger Pane -->
+        <div id="tab-merger" class="tab-pane hidden-pane">
+            <main class="app-grid">
+                <!-- Left Panel: Upload inputs -->
+                <section class="panel upload-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-file-excel"></i> Upload Source Files</h2>
+                        <span class="badge">Local Only</span>
+                    </div>
+
+                    <!-- Input 1: OD File -->
+                    <div class="merger-upload-card">
+                        <h3><i class="fa-solid fa-file-shield text-purple"></i> 1. Select OD File (.xlsx, .xls)</h3>
+                        <div class="mini-dropzone" id="odDropzone">
+                            <input type="file" id="odFileInput" accept=".xlsx,.xls" class="file-input-hidden">
+                            <div class="mini-dropzone-content">
+                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                <span class="filename-display" id="odFileDisplay">Drag & drop or Click to choose</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Input 2: Account Details File -->
+                    <div class="merger-upload-card">
+                        <h3><i class="fa-solid fa-file-invoice-dollar text-teal"></i> 2. Select Account Details File (.xlsx, .xls)</h3>
+                        <div class="mini-dropzone" id="accDropzone">
+                            <input type="file" id="accFileInput" accept=".xlsx,.xls" class="file-input-hidden">
+                            <div class="mini-dropzone-content">
+                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                <span class="filename-display" id="accFileDisplay">Drag & drop or Click to choose</span>
+                            </div>
+                        </div>
+                    </div>
+
+
+
+                    <!-- Run Merger CTA -->
+                    <button class="btn btn-large btn-success btn-glow" id="mergeBtn" disabled>
+                        <i class="fa-solid fa-bolt"></i> Process & Filter OD File
+                    </button>
+                </section>
+
+                <!-- Right Panel: Results & Stats -->
+                <section class="panel output-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-square-poll-horizontal"></i> Merger Dashboard</h2>
+                        <span class="status-indicator idle" id="mergerStatus">Idle</span>
+                    </div>
+
+                    <!-- Merger Progress Bar -->
+                    <div class="progress-card hidden" id="mergerProgressCard">
+                        <div class="overall-progress-bar-container">
+                            <div class="progress-bar-glow" id="mergerProgressBar"></div>
+                        </div>
+                        <div class="progress-details">
+                            <span id="mergerProgressPercent">0% Completed</span>
+                            <span id="mergerProgressStepText">Analyzing files...</span>
+                        </div>
+                    </div>
+
+                    <!-- Merger Results Output Card -->
+                    <div class="processed-container empty" id="mergerOutputContainer">
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-calculator placeholder-icon"></i>
+                            <p>Select both files and click process to run matching logic.</p>
+                        </div>
+                    </div>
+
+                    <!-- Console / Logger for Merger -->
+                    <div class="console-card">
+                        <div class="console-header">
+                            <h3><i class="fa-solid fa-terminal"></i> Merger Log</h3>
+                            <button class="btn-clear text-btn" id="clearMergerLogBtn"><i class="fa-solid fa-eraser"></i> Clear</button>
+                        </div>
+                        <div class="console-log" id="mergerConsoleLog">
+                            <div class="log-line info">[System] Ready. Please select OD and Account Details files.</div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <!-- Tab 3: Vendor Data Pane -->
+        <div id="tab-vendor" class="tab-pane hidden-pane" style="max-width: 1100px; margin: 0 auto; padding: 1rem 0.5rem; width: 100%;">
+            <section class="panel" style="width: 100%; box-shadow: var(--card-shadow); border-radius: 16px; background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(20px); border: 1px solid var(--border-color); padding: 1.5rem;">
+                <div class="panel-header" style="margin-bottom: 1.25rem;">
+                    <h2 style="font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.4rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.6rem;">
+                        <i class="fa-solid fa-address-book text-purple"></i> Vendor Directory & Management
+                    </h2>
+                    <span class="status-indicator idle" id="vendorSyncStatus">Offline</span>
+                </div>
+
+                <!-- Toolbar -->
+                <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem; width: 100%; flex-wrap: wrap;">
+                    <!-- Search Input -->
+                    <div style="position: relative; flex-grow: 1; min-width: 250px;">
+                        <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.85rem;"></i>
+                        <input type="text" id="vendorSearchInput" placeholder="Search by Code or Name..." style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem 0.5rem 0.5rem 2.2rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; width: 100%; box-shadow: 0 1px 3px rgba(0,0,0,0.02); height: 36px;">
+                    </div>
+                    <!-- Action Buttons -->
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button class="btn btn-success" id="showAddVendorFormBtn" style="font-size: 0.8rem; padding: 0 0.75rem; height: 36px; border-radius: 8px; display: flex; align-items: center; gap: 0.4rem;">
+                            <i class="fa-solid fa-plus"></i> Add New Vendor
+                        </button>
+                        <button class="btn btn-primary" id="refreshVendorsBtn" style="font-size: 0.8rem; padding: 0 0.75rem; height: 36px; border-radius: 8px; display: flex; align-items: center; gap: 0.4rem;" title="Sync directory from Google Sheets">
+                            <i class="fa-solid fa-arrows-rotate"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Inline Add Vendor Form Card (Hidden by default, slides down) -->
+                <div id="inlineAddVendorCard" class="settings-card hidden" style="margin-bottom: 1rem; padding: 1rem; border: 1px dashed var(--color-success); border-radius: 12px; background: rgba(5, 150, 105, 0.02);">
+                    <form id="addVendorForm" onsubmit="return false;" style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; width: 100%;">
+                        <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 150px;">
+                            <label for="vendorCode" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Vendor Code (e.g. 206, AJ2)</label>
+                            <input type="text" id="vendorCode" placeholder="Enter code" required style="background: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 0.4rem 0.5rem; color: var(--text-primary); font-family: inherit; font-size: 0.8rem; height: 32px; width: 100%;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 2; min-width: 250px;">
+                            <label for="vendorName" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Party Code / Name (e.g. 206-BROWN CULTURE)</label>
+                            <input type="text" id="vendorName" placeholder="Enter party code / name" required style="background: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 0.4rem 0.5rem; color: var(--text-primary); font-family: inherit; font-size: 0.8rem; height: 32px; width: 100%;">
+                        </div>
+                        <div style="display: flex; gap: 0.4rem;">
+                            <button type="submit" class="btn btn-success" id="addVendorBtn" style="font-size: 0.75rem; padding: 0 0.75rem; height: 32px; border-radius: 6px; display: flex; align-items: center; gap: 0.3rem;">
+                                <i class="fa-solid fa-check"></i> Save
+                            </button>
+                            <button type="button" class="btn" id="cancelAddVendorBtn" style="font-size: 0.75rem; padding: 0 0.75rem; height: 32px; border-radius: 6px; background: #e5e7eb; color: #374151; border: 1px solid #d1d5db; display: flex; align-items: center; gap: 0.3rem;">
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Vendor Table Container -->
+                <div class="processed-container" id="vendorTableContainer" style="min-height: 400px; justify-content: flex-start; padding: 0.5rem; overflow-y: auto; background: white; border-radius: 12px; border: 1px solid var(--border-color); box-shadow: inset 0 1px 4px rgba(0,0,0,0.01);">
+                    <div class="empty-output-state" id="vendorEmptyState">
+                        <i class="fa-solid fa-spinner fa-spin placeholder-icon"></i>
+                        <p>Connecting to Google Sheets and loading directory...</p>
+                    </div>
+                </div>
+
+                <!-- Activity Logs -->
+                <div class="console-card" style="margin-top: 1.25rem;">
+                    <div class="console-header" style="padding: 0.5rem 0.75rem;">
+                        <h3 style="font-size: 0.8rem; color: var(--text-secondary);"><i class="fa-solid fa-terminal"></i> Vendor Directory Log</h3>
+                        <button class="btn-clear text-btn" id="clearVendorLogBtn" style="font-size: 0.7rem;"><i class="fa-solid fa-eraser"></i> Clear</button>
+                    </div>
+                    <div class="console-log" id="vendorConsoleLog" style="height: 100px; padding: 0.5rem; font-size: 0.75rem;">
+                        <div class="log-line info">[System] Initializing Vendor Directory...</div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Footer removed -->
+    </div>
+
+    <!-- Main JS Application -->
+    <script src="app.js"></script>
+</body>
+</html>
