@@ -53,6 +53,12 @@
             <button class="tab-btn" data-tab="tab-separate">
                 <i class="fa-solid fa-file-export"></i> Separate File
             </button>
+            <button class="tab-btn" data-tab="tab-rename">
+                <i class="fa-solid fa-file-signature"></i> Rename File
+            </button>
+            <button class="tab-btn" data-tab="tab-merge">
+                <i class="fa-solid fa-code-merge"></i> Merge File
+            </button>
         </div>
 
         <!-- Tab 1: Converter Pane -->
@@ -467,6 +473,179 @@
                         </div>
                         <div class="console-log" id="separateConsoleLog">
                             <div class="log-line info">[System] Ready. Please select a source Excel file.</div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <!-- Tab 5: Rename File Pane -->
+        <div id="tab-rename" class="tab-pane hidden-pane">
+            <main class="app-grid">
+                <!-- Left Panel: Upload & Options -->
+                <section class="panel upload-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-file-signature text-purple"></i> Select Files to Rename</h2>
+                        <span class="badge">Local Only</span>
+                    </div>
+
+                    <!-- Upload Input: Multiple files -->
+                    <div class="merger-upload-card">
+                        <h3><i class="fa-solid fa-file-excel text-purple"></i> Drag & drop or browse files</h3>
+                        <div class="mini-dropzone" id="renDropzone" style="min-height: 120px; padding: 1.5rem 1rem;">
+                            <input type="file" id="renFileInput" multiple accept=".xlsx,.xls,.csv" class="file-input-hidden">
+                            <div class="mini-dropzone-content">
+                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                <span class="filename-display" id="renFileDisplay">Drag & drop or Click to choose files</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Options: Choice A / Column F or Choice B / Column G -->
+                    <div class="settings-card" style="margin-top: 0.5rem;">
+                        <h3><i class="fa-solid fa-sliders"></i> Rename Reference Options</h3>
+                        <div class="options-group" style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="radio" name="renColChoice" value="F" checked style="accent-color: #8b5cf6;">
+                                <span style="font-weight: 600; color: var(--text-primary);">Option A: Column F (AJIO)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="radio" name="renColChoice" value="G" style="accent-color: #8b5cf6;">
+                                <span style="font-weight: 600; color: var(--text-primary);">Option B: Column G (MYNTRA)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Selected Files List -->
+                    <div class="file-list-card" id="renSelectedFilesCard" style="max-height: 180px; margin-top: 0.5rem;">
+                        <div class="card-header">
+                            <h3><i class="fa-solid fa-list"></i> Selected Files (<span id="renSelectedCount">0</span>)</h3>
+                            <button class="btn-clear text-btn" id="clearRenFilesBtn"><i class="fa-solid fa-trash-can"></i> Clear</button>
+                        </div>
+                        <div class="file-list" id="renUploadedFileList">
+                            <div class="empty-list-msg">No files selected yet.</div>
+                        </div>
+                    </div>
+
+                    <!-- Run rename CTA -->
+                    <button class="btn btn-large btn-success btn-glow" id="renBtn" disabled style="margin-top: 0.5rem; width: 100%; background: linear-gradient(135deg, #059669, #10b981);">
+                        <i class="fa-solid fa-bolt"></i> START RENAME PROCESS
+                    </button>
+                </section>
+
+                <!-- Right Panel: Results & Stats -->
+                <section class="panel output-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-square-poll-horizontal"></i> Rename Dashboard</h2>
+                        <span class="status-indicator idle" id="renStatus">Idle</span>
+                    </div>
+
+                    <!-- Rename Progress Bar -->
+                    <div class="progress-card hidden" id="renProgressCard">
+                        <div class="overall-progress-bar-container">
+                            <div class="progress-bar-glow" id="renProgressBar"></div>
+                        </div>
+                        <div class="progress-details">
+                            <span id="renProgressPercent">0% Completed</span>
+                            <span id="renProgressStepText">Analyzing files...</span>
+                        </div>
+                    </div>
+
+                    <!-- Rename Results Output Card -->
+                    <div class="processed-container empty" id="renOutputContainer">
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-file-signature placeholder-icon"></i>
+                            <p>Upload files and click process to run renaming logic.</p>
+                        </div>
+                    </div>
+
+                    <!-- Console / Logger for Rename -->
+                    <div class="console-card">
+                        <div class="console-header">
+                            <h3><i class="fa-solid fa-terminal"></i> Rename Log</h3>
+                            <button class="btn-clear text-btn" id="clearRenLogBtn"><i class="fa-solid fa-eraser"></i> Clear</button>
+                        </div>
+                        <div class="console-log" id="renConsoleLog">
+                            <div class="log-line info">[System] Ready. Please select files to rename.</div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <!-- Tab 6: Merge File Pane -->
+        <div id="tab-merge" class="tab-pane hidden-pane">
+            <main class="app-grid">
+                <!-- Left Panel: Upload -->
+                <section class="panel upload-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-code-merge text-purple"></i> Upload Files to Merge</h2>
+                        <span class="badge">Local Only</span>
+                    </div>
+
+                    <!-- Upload Input: Multiple files -->
+                    <div class="merger-upload-card">
+                        <h3><i class="fa-solid fa-file-excel text-purple"></i> Drag & drop or browse files to merge</h3>
+                        <div class="mini-dropzone" id="gmDropzone" style="min-height: 140px; padding: 2rem 1rem;">
+                            <input type="file" id="gmFileInput" multiple accept=".xlsx,.xls,.csv" class="file-input-hidden">
+                            <div class="mini-dropzone-content">
+                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                <span class="filename-display" id="gmFileDisplay">Drag & drop or Click to choose files</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Selected Files List -->
+                    <div class="file-list-card" id="gmSelectedFilesCard" style="max-height: 250px; margin-top: 1rem; flex-grow: 1;">
+                        <div class="card-header">
+                            <h3><i class="fa-solid fa-list"></i> Selected Files (<span id="gmSelectedCount">0</span>)</h3>
+                            <button class="btn-clear text-btn" id="clearGmFilesBtn"><i class="fa-solid fa-trash-can"></i> Clear</button>
+                        </div>
+                        <div class="file-list" id="gmUploadedFileList">
+                            <div class="empty-list-msg">No files selected yet.</div>
+                        </div>
+                    </div>
+
+                    <!-- Run merge CTA -->
+                    <button class="btn btn-large btn-success btn-glow" id="gmBtn" disabled style="margin-top: 1rem; width: 100%; background: linear-gradient(135deg, #059669, #10b981);">
+                        <i class="fa-solid fa-bolt"></i> START MERGE PROCESS
+                    </button>
+                </section>
+
+                <!-- Right Panel: Results & Stats -->
+                <section class="panel output-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-square-poll-horizontal"></i> Merge Dashboard</h2>
+                        <span class="status-indicator idle" id="gmStatus">Idle</span>
+                    </div>
+
+                    <!-- Merge Progress Bar -->
+                    <div class="progress-card hidden" id="gmProgressCard">
+                        <div class="overall-progress-bar-container">
+                            <div class="progress-bar-glow" id="gmProgressBar"></div>
+                        </div>
+                        <div class="progress-details">
+                            <span id="gmProgressPercent">0% Completed</span>
+                            <span id="gmProgressStepText">Analyzing files...</span>
+                        </div>
+                    </div>
+
+                    <!-- Merge Results Output Card -->
+                    <div class="processed-container empty" id="gmOutputContainer">
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-code-merge placeholder-icon"></i>
+                            <p>Upload files and click process to merge by filename suffix.</p>
+                        </div>
+                    </div>
+
+                    <!-- Console / Logger for Merge -->
+                    <div class="console-card">
+                        <div class="console-header">
+                            <h3><i class="fa-solid fa-terminal"></i> Merge Log</h3>
+                            <button class="btn-clear text-btn" id="clearGmLogBtn"><i class="fa-solid fa-eraser"></i> Clear</button>
+                        </div>
+                        <div class="console-log" id="gmConsoleLog">
+                            <div class="log-line info">[System] Ready. Please select files to merge.</div>
                         </div>
                     </div>
                 </section>

@@ -4445,7 +4445,743 @@ function doPost(e) {
         });
     }
 
+    /* ==========================================================================
+       RENAME FILE PROCESSING LOGIC
+       ========================================================================== */
+    let renFiles = [];
+    let renZipBlob = null;
+
+    const renDropzone = document.getElementById('renDropzone');
+    const renFileInput = document.getElementById('renFileInput');
+    const renFileDisplay = document.getElementById('renFileDisplay');
+    const renBtn = document.getElementById('renBtn');
+    const renStatus = document.getElementById('renStatus');
+    const renProgressCard = document.getElementById('renProgressCard');
+    const renProgressBar = document.getElementById('renProgressBar');
+    const renProgressPercent = document.getElementById('renProgressPercent');
+    const renProgressStepText = document.getElementById('renProgressStepText');
+    const renOutputContainer = document.getElementById('renOutputContainer');
+    const renConsoleLog = document.getElementById('renConsoleLog');
+    const clearRenLogBtn = document.getElementById('clearRenLogBtn');
+    const clearRenFilesBtn = document.getElementById('clearRenFilesBtn');
+    const renSelectedCount = document.getElementById('renSelectedCount');
+    const renUploadedFileList = document.getElementById('renUploadedFileList');
+
+    function renLog(message, type = 'info') {
+        if (!renConsoleLog) return;
+        const line = document.createElement('div');
+        line.className = `log-line ${type}`;
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        line.innerText = `[${timestamp}] ${message}`;
+        renConsoleLog.appendChild(line);
+        renConsoleLog.scrollTop = renConsoleLog.scrollHeight;
+    }
+
+    if (clearRenLogBtn) {
+        clearRenLogBtn.addEventListener('click', () => {
+            renConsoleLog.innerHTML = '';
+            renLog('Log cleared.', 'info');
+        });
+    }
+
+    if (renDropzone && renFileInput) {
+        setupMultiDropzone(renDropzone, renFileInput, (files) => {
+            let added = 0;
+            files.forEach(file => {
+                if (!renFiles.some(f => f.name === file.name && f.size === file.size)) {
+                    renFiles.push({
+                        id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                        name: file.name,
+                        size: file.size,
+                        file: file
+                    });
+                    added++;
+                }
+            });
+            if (added > 0) {
+                renLog(`Added ${added} file(s) for renaming.`, 'success');
+            }
+            updateRenUI();
+        });
+    }
+
+    if (clearRenFilesBtn) {
+        clearRenFilesBtn.addEventListener('click', () => {
+            renFiles = [];
+            renFileInput.value = '';
+            updateRenUI();
+            renLog('Cleared all selected files.', 'info');
+        });
+    }
+
+    function updateRenUI() {
+        if (renSelectedCount) renSelectedCount.innerText = renFiles.length;
+        if (!renUploadedFileList) return;
+        
+        if (renFiles.length > 0) {
+            if (renBtn) renBtn.removeAttribute('disabled');
+            renUploadedFileList.innerHTML = '';
+            renFiles.forEach(fileObj => {
+                const item = document.createElement('div');
+                item.className = 'file-item';
+                
+                const info = document.createElement('div');
+                info.className = 'file-info';
+                
+                const icon = document.createElement('i');
+                icon.className = getFileIconClass(fileObj.name);
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'file-name';
+                nameSpan.innerText = fileObj.name;
+                
+                const sizeSpan = document.createElement('span');
+                sizeSpan.className = 'file-size';
+                sizeSpan.innerText = formatBytes(fileObj.size);
+                
+                info.appendChild(icon);
+                info.appendChild(nameSpan);
+                info.appendChild(sizeSpan);
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'file-action-btn';
+                removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+                removeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    renFiles = renFiles.filter(f => f.id !== fileObj.id);
+                    renLog(`Removed file: ${fileObj.name}`, 'info');
+                    updateRenUI();
+                });
+                
+                item.appendChild(info);
+                item.appendChild(removeBtn);
+                renUploadedFileList.appendChild(item);
+            });
+        } else {
+            if (renBtn) renBtn.setAttribute('disabled', 'true');
+            renUploadedFileList.innerHTML = '<div class="empty-list-msg">No files selected yet.</div>';
+        }
+    }
+
+    if (renBtn) {
+        renBtn.addEventListener('click', async () => {
+            if (renFiles.length === 0) return;
+            
+            alert("UPLOAD AJIO/TAX SHEET (Starting Rename Process)");
+
+            renBtn.setAttribute('disabled', 'true');
+            if (renStatus) {
+                renStatus.className = 'status-indicator processing';
+                renStatus.innerText = 'Processing';
+            }
+            if (renProgressCard) renProgressCard.classList.remove('hidden');
+            if (renProgressBar) renProgressBar.style.width = '5%';
+            if (renProgressPercent) renProgressPercent.innerText = '5%';
+            if (renProgressStepText) renProgressStepText.innerText = 'Initializing...';
+            
+            if (renOutputContainer) {
+                renOutputContainer.innerHTML = `
+                    <div class="empty-output-state">
+                        <i class="fa-solid fa-spinner fa-spin placeholder-icon" style="color: #8b5cf6;"></i>
+                        <p>Renaming files, please wait...</p>
+                    </div>
+                `;
+            }
+
+            renLog('Starting Rename Process...', 'process');
+
+            try {
+                let findCol = "F";
+                const radios = document.getElementsByName('renColChoice');
+                radios.forEach(r => {
+                    if (r.checked) findCol = r.value;
+                });
+                
+                renLog(`Search Column selected: Column ${findCol}`, 'info');
+                
+                const colIndex = (findCol === "F") ? 5 : 6;
+                const zip = new JSZip();
+                const renamedList = [];
+
+                for (let i = 0; i < renFiles.length; i++) {
+                    const fileObj = renFiles[i];
+                    renLog(`Reading file: ${fileObj.name}`, 'info');
+                    
+                    const progressVal = Math.round((i / renFiles.length) * 80) + 5;
+                    if (renProgressBar) renProgressBar.style.width = `${progressVal}%`;
+                    if (renProgressPercent) renProgressPercent.innerText = `${progressVal}%`;
+                    if (renProgressStepText) renProgressStepText.innerText = `Processing file ${i + 1} of ${renFiles.length}...`;
+
+                    const aoa = await parseFileToAoa(fileObj.file, fileObj.name);
+                    renLog(`Parsed ${aoa.length} rows from ${fileObj.name}`, 'info');
+
+                    let renameCode = "";
+                    for (let r = 1; r < aoa.length; r++) {
+                        const row = aoa[r];
+                        if (!row) continue;
+                        
+                        let cellVal = String(row[colIndex] || "").trim();
+                        if (cellVal !== "") {
+                            if (findCol === "G") {
+                                if (cellVal.toUpperCase().startsWith("CGJ1-")) {
+                                    continue;
+                                }
+                            }
+                            
+                            const firstPart = cellVal.split("-")[0].trim();
+                            let code = firstPart.slice(-3);
+                            
+                            if (findCol === "F") {
+                                if (code.toUpperCase().startsWith("J")) {
+                                    const num = parseInt(code.substring(1), 10);
+                                    if (!isNaN(num)) {
+                                        code = "AJ" + num;
+                                    }
+                                }
+                            }
+                            
+                            renameCode = code;
+                            break;
+                        }
+                    }
+
+                    let newName = fileObj.name;
+                    let success = false;
+
+                    if (renameCode !== "") {
+                        const extIdx = fileObj.name.lastIndexOf('.');
+                        const baseName = fileObj.name.substring(0, extIdx);
+                        const ext = fileObj.name.substring(extIdx);
+                        newName = `${baseName}-${renameCode}${ext}`;
+                        success = true;
+                        renLog(`Found rename code: [${renameCode}] for ${fileObj.name}. New name: "${newName}"`, 'success');
+                    } else {
+                        renLog(`No valid rename code found in Column ${findCol} for ${fileObj.name}. Filename remains unchanged.`, 'warning');
+                    }
+
+                    const fileBuffer = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => resolve(e.target.result);
+                        reader.onerror = (e) => reject(e.target.error);
+                        reader.readAsArrayBuffer(fileObj.file);
+                    });
+
+                    zip.file(newName, fileBuffer);
+                    
+                    const fileBlob = new Blob([fileBuffer], { type: fileObj.file.type });
+
+                    renamedList.push({
+                        originalName: fileObj.name,
+                        newName: newName,
+                        size: fileBlob.size,
+                        blob: fileBlob,
+                        success: success,
+                        renameCode: renameCode
+                    });
+                }
+
+                if (renProgressBar) renProgressBar.style.width = '95%';
+                if (renProgressPercent) renProgressPercent.innerText = '95%';
+                if (renProgressStepText) renProgressStepText.innerText = 'Packaging files...';
+
+                renZipBlob = await zip.generateAsync({ type: 'blob' });
+
+                renderRenDashboard(renamedList);
+
+                if (renProgressBar) renProgressBar.style.width = '100%';
+                if (renProgressPercent) renProgressPercent.innerText = '100%';
+                if (renProgressStepText) renProgressStepText.innerText = 'Renaming completed successfully!';
+                
+                if (renStatus) {
+                    renStatus.className = 'status-indicator success';
+                    renStatus.innerText = 'Completed';
+                }
+                
+                alert("PROCESS COMPLETED SUCCESSFULLY");
+                renLog('Rename process completed. All files packaged.', 'success');
+
+            } catch (err) {
+                renLog(`Rename process failed: ${err.message}`, 'error');
+                if (renStatus) {
+                    renStatus.className = 'status-indicator idle';
+                    renStatus.innerText = 'Failed';
+                }
+                if (renOutputContainer) {
+                    renOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-circle-exclamation placeholder-icon" style="color: #ef4444;"></i>
+                            <p style="color: #ef4444; font-weight: 600;">Error: ${err.message}</p>
+                        </div>
+                    `;
+                }
+            } finally {
+                renBtn.removeAttribute('disabled');
+            }
+        });
+    }
+
+    function renderRenDashboard(files) {
+        if (!renOutputContainer) return;
+        renOutputContainer.innerHTML = '';
+        renOutputContainer.className = 'processed-container';
+
+        const header = document.createElement('div');
+        header.className = 'processed-header';
+        header.style.display = 'flex';
+        header.style.justifyContent = 'space-between';
+        header.style.alignItems = 'center';
+        header.style.width = '100%';
+        header.style.marginBottom = '1rem';
+        header.innerHTML = `
+            <h3><i class="fa-solid fa-circle-check text-success"></i> Renamed Files (${files.length})</h3>
+            <button class="btn btn-primary btn-glow" id="downloadAllRenBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
+                <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
+            </button>
+        `;
+        renOutputContainer.appendChild(header);
+
+        const listContainer = document.createElement('div');
+        listContainer.className = 'processed-list';
+        listContainer.style.display = 'flex';
+        listContainer.style.flexDirection = 'column';
+        listContainer.style.gap = '0.5rem';
+        listContainer.style.width = '100%';
+        listContainer.style.maxHeight = '220px';
+        listContainer.style.overflowY = 'auto';
+
+        files.forEach((file, index) => {
+            const item = document.createElement('div');
+            item.className = 'processed-item';
+            item.style.padding = '0.6rem 0.8rem';
+            item.style.borderRadius = '8px';
+            item.style.display = 'flex';
+            item.style.justifyContent = 'space-between';
+            item.style.alignItems = 'center';
+            item.style.border = '1px solid var(--border-color)';
+            item.style.background = file.success ? 'rgba(16, 185, 129, 0.03)' : 'rgba(0, 0, 0, 0.01)';
+            if (file.success) {
+                item.style.borderLeft = '4px solid var(--color-success)';
+            }
+
+            item.innerHTML = `
+                <div class="file-details" style="display: flex; flex-direction: column; gap: 0.1rem; overflow: hidden; max-width: 70%;">
+                    <span class="file-name" style="font-weight: 600; color: var(--text-primary); font-size: 0.85rem; word-break: break-all;" title="${file.newName}">${file.newName}</span>
+                    <span style="font-size: 0.7rem; color: var(--text-muted); text-decoration: line-through; opacity: 0.6; word-break: break-all;">${file.originalName}</span>
+                </div>
+                <button class="btn btn-success download-single-ren-btn" data-index="${index}" style="font-size: 0.7rem; padding: 0.35rem 0.6rem; display: flex; align-items: center; gap: 0.25rem;">
+                    <i class="fa-solid fa-download"></i> Download
+                </button>
+            `;
+            listContainer.appendChild(item);
+        });
+
+        renOutputContainer.appendChild(listContainer);
+
+        const dlZipBtn = document.getElementById('downloadAllRenBtn');
+        if (dlZipBtn) {
+            dlZipBtn.addEventListener('click', () => {
+                if (renZipBlob) {
+                    triggerDownload(renZipBlob, 'Renamed_Files_Package.zip');
+                    renLog('Downloaded complete ZIP package: Renamed_Files_Package.zip', 'info');
+                }
+            });
+        }
+
+        const singleBtns = listContainer.querySelectorAll('.download-single-ren-btn');
+        singleBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const idx = parseInt(btn.getAttribute('data-index'));
+                const file = files[idx];
+                if (file) {
+                    triggerDownload(file.blob, file.newName);
+                    renLog(`Downloaded renamed file: ${file.newName}`, 'info');
+                }
+            });
+        });
+    }
+
+    /* ==========================================================================
+       MERGE FILE (MERGE BY LASTNAME) LOGIC
+       ========================================================================== */
+    let gmFiles = [];
+    let gmZipBlob = null;
+
+    const gmDropzone = document.getElementById('gmDropzone');
+    const gmFileInput = document.getElementById('gmFileInput');
+    const gmFileDisplay = document.getElementById('gmFileDisplay');
+    const gmBtn = document.getElementById('gmBtn');
+    const gmStatus = document.getElementById('gmStatus');
+    const gmProgressCard = document.getElementById('gmProgressCard');
+    const gmProgressBar = document.getElementById('gmProgressBar');
+    const gmProgressPercent = document.getElementById('gmProgressPercent');
+    const gmProgressStepText = document.getElementById('gmProgressStepText');
+    const gmOutputContainer = document.getElementById('gmOutputContainer');
+    const gmConsoleLog = document.getElementById('gmConsoleLog');
+    const clearGmLogBtn = document.getElementById('clearGmLogBtn');
+    const clearGmFilesBtn = document.getElementById('clearGmFilesBtn');
+    const gmSelectedCount = document.getElementById('gmSelectedCount');
+    const gmUploadedFileList = document.getElementById('gmUploadedFileList');
+
+    function gmLog(message, type = 'info') {
+        if (!gmConsoleLog) return;
+        const line = document.createElement('div');
+        line.className = `log-line ${type}`;
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        line.innerText = `[${timestamp}] ${message}`;
+        gmConsoleLog.appendChild(line);
+        gmConsoleLog.scrollTop = gmConsoleLog.scrollHeight;
+    }
+
+    if (clearGmLogBtn) {
+        clearGmLogBtn.addEventListener('click', () => {
+            gmConsoleLog.innerHTML = '';
+            gmLog('Log cleared.', 'info');
+        });
+    }
+
+    if (gmDropzone && gmFileInput) {
+        setupMultiDropzone(gmDropzone, gmFileInput, (files) => {
+            let added = 0;
+            files.forEach(file => {
+                if (!gmFiles.some(f => f.name === file.name && f.size === file.size)) {
+                    gmFiles.push({
+                        id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                        name: file.name,
+                        size: file.size,
+                        file: file
+                    });
+                    added++;
+                }
+            });
+            if (added > 0) {
+                gmLog(`Added ${added} file(s) to merge list.`, 'success');
+            }
+            updateGmUI();
+        });
+    }
+
+    if (clearGmFilesBtn) {
+        clearGmFilesBtn.addEventListener('click', () => {
+            gmFiles = [];
+            gmFileInput.value = '';
+            updateGmUI();
+            gmLog('Cleared all selected files.', 'info');
+        });
+    }
+
+    function updateGmUI() {
+        if (gmSelectedCount) gmSelectedCount.innerText = gmFiles.length;
+        if (!gmUploadedFileList) return;
+        
+        if (gmFiles.length > 0) {
+            if (gmBtn) gmBtn.removeAttribute('disabled');
+            gmUploadedFileList.innerHTML = '';
+            gmFiles.forEach(fileObj => {
+                const item = document.createElement('div');
+                item.className = 'file-item';
+                
+                const info = document.createElement('div');
+                info.className = 'file-info';
+                
+                const icon = document.createElement('i');
+                icon.className = getFileIconClass(fileObj.name);
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'file-name';
+                nameSpan.innerText = fileObj.name;
+                
+                const sizeSpan = document.createElement('span');
+                sizeSpan.className = 'file-size';
+                sizeSpan.innerText = formatBytes(fileObj.size);
+                
+                info.appendChild(icon);
+                info.appendChild(nameSpan);
+                info.appendChild(sizeSpan);
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'file-action-btn';
+                removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+                removeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    gmFiles = gmFiles.filter(f => f.id !== fileObj.id);
+                    gmLog(`Removed file: ${fileObj.name}`, 'info');
+                    updateGmUI();
+                });
+                
+                item.appendChild(info);
+                item.appendChild(removeBtn);
+                gmUploadedFileList.appendChild(item);
+            });
+        } else {
+            if (gmBtn) gmBtn.setAttribute('disabled', 'true');
+            gmUploadedFileList.innerHTML = '<div class="empty-list-msg">No files selected yet.</div>';
+        }
+    }
+
+    if (gmBtn) {
+        gmBtn.addEventListener('click', async () => {
+            if (gmFiles.length === 0) return;
+
+            gmBtn.setAttribute('disabled', 'true');
+            if (gmStatus) {
+                gmStatus.className = 'status-indicator processing';
+                gmStatus.innerText = 'Processing';
+            }
+            if (gmProgressCard) gmProgressCard.classList.remove('hidden');
+            if (gmProgressBar) gmProgressBar.style.width = '10%';
+            if (gmProgressPercent) gmProgressPercent.innerText = '10%';
+            if (gmProgressStepText) gmProgressStepText.innerText = 'Grouping files...';
+            
+            if (gmOutputContainer) {
+                gmOutputContainer.innerHTML = `
+                    <div class="empty-output-state">
+                        <i class="fa-solid fa-spinner fa-spin placeholder-icon" style="color: #8b5cf6;"></i>
+                        <p>Merging files, please wait...</p>
+                    </div>
+                `;
+            }
+
+            gmLog('Starting Group Merge Pipeline...', 'process');
+
+            try {
+                const groups = {};
+                gmFiles.forEach(fileObj => {
+                    const lastName = getFileLastPart(fileObj.name);
+                    if (!groups[lastName]) {
+                        groups[lastName] = [];
+                    }
+                    groups[lastName].push(fileObj);
+                });
+
+                const groupKeys = Object.keys(groups);
+                gmLog(`Found ${groupKeys.length} group(s) to process: [${groupKeys.join(', ')}]`, 'info');
+
+                const zip = new JSZip();
+                const mergedList = [];
+
+                for (let k = 0; k < groupKeys.length; k++) {
+                    const key = groupKeys[k];
+                    const filesInGroup = groups[key];
+                    gmLog(`----------------------------------------`, 'info');
+                    gmLog(`Merging Group [${key}] with ${filesInGroup.length} file(s)`, 'process');
+                    
+                    const progressVal = Math.round((k / groupKeys.length) * 80) + 10;
+                    if (gmProgressBar) gmProgressBar.style.width = `${progressVal}%`;
+                    if (gmProgressPercent) gmProgressPercent.innerText = `${progressVal}%`;
+                    if (gmProgressStepText) gmProgressStepText.innerText = `Processing group ${k + 1} of ${groupKeys.length}: ${key}...`;
+
+                    let mergedAoa = [];
+
+                    for (let fIdx = 0; fIdx < filesInGroup.length; fIdx++) {
+                        const fileObj = filesInGroup[fIdx];
+                        gmLog(`Parsing ${fileObj.name} for group [${key}]`, 'info');
+                        const fileAoa = await parseFileToAoa(fileObj.file, fileObj.name);
+                        
+                        if (fileAoa.length === 0) {
+                            gmLog(`Warning: file ${fileObj.name} is empty, skipping`, 'warning');
+                            continue;
+                        }
+
+                        if (fIdx === 0) {
+                            mergedAoa = JSON.parse(JSON.stringify(fileAoa));
+                        } else {
+                            const dataRows = fileAoa.slice(1);
+                            mergedAoa.push(...dataRows);
+                        }
+                    }
+
+                    const newWb = XLSX.utils.book_new();
+                    const newWs = XLSX.utils.aoa_to_sheet(mergedAoa);
+                    XLSX.utils.book_append_sheet(newWb, newWs, "Sheet1");
+                    
+                    const outFilename = `${key}-DropShipOrderReports-AJIO-${key}.xlsx`;
+                    const excelBuffer = XLSX.write(newWb, { bookType: 'xlsx', type: 'array' });
+                    const fileBlob = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+
+                    zip.file(outFilename, excelBuffer);
+
+                    mergedList.push({
+                        name: outFilename,
+                        size: fileBlob.size,
+                        rows: mergedAoa.length - 1,
+                        blob: fileBlob,
+                        groupKey: key
+                    });
+
+                    gmLog(`Merged group [${key}] created: "${outFilename}" with ${mergedAoa.length - 1} data rows.`, 'success');
+                }
+
+                if (gmProgressBar) gmProgressBar.style.width = '95%';
+                if (gmProgressPercent) gmProgressPercent.innerText = '95%';
+                if (gmProgressStepText) gmProgressStepText.innerText = 'Packaging final ZIP file...';
+
+                gmZipBlob = await zip.generateAsync({ type: 'blob' });
+
+                renderGmDashboard(mergedList);
+
+                if (gmProgressBar) gmProgressBar.style.width = '100%';
+                if (gmProgressPercent) gmProgressPercent.innerText = '100%';
+                if (gmProgressStepText) gmProgressStepText.innerText = 'Merge completed successfully!';
+                
+                if (gmStatus) {
+                    gmStatus.className = 'status-indicator success';
+                    gmStatus.innerText = 'Completed';
+                }
+                
+                alert("FILES MERGED SUCCESSFULLY");
+                gmLog('Merge process completed. All merged files packaged.', 'success');
+
+            } catch (err) {
+                gmLog(`Merge process failed: ${err.message}`, 'error');
+                if (gmStatus) {
+                    gmStatus.className = 'status-indicator idle';
+                    gmStatus.innerText = 'Failed';
+                }
+                if (gmOutputContainer) {
+                    gmOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-circle-exclamation placeholder-icon" style="color: #ef4444;"></i>
+                            <p style="color: #ef4444; font-weight: 600;">Error: ${err.message}</p>
+                        </div>
+                    `;
+                }
+            } finally {
+                gmBtn.removeAttribute('disabled');
+            }
+        });
+    }
+
+    function getFileLastPart(filename) {
+        const extIdx = filename.lastIndexOf('.');
+        const baseName = extIdx !== -1 ? filename.substring(0, extIdx) : filename;
+        const parts = baseName.split('-');
+        return parts[parts.length - 1].trim();
+    }
+
+    function renderGmDashboard(files) {
+        if (!gmOutputContainer) return;
+        gmOutputContainer.innerHTML = '';
+        gmOutputContainer.className = 'processed-container';
+
+        const header = document.createElement('div');
+        header.className = 'processed-header';
+        header.style.display = 'flex';
+        header.style.justifyContent = 'space-between';
+        header.style.alignItems = 'center';
+        header.style.width = '100%';
+        header.style.marginBottom = '1rem';
+        header.innerHTML = `
+            <h3><i class="fa-solid fa-circle-check text-success"></i> Merged Files (${files.length})</h3>
+            <button class="btn btn-primary btn-glow" id="downloadAllGmBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
+                <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
+            </button>
+        `;
+        gmOutputContainer.appendChild(header);
+
+        const listContainer = document.createElement('div');
+        listContainer.className = 'processed-list';
+        listContainer.style.display = 'flex';
+        listContainer.style.flexDirection = 'column';
+        listContainer.style.gap = '0.5rem';
+        listContainer.style.width = '100%';
+        listContainer.style.maxHeight = '300px';
+        listContainer.style.overflowY = 'auto';
+
+        files.forEach((file, index) => {
+            const item = document.createElement('div');
+            item.className = 'processed-item';
+            item.style.padding = '0.75rem 1rem';
+            item.style.borderRadius = '8px';
+            item.style.display = 'flex';
+            item.style.justifyContent = 'space-between';
+            item.style.alignItems = 'center';
+            item.style.border = '1px solid var(--border-color)';
+            item.style.background = 'rgba(255, 255, 255, 0.8)';
+            item.style.borderLeft = '5px solid var(--color-primary)';
+
+            item.innerHTML = `
+                <div class="file-details" style="display: flex; flex-direction: column; gap: 0.2rem;">
+                    <span class="file-name" style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem; word-break: break-all;" title="${file.name}">${file.name}</span>
+                    <div style="display: flex; gap: 1rem; font-size: 0.75rem; color: var(--text-muted);">
+                        <span><i class="fa-solid fa-database"></i> ${file.rows} Rows</span>
+                        <span><i class="fa-solid fa-weight-hanging"></i> ${formatBytes(file.size)}</span>
+                    </div>
+                </div>
+                <button class="btn btn-success download-single-gm-btn" data-index="${index}" style="font-size: 0.75rem; padding: 0.4rem 0.75rem; display: flex; align-items: center; gap: 0.3rem;">
+                    <i class="fa-solid fa-download"></i> Download
+                </button>
+            `;
+            listContainer.appendChild(item);
+        });
+
+        gmOutputContainer.appendChild(listContainer);
+
+        const dlZipBtn = document.getElementById('downloadAllGmBtn');
+        if (dlZipBtn) {
+            dlZipBtn.addEventListener('click', () => {
+                if (gmZipBlob) {
+                    triggerDownload(gmZipBlob, 'Merged_Files_Package.zip');
+                    gmLog('Downloaded complete ZIP package: Merged_Files_Package.zip', 'info');
+                }
+            });
+        }
+
+        const singleBtns = listContainer.querySelectorAll('.download-single-gm-btn');
+        singleBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const idx = parseInt(btn.getAttribute('data-index'));
+                const file = files[idx];
+                if (file) {
+                    triggerDownload(file.blob, file.name);
+                    gmLog(`Downloaded merged file: ${file.name}`, 'info');
+                }
+            });
+        });
+    }
+
+    /* ==========================================================================
+       MULTI DROPZONE HELPER
+       ========================================================================== */
+    function setupMultiDropzone(zone, input, callback) {
+        zone.addEventListener('click', (e) => {
+            if (e.target !== input) input.click();
+        });
+
+        input.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+
+        input.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                callback(Array.from(e.target.files));
+            }
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            zone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                zone.classList.add('dragover');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            zone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                zone.classList.remove('dragover');
+            });
+        });
+
+        zone.addEventListener('drop', (e) => {
+            if (e.dataTransfer.files.length > 0) {
+                callback(Array.from(e.dataTransfer.files));
+            }
+        });
+    }
+
     // Call toggleSubOptions initially to set correct sub-options display
+
     toggleSubOptions();
 
     // Auto-fetch vendors on startup
