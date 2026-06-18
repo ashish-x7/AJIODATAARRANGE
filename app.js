@@ -4021,6 +4021,433 @@ function doPost(e) {
         });
     }
 
+    /* ==========================================================================
+       SEPARATE FILE PROCESSING LOGIC
+       ========================================================================== */
+    // State Variables
+    let separateFile = null;
+    let separateZipBlob = null;
+
+    // DOM Elements
+    const separateDropzone = document.getElementById('separateDropzone');
+    const separateFileInput = document.getElementById('separateFileInput');
+    const separateFileDisplay = document.getElementById('separateFileDisplay');
+    const separateBtn = document.getElementById('separateBtn');
+    
+    const separateStatus = document.getElementById('separateStatus');
+    const separateProgressCard = document.getElementById('separateProgressCard');
+    const separateProgressBar = document.getElementById('separateProgressBar');
+    const separateProgressPercent = document.getElementById('separateProgressPercent');
+    const separateProgressStepText = document.getElementById('separateProgressStepText');
+    const separateOutputContainer = document.getElementById('separateOutputContainer');
+    
+    const separateConsoleLog = document.getElementById('separateConsoleLog');
+    const clearSeparateLogBtn = document.getElementById('clearSeparateLogBtn');
+
+    const separateVariantRadios = document.getElementsByName('separateVariant');
+    const simpleSubOptions = document.getElementById('simpleSubOptions');
+    const simpleColChoiceRadios = document.getElementsByName('simpleColChoice');
+
+    // Color list matching the VBA macro exactly
+    const separateColorList = [
+        'rgb(255, 199, 206)', 'rgb(198, 239, 206)', 'rgb(189, 215, 238)',
+        'rgb(255, 235, 156)', 'rgb(244, 204, 204)', 'rgb(217, 234, 211)',
+        'rgb(234, 209, 220)', 'rgb(208, 224, 227)', 'rgb(252, 229, 205)',
+        'rgb(221, 217, 196)', 'rgb(207, 226, 243)', 'rgb(180, 198, 231)',
+        'rgb(255, 242, 204)', 'rgb(226, 239, 218)', 'rgb(214, 227, 188)',
+        'rgb(230, 184, 183)', 'rgb(184, 204, 228)', 'rgb(213, 166, 189)',
+        'rgb(169, 209, 142)', 'rgb(255, 217, 102)', 'rgb(201, 218, 248)',
+        'rgb(255, 229, 153)', 'rgb(208, 206, 206)', 'rgb(197, 224, 180)',
+        'rgb(248, 203, 173)', 'rgb(222, 235, 247)', 'rgb(217, 210, 233)',
+        'rgb(244, 177, 131)', 'rgb(191, 191, 191)', 'rgb(180, 167, 214)',
+        'rgb(157, 195, 230)', 'rgb(146, 208, 80)'
+    ];
+
+    // Logging Utility
+    function separateLog(message, type = 'info') {
+        if (!separateConsoleLog) return;
+        const line = document.createElement('div');
+        line.className = `log-line ${type}`;
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        line.innerText = `[${timestamp}] ${message}`;
+        separateConsoleLog.appendChild(line);
+        separateConsoleLog.scrollTop = separateConsoleLog.scrollHeight;
+    }
+
+    // Clear log button
+    if (clearSeparateLogBtn) {
+        clearSeparateLogBtn.addEventListener('click', () => {
+            separateConsoleLog.innerHTML = '';
+            separateLog('Log cleared.', 'info');
+        });
+    }
+
+    // Dynamic visibility of suboptions for Option 1
+    function toggleSubOptions() {
+        let selectedVariant = "1";
+        separateVariantRadios.forEach(r => {
+            if (r.checked) selectedVariant = r.value;
+        });
+        if (selectedVariant === "1") {
+            if (simpleSubOptions) simpleSubOptions.style.display = "flex";
+        } else {
+            if (simpleSubOptions) simpleSubOptions.style.display = "none";
+        }
+    }
+
+    separateVariantRadios.forEach(radio => {
+        radio.addEventListener('change', toggleSubOptions);
+    });
+
+    // Initialize dropzone
+    if (separateDropzone && separateFileInput) {
+        setupMiniDropzone(separateDropzone, separateFileInput, (file) => {
+            separateFile = file;
+            separateFileDisplay.innerText = file.name;
+            separateFileDisplay.title = file.name;
+            separateDropzone.classList.add('file-selected');
+            separateLog(`Selected source file: ${file.name} (${formatBytes(file.size)})`, 'success');
+            checkSeparateInputs();
+        });
+    }
+
+    function checkSeparateInputs() {
+        if (separateFile && separateBtn) {
+            separateBtn.removeAttribute('disabled');
+        } else if (separateBtn) {
+            separateBtn.setAttribute('disabled', 'true');
+        }
+    }
+
+    // Main Run Separation Logic
+    if (separateBtn) {
+        separateBtn.addEventListener('click', async () => {
+            if (!separateFile) return;
+
+            separateBtn.setAttribute('disabled', 'true');
+            if (separateStatus) {
+                separateStatus.className = 'status-indicator processing';
+                separateStatus.innerText = 'Processing';
+            }
+            if (separateProgressCard) separateProgressCard.classList.remove('hidden');
+            if (separateProgressBar) separateProgressBar.style.width = '10%';
+            if (separateProgressPercent) separateProgressPercent.innerText = '10%';
+            if (separateProgressStepText) separateProgressStepText.innerText = 'Reading file...';
+            
+            if (separateOutputContainer) {
+                separateOutputContainer.innerHTML = '';
+                separateOutputContainer.className = 'processed-container empty';
+                separateOutputContainer.innerHTML = `
+                    <div class="empty-output-state">
+                        <i class="fa-solid fa-spinner fa-spin placeholder-icon" style="color: #8b5cf6;"></i>
+                        <p>Splitting file by warehouse codes, please wait...</p>
+                    </div>
+                `;
+            }
+
+            separateLog('Starting File Separation Pipeline...', 'process');
+
+            try {
+                // Get selected options
+                let userChoice = "1";
+                separateVariantRadios.forEach(r => {
+                    if (r.checked) userChoice = r.value;
+                });
+
+                let colChoice = "D";
+                if (simpleColChoiceRadios) {
+                    simpleColChoiceRadios.forEach(r => {
+                        if (r.checked) colChoice = r.value;
+                    });
+                }
+
+                // Determine settings based on variant selection
+                let filterField = 3; // 0-indexed column index (Column D = index 3)
+                let dataStartRow = 2; // 0-indexed row index (Row 3 = index 2)
+                let nameSuffix = "-AJIO";
+                let headerRowCount = 2; // Header is rows 1-2
+
+                if (userChoice === "1") {
+                    nameSuffix = "-AJIO";
+                    filterField = (colChoice === "G") ? 6 : 3;
+                    dataStartRow = 2;
+                    headerRowCount = 2;
+                } else if (userChoice === "2") {
+                    nameSuffix = " DETAILS SHEET AJIO";
+                    filterField = 3;
+                    dataStartRow = 2;
+                    headerRowCount = 2;
+                } else if (userChoice === "3") {
+                    nameSuffix = " SUMMARY SHEET AJIO";
+                    filterField = 6;
+                    dataStartRow = 2;
+                    headerRowCount = 2;
+                } else if (userChoice === "4") {
+                    nameSuffix = "-AJIO";
+                    filterField = 0; // Column A
+                    dataStartRow = 1; // Row 2
+                    headerRowCount = 1; // Header is row 1
+                }
+
+                separateLog(`Configuration selected: Variant ${userChoice} (Filter Column Index: ${filterField}, Header Rows: ${headerRowCount})`, 'info');
+
+                // Read file
+                const buffer = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = (e) => reject(new Error("File read error"));
+                    reader.readAsArrayBuffer(separateFile);
+                });
+
+                if (separateProgressBar) separateProgressBar.style.width = '30%';
+                if (separateProgressPercent) separateProgressPercent.innerText = '30%';
+                if (separateProgressStepText) separateProgressStepText.innerText = 'Parsing Excel data...';
+                separateLog('Parsing Excel spreadsheet...', 'info');
+
+                const wb = XLSX.read(buffer, { type: 'array' });
+                const firstSheetName = wb.SheetNames[0];
+                const ws = wb.Sheets[firstSheetName];
+                const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+
+                if (aoa.length <= headerRowCount) {
+                    throw new Error("Excel sheet contains no data below the header rows.");
+                }
+
+                separateLog(`Spreadsheet loaded. Sheet name: "${firstSheetName}". Total rows: ${aoa.length}`, 'info');
+
+                if (separateProgressBar) separateProgressBar.style.width = '50%';
+                if (separateProgressPercent) separateProgressPercent.innerText = '50%';
+                if (separateProgressStepText) separateProgressStepText.innerText = 'Identifying unique filter keys...';
+
+                // Extract unique values in the filter column
+                const keys = [];
+                const keyMap = {};
+                for (let r = dataStartRow; r < aoa.length; r++) {
+                    const val = String(aoa[r][filterField] || "").trim();
+                    if (val !== "") {
+                        if (!keyMap[val]) {
+                            keyMap[val] = true;
+                            keys.push(val);
+                        }
+                    }
+                }
+
+                if (keys.length === 0) {
+                    throw new Error("No valid keys found in the filter column.");
+                }
+
+                separateLog(`Found ${keys.length} unique values to split by: ${keys.join(', ')}`, 'success');
+
+                // Generate stamp
+                const now = new Date();
+                const pad = (n) => String(n).padStart(2, '0');
+                const dtStamp = `${pad(now.getDate())}-${pad(now.getMonth() + 1)}-${now.getFullYear()} ${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+
+                const pipelineZip = new JSZip();
+                const splitFiles = [];
+                let fileCounter = 1;
+
+                // Loop through keys and generate workbooks
+                for (let i = 0; i < keys.length; i++) {
+                    const keyVal = keys[i];
+                    separateLog(`Processing key: [${keyVal}] (${i + 1}/${keys.length})`, 'process');
+
+                    // Progress percentage (mapping 50% to 90%)
+                    const percent = 50 + Math.floor((i / keys.length) * 40);
+                    if (separateProgressBar) separateProgressBar.style.width = `${percent}%`;
+                    if (separateProgressPercent) separateProgressPercent.innerText = `${percent}%`;
+                    if (separateProgressStepText) separateProgressStepText.innerText = `Splitting file ${i + 1} of ${keys.length}: ${keyVal}...`;
+
+                    // Copy Header row(s)
+                    const newRows = [];
+                    for (let h = 0; h < headerRowCount; h++) {
+                        if (aoa[h]) {
+                            newRows.push([...aoa[h]]);
+                        }
+                    }
+
+                    // Copy matching data rows
+                    let matchedCount = 0;
+                    for (let r = dataStartRow; r < aoa.length; r++) {
+                        const rowVal = String(aoa[r][filterField] || "").trim();
+                        if (rowVal === keyVal) {
+                            newRows.push([...aoa[r]]);
+                            matchedCount++;
+                        }
+                    }
+
+                    // Build new workbook
+                    const newWb = XLSX.utils.book_new();
+                    const newWs = XLSX.utils.aoa_to_sheet(newRows);
+                    XLSX.utils.book_append_sheet(newWb, newWs, "Sheet1");
+
+                    // Filename formatting
+                    let finalName = "";
+                    if (userChoice === "4") {
+                        const firstNum = keyVal.split("-")[0];
+                        finalName = `${firstNum}-Tax-${keyVal}-AJIO`;
+                    } else {
+                        finalName = `${keyVal}${nameSuffix}`;
+                    }
+
+                    const outFilename = `${finalName} ${dtStamp}_${String(fileCounter).padStart(2, '0')}.xlsx`;
+                    const excelBuffer = XLSX.write(newWb, { bookType: 'xlsx', type: 'array' });
+                    const fileBlob = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+
+                    pipelineZip.file(outFilename, excelBuffer);
+
+                    // Map visual color
+                    const uiColor = separateColorList[(fileCounter - 1) % separateColorList.length];
+
+                    splitFiles.push({
+                        name: outFilename,
+                        size: fileBlob.size,
+                        rows: matchedCount,
+                        blob: fileBlob,
+                        color: uiColor
+                    });
+
+                    separateLog(`File generated: "${outFilename}" with ${matchedCount} data rows.`, 'info');
+                    fileCounter++;
+                }
+
+                if (separateProgressBar) separateProgressBar.style.width = '95%';
+                if (separateProgressPercent) separateProgressPercent.innerText = '95%';
+                if (separateProgressStepText) separateProgressStepText.innerText = 'Packaging final ZIP file...';
+                separateLog('Compiling ZIP archive package...', 'process');
+
+                separateZipBlob = await pipelineZip.generateAsync({ type: 'blob' });
+
+                // Render visual output dashboard
+                renderSeparateDashboard(splitFiles);
+
+                if (separateProgressBar) separateProgressBar.style.width = '100%';
+                if (separateProgressPercent) separateProgressPercent.innerText = '100%';
+                if (separateProgressStepText) separateProgressStepText.innerText = 'All steps processed successfully!';
+
+                if (separateStatus) {
+                    separateStatus.className = 'status-indicator success';
+                    separateStatus.innerText = 'Completed';
+                }
+                separateLog('Split operation successful. Files are ready for download.', 'success');
+
+            } catch (err) {
+                separateLog(`Separation Pipeline failed: ${err.message}`, 'error');
+                if (separateStatus) {
+                    separateStatus.className = 'status-indicator idle';
+                    separateStatus.innerText = 'Failed';
+                }
+                if (separateProgressStepText) separateProgressStepText.innerText = 'An error occurred during execution.';
+
+                if (separateOutputContainer) {
+                    separateOutputContainer.innerHTML = '';
+                    separateOutputContainer.className = 'processed-container empty';
+                    separateOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-circle-exclamation placeholder-icon" style="color: #ef4444;"></i>
+                            <p style="color: #ef4444; font-weight: 600;">Error: ${err.message}</p>
+                        </div>
+                    `;
+                }
+            } finally {
+                separateBtn.removeAttribute('disabled');
+            }
+        });
+    }
+
+    // Function to render the processed list in the dashboard
+    function renderSeparateDashboard(files) {
+        if (!separateOutputContainer) return;
+        separateOutputContainer.innerHTML = '';
+        separateOutputContainer.className = 'processed-container';
+
+        // Header element with Download All ZIP button
+        const header = document.createElement('div');
+        header.className = 'processed-header';
+        header.style.display = 'flex';
+        header.style.justifyContent = 'space-between';
+        header.style.alignItems = 'center';
+        header.style.width = '100%';
+        header.style.marginBottom = '1rem';
+        header.innerHTML = `
+            <h3><i class="fa-solid fa-circle-check text-success"></i> Split Files (${files.length})</h3>
+            <button class="btn btn-primary btn-glow" id="downloadAllSeparateBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
+                <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
+            </button>
+        `;
+        separateOutputContainer.appendChild(header);
+
+        // List container
+        const listContainer = document.createElement('div');
+        listContainer.className = 'processed-list';
+        listContainer.style.display = 'flex';
+        listContainer.style.flexDirection = 'column';
+        listContainer.style.gap = '0.5rem';
+        listContainer.style.width = '100%';
+        listContainer.style.maxHeight = '450px';
+        listContainer.style.overflowY = 'auto';
+        listContainer.style.paddingRight = '0.25rem';
+
+        files.forEach((file, index) => {
+            const item = document.createElement('div');
+            item.className = 'processed-item';
+            // Custom styling using VBA colors
+            item.style.borderLeft = `5px solid ${file.color}`;
+            item.style.background = 'rgba(255, 255, 255, 0.8)';
+            item.style.padding = '0.75rem 1rem';
+            item.style.borderRadius = '8px';
+            item.style.display = 'flex';
+            item.style.justifyContent = 'space-between';
+            item.style.alignItems = 'center';
+            item.style.boxShadow = '0 2px 4px rgba(0,0,0,0.02)';
+            item.style.border = '1px solid var(--border-color)';
+            item.style.borderLeftWidth = '5px';
+
+            item.innerHTML = `
+                <div class="file-details" style="display: flex; flex-direction: column; gap: 0.2rem;">
+                    <span class="file-name" style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem; word-break: break-all;" title="${file.name}">${file.name}</span>
+                    <div style="display: flex; gap: 1rem; font-size: 0.75rem; color: var(--text-muted);">
+                        <span><i class="fa-solid fa-database"></i> ${file.rows} Rows</span>
+                        <span><i class="fa-solid fa-weight-hanging"></i> ${formatBytes(file.size)}</span>
+                    </div>
+                </div>
+                <button class="btn btn-success download-single-btn" data-index="${index}" style="font-size: 0.75rem; padding: 0.4rem 0.75rem; display: flex; align-items: center; gap: 0.3rem;">
+                    <i class="fa-solid fa-download"></i> Download
+                </button>
+            `;
+            listContainer.appendChild(item);
+        });
+
+        separateOutputContainer.appendChild(listContainer);
+
+        // Bind download all ZIP click
+        const dlZipBtn = document.getElementById('downloadAllSeparateBtn');
+        if (dlZipBtn) {
+            dlZipBtn.addEventListener('click', () => {
+                if (separateZipBlob) {
+                    triggerDownload(separateZipBlob, 'Split_Files_Package.zip');
+                    separateLog('Downloaded complete ZIP package: Split_Files_Package.zip', 'info');
+                }
+            });
+        }
+
+        // Bind single file downloads
+        const singleBtns = listContainer.querySelectorAll('.download-single-btn');
+        singleBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idx = parseInt(btn.getAttribute('data-index'));
+                const file = files[idx];
+                if (file) {
+                    triggerDownload(file.blob, file.name);
+                    separateLog(`Downloaded split file: ${file.name}`, 'info');
+                }
+            });
+        });
+    }
+
+    // Call toggleSubOptions initially to set correct sub-options display
+    toggleSubOptions();
+
     // Auto-fetch vendors on startup
     fetchVendors();
 }

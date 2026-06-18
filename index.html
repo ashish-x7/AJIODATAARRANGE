@@ -42,11 +42,16 @@
             <button class="tab-btn active" data-tab="tab-converter">
                 <i class="fa-solid fa-arrows-spin"></i> File Converter
             </button>
+            <!--
             <button class="tab-btn" data-tab="tab-merger">
                 <i class="fa-solid fa-code-merge"></i> OD & Account Merger
             </button>
+            -->
             <button class="tab-btn" data-tab="tab-vendor">
                 <i class="fa-solid fa-address-book"></i> Vendor Data
+            </button>
+            <button class="tab-btn" data-tab="tab-separate">
+                <i class="fa-solid fa-file-export"></i> Separate File
             </button>
         </div>
 
@@ -358,6 +363,114 @@
                     </div>
                 </div>
             </section>
+        </div>
+
+        <!-- Tab 4: Separate File Pane -->
+        <div id="tab-separate" class="tab-pane hidden-pane">
+            <main class="app-grid">
+                <!-- Left Panel: Upload & Options -->
+                <section class="panel upload-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-file-excel"></i> Upload Source File</h2>
+                        <span class="badge">Local Only</span>
+                    </div>
+
+                    <!-- Input: Source File -->
+                    <div class="merger-upload-card">
+                        <h3><i class="fa-solid fa-file-arrow-up text-purple"></i> Select Source Excel File (.xlsx, .xls)</h3>
+                        <div class="mini-dropzone" id="separateDropzone">
+                            <input type="file" id="separateFileInput" accept=".xlsx,.xls" class="file-input-hidden">
+                            <div class="mini-dropzone-content">
+                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                <span class="filename-display" id="separateFileDisplay">Drag & drop or Click to choose</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Options: Separation Variant -->
+                    <div class="settings-card" style="margin-top: 1rem;">
+                        <h3><i class="fa-solid fa-sliders"></i> Separation Variant</h3>
+                        
+                        <!-- Radio buttons for choices -->
+                        <div class="options-group" style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="radio" name="separateVariant" value="1" checked style="accent-color: #8b5cf6;">
+                                <span style="font-weight: 600; color: var(--text-primary);">1. SIMPLE (Choose Column D / G)</span>
+                            </label>
+                            
+                            <!-- Sub-options for SIMPLE mode -->
+                            <div id="simpleSubOptions" style="padding-left: 1.5rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                                    <input type="radio" name="simpleColChoice" value="D" checked style="accent-color: #10b981;">
+                                    <span style="color: var(--text-secondary);">Column D (AJIO)</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                                    <input type="radio" name="simpleColChoice" value="G" style="accent-color: #10b981;">
+                                    <span style="color: var(--text-secondary);">Column G (MYNTRA)</span>
+                                </label>
+                            </div>
+
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="radio" name="separateVariant" value="2" style="accent-color: #8b5cf6;">
+                                <span style="font-weight: 600; color: var(--text-primary);">2. DETAILS (Column D)</span>
+                            </label>
+
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="radio" name="separateVariant" value="3" style="accent-color: #8b5cf6;">
+                                <span style="font-weight: 600; color: var(--text-primary);">3. SUMMARY (Column G)</span>
+                            </label>
+
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="radio" name="separateVariant" value="4" style="accent-color: #8b5cf6;">
+                                <span style="font-weight: 600; color: var(--text-primary);">4. TAX SPLIT (Column A)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Run separation CTA -->
+                    <button class="btn btn-large btn-success btn-glow" id="separateBtn" disabled style="margin-top: 1rem; width: 100%; background: linear-gradient(135deg, #059669, #10b981);">
+                        <i class="fa-solid fa-bolt"></i> START SEPARATE PROCESS
+                    </button>
+                </section>
+
+                <!-- Right Panel: Results & Stats -->
+                <section class="panel output-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-square-poll-horizontal"></i> Separate Dashboard</h2>
+                        <span class="status-indicator idle" id="separateStatus">Idle</span>
+                    </div>
+
+                    <!-- Separation Progress Bar -->
+                    <div class="progress-card hidden" id="separateProgressCard">
+                        <div class="overall-progress-bar-container">
+                            <div class="progress-bar-glow" id="separateProgressBar"></div>
+                        </div>
+                        <div class="progress-details">
+                            <span id="separateProgressPercent">0% Completed</span>
+                            <span id="separateProgressStepText">Analyzing files...</span>
+                        </div>
+                    </div>
+
+                    <!-- Separation Results Output Card -->
+                    <div class="processed-container empty" id="separateOutputContainer">
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-file-export placeholder-icon"></i>
+                            <p>Upload a file and click process to run separation logic.</p>
+                        </div>
+                    </div>
+
+                    <!-- Console / Logger for Separation -->
+                    <div class="console-card">
+                        <div class="console-header">
+                            <h3><i class="fa-solid fa-terminal"></i> Separate Log</h3>
+                            <button class="btn-clear text-btn" id="clearSeparateLogBtn"><i class="fa-solid fa-eraser"></i> Clear</button>
+                        </div>
+                        <div class="console-log" id="separateConsoleLog">
+                            <div class="log-line info">[System] Ready. Please select a source Excel file.</div>
+                        </div>
+                    </div>
+                </section>
+            </main>
         </div>
 
         <!-- Footer removed -->
