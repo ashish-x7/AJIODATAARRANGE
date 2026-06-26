@@ -20,8 +20,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <!-- PapaParse for high-performance CSV Parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-    <!-- SheetJS for writing Excel files -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- xlsx-js-style for writing styled Excel files -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 </head>
 <body>
     <div class="glass-bg"></div>
@@ -58,6 +58,9 @@
             </button>
             <button class="tab-btn" data-tab="tab-merge">
                 <i class="fa-solid fa-code-merge"></i> Merge File
+            </button>
+            <button class="tab-btn" data-tab="tab-ajio-error">
+                <i class="fa-solid fa-triangle-exclamation"></i> Ajio Error
             </button>
         </div>
 
@@ -646,6 +649,101 @@
                         </div>
                         <div class="console-log" id="gmConsoleLog">
                             <div class="log-line info">[System] Ready. Please select files to merge.</div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <!-- Tab 7: Ajio Error Pane -->
+        <div id="tab-ajio-error" class="tab-pane hidden-pane">
+            <main class="app-grid">
+                <!-- Left Panel: Upload -->
+                <section class="panel upload-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-triangle-exclamation text-purple"></i> Upload Files for Ajio Error</h2>
+                        <span class="badge">Local Only</span>
+                    </div>
+
+                    <!-- Date Range Selection -->
+                    <div class="settings-card" style="margin-bottom: 1rem;">
+                        <h3><i class="fa-solid fa-calendar-days text-purple"></i> Select Date Range</h3>
+                        <div style="display: flex; gap: 0.75rem; margin-top: 0.5rem;">
+                            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1;">
+                                <label for="aeFromDate" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">From Date</label>
+                                <input type="date" id="aeFromDate" style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.5rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; height: 36px; width: 100%;">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1;">
+                                <label for="aeToDate" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">To Date</label>
+                                <input type="date" id="aeToDate" style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.5rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; height: 36px; width: 100%;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Input 1: Ajio Details File -->
+                    <div class="merger-upload-card" style="margin-bottom: 1rem;">
+                        <h3><i class="fa-solid fa-file-invoice text-purple"></i> 1. Select Ajio Details File (.xlsx, .xls)</h3>
+                        <div class="mini-dropzone" id="aeDetailsDropzone">
+                            <input type="file" id="aeDetailsFileInput" accept=".xlsx,.xls" class="file-input-hidden">
+                            <div class="mini-dropzone-content">
+                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                <span class="filename-display" id="aeDetailsFileDisplay">Drag & drop or Click to choose</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Input 2: Ajio Data File -->
+                    <div class="merger-upload-card" style="margin-bottom: 1rem;">
+                        <h3><i class="fa-solid fa-database text-teal"></i> 2. Select Ajio Data File (.xlsx, .xls)</h3>
+                        <div class="mini-dropzone" id="aeDataDropzone">
+                            <input type="file" id="aeDataFileInput" accept=".xlsx,.xls" class="file-input-hidden">
+                            <div class="mini-dropzone-content">
+                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                <span class="filename-display" id="aeDataFileDisplay">Drag & drop or Click to choose</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Run Ajio Error CTA -->
+                    <button class="btn btn-large btn-success btn-glow" id="aeBtn" disabled style="margin-top: 1rem; width: 100%; background: linear-gradient(135deg, #059669, #10b981);">
+                        <i class="fa-solid fa-bolt"></i> START AJIO ERROR PROCESS
+                    </button>
+                </section>
+
+                <!-- Right Panel: Results & Stats -->
+                <section class="panel output-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-square-poll-horizontal"></i> Ajio Error Dashboard</h2>
+                        <span class="status-indicator idle" id="aeStatus">Idle</span>
+                    </div>
+
+                    <!-- Ajio Error Progress Bar -->
+                    <div class="progress-card hidden" id="aeProgressCard">
+                        <div class="overall-progress-bar-container">
+                            <div class="progress-bar-glow" id="aeProgressBar"></div>
+                        </div>
+                        <div class="progress-details">
+                            <span id="aeProgressPercent">0% Completed</span>
+                            <span id="aeProgressStepText">Analyzing files...</span>
+                        </div>
+                    </div>
+
+                    <!-- Ajio Error Results Output Card -->
+                    <div class="processed-container empty" id="aeOutputContainer">
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-triangle-exclamation placeholder-icon"></i>
+                            <p>Upload files and click process to run Ajio Error logic.</p>
+                        </div>
+                    </div>
+
+                    <!-- Console / Logger for Ajio Error -->
+                    <div class="console-card">
+                        <div class="console-header">
+                            <h3><i class="fa-solid fa-terminal"></i> Ajio Error Log</h3>
+                            <button class="btn-clear text-btn" id="clearAeLogBtn"><i class="fa-solid fa-eraser"></i> Clear</button>
+                        </div>
+                        <div class="console-log" id="aeConsoleLog">
+                            <div class="log-line info">[System] Ready. Please select files for Ajio Error.</div>
                         </div>
                     </div>
                 </section>
