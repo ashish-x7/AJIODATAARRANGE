@@ -39,33 +39,34 @@
 
         <!-- Tab Navigation -->
         <div class="tab-navigation">
-            <button class="tab-btn active" data-tab="tab-converter">
-                <i class="fa-solid fa-arrows-spin"></i> File Converter
-            </button>
-            <!--
-            <button class="tab-btn" data-tab="tab-merger">
-                <i class="fa-solid fa-code-merge"></i> OD & Account Merger
-            </button>
-            -->
-            <button class="tab-btn" data-tab="tab-vendor">
-                <i class="fa-solid fa-address-book"></i> Vendor Data
-            </button>
-            <button class="tab-btn" data-tab="tab-separate">
-                <i class="fa-solid fa-file-export"></i> Separate File
-            </button>
-            <button class="tab-btn" data-tab="tab-rename">
+            <button class="tab-btn active" data-tab="tab-rename">
                 <i class="fa-solid fa-file-signature"></i> Rename File
             </button>
             <button class="tab-btn" data-tab="tab-merge">
                 <i class="fa-solid fa-code-merge"></i> Merge File
             </button>
+            <button class="tab-btn" data-tab="tab-separate">
+                <i class="fa-solid fa-file-export"></i> Separate File
+            </button>
+            <button class="tab-btn" data-tab="tab-folder-create">
+                <i class="fa-solid fa-folder-plus"></i> Folder Create
+            </button>
+            <button class="tab-btn" data-tab="tab-converter">
+                <i class="fa-solid fa-arrows-spin"></i> File Converter
+            </button>
+            <button class="tab-btn" data-tab="tab-vendor">
+                <i class="fa-solid fa-address-book"></i> Vendor Data
+            </button>
             <button class="tab-btn" data-tab="tab-ajio-error">
                 <i class="fa-solid fa-triangle-exclamation"></i> Ajio Error
+            </button>
+            <button class="tab-btn" data-tab="tab-invoice-error">
+                <i class="fa-solid fa-file-invoice-dollar"></i> Invoice Error
             </button>
         </div>
 
         <!-- Tab 1: Converter Pane -->
-        <div id="tab-converter" class="tab-pane active-pane">
+        <div id="tab-converter" class="tab-pane hidden-pane">
             <main class="app-grid">
                 <!-- Left Panel: Upload & Config -->
                 <section class="panel upload-panel">
@@ -482,8 +483,87 @@
             </main>
         </div>
 
+        <!-- Tab 4: Folder Create Pane -->
+        <div id="tab-folder-create" class="tab-pane hidden-pane">
+            <main class="app-grid">
+                <!-- Left Panel: Upload & Config -->
+                <section class="panel upload-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-folder-plus text-purple"></i> Select Files to Group</h2>
+                        <span class="badge">Local Only</span>
+                    </div>
+
+                    <!-- Upload Input: Multiple files -->
+                    <div class="merger-upload-card">
+                        <h3><i class="fa-solid fa-file-shield text-purple"></i> Drag & drop or browse files to group</h3>
+                        <div class="mini-dropzone" id="fcDropzone" style="min-height: 140px; padding: 2rem 1rem;">
+                            <input type="file" id="fcFileInput" multiple accept=".xlsx,.xls,.csv" class="file-input-hidden">
+                            <div class="mini-dropzone-content">
+                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                <span class="filename-display" id="fcFileDisplay">Drag & drop or Click to choose files</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Selected Files List -->
+                    <div class="file-list-card" id="fcSelectedFilesCard" style="max-height: 250px; margin-top: 1rem; flex-grow: 1;">
+                        <div class="card-header">
+                            <h3><i class="fa-solid fa-list"></i> Selected Files (<span id="fcSelectedCount">0</span>)</h3>
+                            <button class="btn-clear text-btn" id="clearFcFilesBtn"><i class="fa-solid fa-trash-can"></i> Clear</button>
+                        </div>
+                        <div class="file-list" id="fcUploadedFileList">
+                            <div class="empty-list-msg">No files selected yet.</div>
+                        </div>
+                    </div>
+
+                    <!-- Run folder create CTA -->
+                    <button class="btn btn-large btn-success btn-glow" id="fcBtn" disabled style="margin-top: 1rem; width: 100%; background: linear-gradient(135deg, #059669, #10b981);">
+                        <i class="fa-solid fa-bolt"></i> START FOLDER CREATE
+                    </button>
+                </section>
+
+                <!-- Right Panel: Results & Stats -->
+                <section class="panel output-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-square-poll-horizontal"></i> Folder Create Dashboard</h2>
+                        <span class="status-indicator idle" id="fcStatus">Idle</span>
+                    </div>
+
+                    <!-- Folder Create Progress Bar -->
+                    <div class="progress-card hidden" id="fcProgressCard">
+                        <div class="overall-progress-bar-container">
+                            <div class="progress-bar-glow" id="fcProgressBar"></div>
+                        </div>
+                        <div class="progress-details">
+                            <span id="fcProgressPercent">0% Completed</span>
+                            <span id="fcProgressStepText">Grouping files...</span>
+                        </div>
+                    </div>
+
+                    <!-- Folder Create Results Output Card -->
+                    <div class="processed-container empty" id="fcOutputContainer">
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-folder-plus placeholder-icon"></i>
+                            <p>Upload files and click process to group into folders and zip.</p>
+                        </div>
+                    </div>
+
+                    <!-- Console / Logger for Folder Create -->
+                    <div class="console-card">
+                        <div class="console-header">
+                            <h3><i class="fa-solid fa-terminal"></i> Folder Create Log</h3>
+                            <button class="btn-clear text-btn" id="clearFcLogBtn"><i class="fa-solid fa-eraser"></i> Clear</button>
+                        </div>
+                        <div class="console-log" id="fcConsoleLog">
+                            <div class="log-line info">[System] Ready. Please select files to group.</div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
         <!-- Tab 5: Rename File Pane -->
-        <div id="tab-rename" class="tab-pane hidden-pane">
+        <div id="tab-rename" class="tab-pane active-pane">
             <main class="app-grid">
                 <!-- Left Panel: Upload & Options -->
                 <section class="panel upload-panel">
@@ -744,6 +824,74 @@
                         </div>
                         <div class="console-log" id="aeConsoleLog">
                             <div class="log-line info">[System] Ready. Please select files for Ajio Error.</div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <!-- Tab 8: Invoice Error Pane -->
+        <div id="tab-invoice-error" class="tab-pane hidden-pane">
+            <main class="app-grid">
+                <!-- Left Panel: Upload & Config -->
+                <section class="panel upload-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-file-circle-exclamation text-purple"></i> Upload Invoice Files</h2>
+                        <span class="badge">Local Only</span>
+                    </div>
+
+                    <!-- Upload Input: Multiple files -->
+                    <div class="merger-upload-card">
+                        <h3>Drag & drop or browse files for Invoice Error</h3>
+                        <div class="mini-dropzone" id="ieDropzone" style="min-height: 140px; padding: 2rem 1rem;">
+                            <input type="file" id="ieFileInput" multiple accept=".xlsx,.xls,.csv" class="file-input-hidden">
+                            <div class="mini-dropzone-content">
+                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                <span class="filename-display" id="ieFileDisplay">Drag & drop or Click to choose files</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Selected Files List -->
+                    <div class="file-list-card" id="ieSelectedFilesCard" style="max-height: 250px; margin-top: 1rem; flex-grow: 1;">
+                        <div class="card-header">
+                            <h3>Selected Files (<span id="ieSelectedCount">0</span>)</h3>
+                            <button class="btn-clear text-btn" id="clearIeFilesBtn"><i class="fa-solid fa-trash-can"></i> Clear</button>
+                        </div>
+                        <div class="file-list" id="ieUploadedFileList">
+                            <div class="empty-list-msg">No files selected yet.</div>
+                        </div>
+                    </div>
+
+                    <!-- Run invoice error CTA -->
+                    <button class="btn btn-large btn-success btn-glow" id="ieBtn" disabled style="margin-top: 1rem; width: 100%; background: linear-gradient(135deg, #059669, #10b981);">
+                        <i class="fa-solid fa-bolt"></i> START INVOICE ERROR PROCESS
+                    </button>
+                </section>
+
+                <!-- Right Panel: Results & Stats -->
+                <section class="panel output-panel">
+                    <div class="panel-header">
+                        <h2>Process Dashboard</h2>
+                        <span class="status-indicator idle" id="ieStatus">Idle</span>
+                    </div>
+
+                    <!-- Invoice Error Results Output Card -->
+                    <div class="processed-container empty" id="ieOutputContainer">
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-file-invoice-dollar placeholder-icon"></i>
+                            <p>Upload files and click process to start.</p>
+                        </div>
+                    </div>
+
+                    <!-- Console / Logger for Invoice Error -->
+                    <div class="console-card">
+                        <div class="console-header">
+                            <h3>Activity Log</h3>
+                            <button class="btn-clear text-btn" id="clearIeLogBtn"><i class="fa-solid fa-eraser"></i> Clear</button>
+                        </div>
+                        <div class="console-log" id="ieConsoleLog">
+                            <div class="log-line info">[System] Ready. Please upload files to begin.</div>
                         </div>
                     </div>
                 </section>

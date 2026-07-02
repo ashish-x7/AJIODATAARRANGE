@@ -3,6 +3,72 @@
    ========================================================================== */
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Custom Alert Modal System overriding window.alert
+    window.alert = function(message) {
+        let backdrop = document.getElementById('customAlertBackdrop');
+        if (!backdrop) {
+            backdrop = document.createElement('div');
+            backdrop.id = 'customAlertBackdrop';
+            backdrop.className = 'custom-modal-backdrop';
+            backdrop.innerHTML = `
+                <div class="custom-modal-card">
+                    <div class="custom-modal-header">
+                        <span class="custom-modal-icon" id="customAlertIcon"></span>
+                        <h3 class="custom-modal-title" id="customAlertTitle">Notification</h3>
+                    </div>
+                    <div class="custom-modal-body" id="customAlertBody"></div>
+                    <div class="custom-modal-footer">
+                        <button class="custom-modal-close-btn" id="customAlertCloseBtn">OK</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(backdrop);
+            
+            const closeBtn = document.getElementById('customAlertCloseBtn');
+            closeBtn.addEventListener('click', () => {
+                backdrop.classList.remove('show');
+            });
+            
+            // Allow close on clicking backdrop overlay as well
+            backdrop.addEventListener('click', (e) => {
+                if (e.target === backdrop) {
+                    backdrop.classList.remove('show');
+                }
+            });
+        }
+        
+        const titleEl = document.getElementById('customAlertTitle');
+        const iconEl = document.getElementById('customAlertIcon');
+        const bodyEl = document.getElementById('customAlertBody');
+        
+        bodyEl.innerText = message;
+        
+        // Match icon type by keyword
+        const lowerMsg = message.toLowerCase();
+        if (lowerMsg.includes('error') || lowerMsg.includes('fail') || lowerMsg.includes('missing')) {
+            titleEl.innerText = "Error";
+            iconEl.className = "custom-modal-icon error";
+            iconEl.innerHTML = '<i class="fa-solid fa-circle-xmark"></i>';
+        } else if (lowerMsg.includes('warning') || lowerMsg.includes('mismatch')) {
+            titleEl.innerText = "Warning";
+            iconEl.className = "custom-modal-icon warning";
+            iconEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i>';
+        } else if (lowerMsg.includes('success') || lowerMsg.includes('completed') || lowerMsg.includes('done') || lowerMsg.includes('copied') || lowerMsg.includes('merged')) {
+            titleEl.innerText = "Success";
+            iconEl.className = "custom-modal-icon success";
+            iconEl.innerHTML = '<i class="fa-solid fa-circle-check"></i>';
+        } else {
+            titleEl.innerText = "Notification";
+            iconEl.className = "custom-modal-icon info";
+            iconEl.innerHTML = '<i class="fa-solid fa-circle-info"></i>';
+        }
+        
+        // Open with slight delay for transitions
+        setTimeout(() => {
+            backdrop.classList.add('show');
+        }, 50);
+    };
+
     // Hardcoded Google Sheets Apps Script Web App URL
     const GOOGLE_SHEETS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyOMN8UOshlf0-rUsH1KSVxbP3JJHXynE3Ykg21gOuTSuu8DJv7G1a1LQabthyVjM1dVQ/exec";
 
@@ -5962,6 +6028,1182 @@ function doPost(e) {
 
         aeOutputContainer.appendChild(listContainer);
     }
+
+    /* ==========================================================================
+       FOLDER CREATE LOGIC
+       ========================================================================== */
+    let fcFiles = [];
+    let fcZipBlob = null;
+
+    const fcDropzone = document.getElementById('fcDropzone');
+    const fcFileInput = document.getElementById('fcFileInput');
+    const fcFileDisplay = document.getElementById('fcFileDisplay');
+    const fcBtn = document.getElementById('fcBtn');
+    const fcStatus = document.getElementById('fcStatus');
+    const fcProgressCard = document.getElementById('fcProgressCard');
+    const fcProgressBar = document.getElementById('fcProgressBar');
+    const fcProgressPercent = document.getElementById('fcProgressPercent');
+    const fcProgressStepText = document.getElementById('fcProgressStepText');
+    const fcOutputContainer = document.getElementById('fcOutputContainer');
+    const fcConsoleLog = document.getElementById('fcConsoleLog');
+    const clearFcLogBtn = document.getElementById('clearFcLogBtn');
+    const clearFcFilesBtn = document.getElementById('clearFcFilesBtn');
+    const fcSelectedCount = document.getElementById('fcSelectedCount');
+    const fcUploadedFileList = document.getElementById('fcUploadedFileList');
+
+    function fcLog(message, type = 'info') {
+        if (!fcConsoleLog) return;
+        const line = document.createElement('div');
+        line.className = `log-line ${type}`;
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        line.innerText = `[${timestamp}] ${message}`;
+        fcConsoleLog.appendChild(line);
+        fcConsoleLog.scrollTop = fcConsoleLog.scrollHeight;
+    }
+
+    if (clearFcLogBtn) {
+        clearFcLogBtn.addEventListener('click', () => {
+            fcConsoleLog.innerHTML = '';
+            fcLog('Log cleared.', 'info');
+        });
+    }
+
+    if (fcDropzone && fcFileInput) {
+        setupMultiDropzone(fcDropzone, fcFileInput, (files) => {
+            let added = 0;
+            files.forEach(file => {
+                if (!fcFiles.some(f => f.name === file.name && f.size === file.size)) {
+                    fcFiles.push({
+                        id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                        name: file.name,
+                        size: file.size,
+                        file: file
+                    });
+                    added++;
+                }
+            });
+            if (added > 0) {
+                fcLog(`Added ${added} file(s) to group list.`, 'success');
+            }
+            updateFcUI();
+        });
+    }
+
+    if (clearFcFilesBtn) {
+        clearFcFilesBtn.addEventListener('click', () => {
+            fcFiles = [];
+            fcFileInput.value = '';
+            updateFcUI();
+            fcLog('Cleared all selected files.', 'info');
+        });
+    }
+
+    function updateFcUI() {
+        if (fcSelectedCount) fcSelectedCount.innerText = fcFiles.length;
+        if (!fcUploadedFileList) return;
+        
+        if (fcFiles.length > 0) {
+            if (fcBtn) fcBtn.removeAttribute('disabled');
+            fcUploadedFileList.innerHTML = '';
+            fcFiles.forEach(fileObj => {
+                const item = document.createElement('div');
+                item.className = 'file-item';
+                
+                const info = document.createElement('div');
+                info.className = 'file-info';
+                
+                const icon = document.createElement('i');
+                icon.className = getFileIconClass(fileObj.name);
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'file-name';
+                nameSpan.innerText = fileObj.name;
+                
+                const sizeSpan = document.createElement('span');
+                sizeSpan.className = 'file-size';
+                sizeSpan.innerText = formatBytes(fileObj.size);
+                
+                info.appendChild(icon);
+                info.appendChild(nameSpan);
+                info.appendChild(sizeSpan);
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'file-action-btn';
+                removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+                removeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    fcFiles = fcFiles.filter(f => f.id !== fileObj.id);
+                    fcLog(`Removed file: ${fileObj.name}`, 'info');
+                    updateFcUI();
+                });
+                
+                item.appendChild(info);
+                item.appendChild(removeBtn);
+                fcUploadedFileList.appendChild(item);
+            });
+        } else {
+            if (fcBtn) fcBtn.setAttribute('disabled', 'true');
+            fcUploadedFileList.innerHTML = '<div class="empty-list-msg">No files selected yet.</div>';
+        }
+    }
+
+    function renderFcDashboard(folders, hasMissing, zipFilename) {
+        if (!fcOutputContainer) return;
+        fcOutputContainer.innerHTML = '';
+        fcOutputContainer.className = 'processed-container';
+
+        const header = document.createElement('div');
+        header.className = 'processed-header';
+        header.style.display = 'flex';
+        header.style.justifyContent = 'space-between';
+        header.style.alignItems = 'center';
+        header.style.width = '100%';
+        header.style.marginBottom = '1rem';
+        header.innerHTML = `
+            <h3><i class="fa-solid fa-circle-check text-success"></i> Grouped Folders (${folders.length})</h3>
+            <button class="btn btn-primary btn-glow" id="downloadFcZipBtn" style="background: linear-gradient(135deg, #059669, #10b981);">
+                <i class="fa-solid fa-file-zipper"></i> Download ZIP
+            </button>
+        `;
+        fcOutputContainer.appendChild(header);
+
+        if (hasMissing) {
+            const warningAlert = document.createElement('div');
+            warningAlert.className = 'settings-card';
+            warningAlert.style.border = '1px solid #f59e0b';
+            warningAlert.style.background = 'rgba(245, 158, 11, 0.05)';
+            warningAlert.style.marginBottom = '1rem';
+            warningAlert.style.padding = '0.75rem 1rem';
+            warningAlert.style.borderRadius = '10px';
+            warningAlert.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 0.6rem; color: #d97706; font-weight: 600; font-size: 0.9rem;">
+                    <i class="fa-solid fa-circle-exclamation" style="font-size: 1.1rem;"></i>
+                    <span>Some folders do not contain exactly 2 files! A report file "Missing_Files_Report.xlsx" has been included in the ZIP.</span>
+                </div>
+            `;
+            fcOutputContainer.appendChild(warningAlert);
+        }
+
+        const listContainer = document.createElement('div');
+        listContainer.className = 'processed-list';
+        listContainer.style.display = 'flex';
+        listContainer.style.flexDirection = 'column';
+        listContainer.style.gap = '0.5rem';
+        listContainer.style.width = '100%';
+        listContainer.style.maxHeight = '300px';
+        listContainer.style.overflowY = 'auto';
+
+        folders.forEach((folder) => {
+            const item = document.createElement('div');
+            item.className = 'processed-item';
+            item.style.padding = '0.75rem 1rem';
+            item.style.borderRadius = '8px';
+            item.style.display = 'flex';
+            item.style.justifyContent = 'space-between';
+            item.style.alignItems = 'center';
+            item.style.border = '1px solid var(--border-color)';
+            item.style.background = 'rgba(255, 255, 255, 0.8)';
+            
+            const isOk = folder.files.length === 2;
+            item.style.borderLeft = isOk ? '5px solid #10b981' : '5px solid #ef4444';
+
+            const fileNamesList = folder.files.map(f => f.name).join(', ');
+            const badgeColor = isOk ? '#10b981' : '#ef4444';
+            const badgeBg = isOk ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)';
+            const badgeText = isOk ? '2 Files (OK)' : `${folder.files.length} File(s) (Missing)`;
+
+            item.innerHTML = `
+                <div class="file-details" style="display: flex; flex-direction: column; gap: 0.2rem; max-width: 70%;">
+                    <span class="file-name" style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+                        <i class="fa-solid fa-folder" style="color: #f59e0b;"></i> ${folder.prefix}
+                    </span>
+                    <span style="font-size: 0.75rem; color: var(--text-muted); word-break: break-all;">${fileNamesList}</span>
+                </div>
+                <span style="padding: 0.25rem 0.5rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; color: ${badgeColor}; background: ${badgeBg}; text-align: center;">
+                    ${badgeText}
+                </span>
+            `;
+            listContainer.appendChild(item);
+        });
+
+        if (hasMissing) {
+            const item = document.createElement('div');
+            item.className = 'processed-item';
+            item.style.padding = '0.75rem 1rem';
+            item.style.borderRadius = '8px';
+            item.style.display = 'flex';
+            item.style.justifyContent = 'space-between';
+            item.style.alignItems = 'center';
+            item.style.border = '1px solid var(--border-color)';
+            item.style.background = 'rgba(255, 255, 255, 0.8)';
+            item.style.borderLeft = '5px solid #d97706';
+            item.innerHTML = `
+                <div class="file-details" style="display: flex; flex-direction: column; gap: 0.2rem;">
+                    <span class="file-name" style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">
+                        <i class="fa-solid fa-file-excel" style="color: #10b981;"></i> Missing_Files_Report.xlsx
+                    </span>
+                    <span style="font-size: 0.75rem; color: var(--text-muted);">Report file listing folders with missing files</span>
+                </div>
+                <span style="padding: 0.25rem 0.5rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; color: #d97706; background: rgba(217, 119, 6, 0.1);">
+                    Report Created
+                </span>
+            `;
+            listContainer.appendChild(item);
+        }
+
+        fcOutputContainer.appendChild(listContainer);
+
+        const downloadBtn = document.getElementById('downloadFcZipBtn');
+        if (downloadBtn) {
+            downloadBtn.addEventListener('click', () => {
+                if (fcZipBlob) {
+                    triggerDownload(fcZipBlob, zipFilename);
+                    fcLog(`Downloaded ZIP: ${zipFilename}`, 'info');
+                }
+            });
+        }
+    }
+
+    if (fcBtn) {
+        fcBtn.addEventListener('click', async () => {
+            if (fcFiles.length === 0) return;
+
+            fcBtn.setAttribute('disabled', 'true');
+            if (fcStatus) {
+                fcStatus.className = 'status-indicator processing';
+                fcStatus.innerText = 'Processing';
+            }
+            if (fcProgressCard) fcProgressCard.classList.remove('hidden');
+            if (fcProgressBar) fcProgressBar.style.width = '10%';
+            if (fcProgressPercent) fcProgressPercent.innerText = '10%';
+            if (fcProgressStepText) fcProgressStepText.innerText = 'Grouping files...';
+            
+            if (fcOutputContainer) {
+                fcOutputContainer.innerHTML = `
+                    <div class="empty-output-state">
+                        <i class="fa-solid fa-spinner fa-spin placeholder-icon" style="color: #059669;"></i>
+                        <p>Grouping folders, please wait...</p>
+                    </div>
+                `;
+            }
+
+            fcLog('Starting Folder Create Pipeline...', 'process');
+
+            try {
+                const groups = {};
+                let invalidCount = 0;
+                
+                fcFiles.forEach(fileObj => {
+                    const filename = fileObj.name;
+                    if (filename.includes('-')) {
+                        const prefix = filename.split('-')[0].trim();
+                        if (prefix !== "") {
+                            if (!groups[prefix]) {
+                                groups[prefix] = [];
+                            }
+                            groups[prefix].push(fileObj);
+                        } else {
+                            invalidCount++;
+                        }
+                    } else {
+                        invalidCount++;
+                    }
+                });
+
+                if (invalidCount > 0) {
+                    fcLog(`Ignored ${invalidCount} file(s) that do not contain a hyphen '-' or have empty prefix.`, 'warning');
+                }
+
+                const prefixes = Object.keys(groups);
+                if (prefixes.length === 0) {
+                    throw new Error("No files with valid prefix found! Files must contain a '-' in their name.");
+                }
+
+                prefixes.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+                fcLog(`Found ${prefixes.length} folder group(s) to process: [${prefixes.join(', ')}]`, 'info');
+
+                const zip = new JSZip();
+                const foldersWithIssues = [];
+                let hasMissing = false;
+
+                if (fcProgressBar) fcProgressBar.style.width = '30%';
+                if (fcProgressPercent) fcProgressPercent.innerText = '30%';
+                if (fcProgressStepText) fcProgressStepText.innerText = 'Sorting and checking folder files...';
+
+                for (let k = 0; k < prefixes.length; k++) {
+                    const prefix = prefixes[k];
+                    const filesInGroup = groups[prefix];
+                    fcLog(`Processing folder [${prefix}] with ${filesInGroup.length} file(s)`, 'process');
+
+                    if (filesInGroup.length !== 2) {
+                        fcLog(`Folder [${prefix}] has ${filesInGroup.length} file(s). Expected exactly 2!`, 'warning');
+                        foldersWithIssues.push({
+                            prefix: prefix,
+                            files: filesInGroup
+                        });
+                        hasMissing = true;
+                    }
+
+                    const folder = zip.folder(prefix);
+                    for (let f = 0; f < filesInGroup.length; f++) {
+                        const fileObj = filesInGroup[f];
+                        folder.file(fileObj.name, fileObj.file);
+                        fcLog(`Added file to zip: ${prefix}/${fileObj.name}`, 'info');
+                    }
+                }
+
+                if (hasMissing) {
+                    fcLog(`Some folders did not have exactly 2 files. Generating Missing_Files_Report.xlsx...`, 'warning');
+                    
+                    if (fcProgressBar) fcProgressBar.style.width = '60%';
+                    if (fcProgressPercent) fcProgressPercent.innerText = '60%';
+                    if (fcProgressStepText) fcProgressStepText.innerText = 'Generating missing files report...';
+
+                    const reportData = [
+                        ["Folder Name (Prefix)", "Files Found", "Current Files", "Status"]
+                    ];
+                    
+                    foldersWithIssues.forEach(item => {
+                        const fileNamesStr = item.files.map(f => f.name).join(", ");
+                        const statusStr = item.files.length < 2 ? "File Missing" : "Extra Files Present";
+                        reportData.push([
+                            item.prefix,
+                            item.files.length,
+                            fileNamesStr,
+                            statusStr
+                        ]);
+                    });
+
+                    const wb = XLSX.utils.book_new();
+                    const ws = XLSX.utils.aoa_to_sheet(reportData);
+                    XLSX.utils.book_append_sheet(wb, ws, "Missing Files Log");
+                    
+                    const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                    zip.file("Missing_Files_Report.xlsx", excelBuffer);
+                    fcLog(`Added "Missing_Files_Report.xlsx" to zip root.`, 'success');
+                }
+
+                if (fcProgressBar) fcProgressBar.style.width = '85%';
+                if (fcProgressPercent) fcProgressPercent.innerText = '85%';
+                if (fcProgressStepText) fcProgressStepText.innerText = 'Packaging final ZIP file...';
+
+                let zipFilename = "";
+                if (prefixes.length === 1) {
+                    zipFilename = `${prefixes[0]}.zip`;
+                } else {
+                    zipFilename = `${prefixes[0]}-${prefixes[prefixes.length - 1]}.zip`;
+                }
+
+                fcZipBlob = await zip.generateAsync({ type: 'blob' });
+
+                const folderList = prefixes.map(p => ({
+                    prefix: p,
+                    files: groups[p]
+                }));
+
+                renderFcDashboard(folderList, hasMissing, zipFilename);
+
+                if (fcProgressBar) fcProgressBar.style.width = '100%';
+                if (fcProgressPercent) fcProgressPercent.innerText = '100%';
+                if (fcProgressStepText) fcProgressStepText.innerText = 'Folder creation completed!';
+                
+                if (fcStatus) {
+                    fcStatus.className = 'status-indicator success';
+                    fcStatus.innerText = 'Completed';
+                }
+                
+                alert("FOLDERS ZIPPED SUCCESSFULLY");
+                fcLog(`Done! Zip file created: ${zipFilename}`, 'success');
+
+            } catch (err) {
+                fcLog(`Folder creation failed: ${err.message}`, 'error');
+                if (fcStatus) {
+                    fcStatus.className = 'status-indicator idle';
+                    fcStatus.innerText = 'Failed';
+                }
+                if (fcOutputContainer) {
+                    fcOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-circle-exclamation placeholder-icon" style="color: #ef4444;"></i>
+                            <p style="color: #ef4444; font-weight: 600;">Error: ${err.message}</p>
+                        </div>
+                    `;
+                }
+            } finally {
+                fcBtn.removeAttribute('disabled');
+            }
+        });
+    }
+
+    // Global test function for Folder Create
+    window.runFolderCreateTest = function() {
+        // Switch tab to folder create so the user can see it
+        const tabBtn = document.querySelector('.tab-btn[data-tab="tab-folder-create"]');
+        if (tabBtn) tabBtn.click();
+        
+        fcLog("Running programmatic test...", "info");
+        
+        // Create dummy files
+        const dummyContent = "Test Data";
+        const filesToTest = [
+            { name: "206-File1.xlsx", content: dummyContent },
+            { name: "206-File2.xlsx", content: dummyContent },
+            { name: "207-File1.xlsx", content: dummyContent },
+            { name: "208-File1.xlsx", content: dummyContent },
+            { name: "208-File2.xlsx", content: dummyContent },
+            { name: "208-File3.xlsx", content: dummyContent }
+        ];
+        
+        fcFiles = filesToTest.map(f => {
+            const blob = new Blob([f.content], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const fileObj = new File([blob], f.name, { type: blob.type });
+            return {
+                id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                name: f.name,
+                size: fileObj.size,
+                file: fileObj
+            };
+        });
+        
+        fcLog(`Generated ${fcFiles.length} dummy files for testing.`, "success");
+        fcLog(`- 206 (2 files) -> Valid`, "info");
+        fcLog(`- 207 (1 file) -> Missing File`, "warning");
+        fcLog(`- 208 (3 files) -> Extra Files`, "warning");
+        
+        updateFcUI();
+        
+        // Programmatically trigger button click
+        if (fcBtn) {
+            fcLog("Triggering START FOLDER CREATE programmatically...", "info");
+            setTimeout(() => {
+                fcBtn.click();
+            }, 1000);
+        }
+    };
+
+    /* ==========================================================================
+       INVOICE ERROR LOGIC
+       ========================================================================== */
+    let ieFiles = [];
+    let ieZipBlob = null;
+
+    const ieDropzone = document.getElementById('ieDropzone');
+    const ieFileInput = document.getElementById('ieFileInput');
+    const ieFileDisplay = document.getElementById('ieFileDisplay');
+    const ieBtn = document.getElementById('ieBtn');
+    const ieStatus = document.getElementById('ieStatus');
+    const ieOutputContainer = document.getElementById('ieOutputContainer');
+    const ieConsoleLog = document.getElementById('ieConsoleLog');
+    const clearIeLogBtn = document.getElementById('clearIeLogBtn');
+    const clearIeFilesBtn = document.getElementById('clearIeFilesBtn');
+    const ieSelectedCount = document.getElementById('ieSelectedCount');
+    const ieUploadedFileList = document.getElementById('ieUploadedFileList');
+
+    function ieLog(message, type = 'info') {
+        if (!ieConsoleLog) return;
+        const line = document.createElement('div');
+        line.className = `log-line ${type}`;
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        line.innerText = `[${timestamp}] ${message}`;
+        ieConsoleLog.appendChild(line);
+        ieConsoleLog.scrollTop = ieConsoleLog.scrollHeight;
+    }
+
+    if (clearIeLogBtn) {
+        clearIeLogBtn.addEventListener('click', () => {
+            ieConsoleLog.innerHTML = '';
+            ieLog('Log cleared.', 'info');
+        });
+    }
+
+    if (ieDropzone && ieFileInput) {
+        setupMultiDropzone(ieDropzone, ieFileInput, (files) => {
+            let added = 0;
+            files.forEach(file => {
+                if (!ieFiles.some(f => f.name === file.name && f.size === file.size)) {
+                    ieFiles.push({
+                        id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                        name: file.name,
+                        size: file.size,
+                        file: file
+                    });
+                    added++;
+                }
+            });
+            if (added > 0) {
+                ieLog(`Added ${added} file(s) to process list.`, 'success');
+            }
+            updateIeUI();
+        });
+    }
+
+    if (clearIeFilesBtn) {
+        clearIeFilesBtn.addEventListener('click', () => {
+            ieFiles = [];
+            ieFileInput.value = '';
+            updateIeUI();
+            ieLog('Cleared all selected files.', 'info');
+        });
+    }
+
+    function updateIeUI() {
+        if (ieSelectedCount) ieSelectedCount.innerText = ieFiles.length;
+        if (!ieUploadedFileList) return;
+        
+        if (ieFiles.length > 0) {
+            if (ieBtn) ieBtn.removeAttribute('disabled');
+            ieUploadedFileList.innerHTML = '';
+            ieFiles.forEach(fileObj => {
+                const item = document.createElement('div');
+                item.className = 'file-item';
+                
+                const info = document.createElement('div');
+                info.className = 'file-info';
+                
+                const icon = document.createElement('i');
+                icon.className = getFileIconClass(fileObj.name);
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'file-name';
+                nameSpan.innerText = fileObj.name;
+                
+                const sizeSpan = document.createElement('span');
+                sizeSpan.className = 'file-size';
+                sizeSpan.innerText = formatBytes(fileObj.size);
+                
+                info.appendChild(icon);
+                info.appendChild(nameSpan);
+                info.appendChild(sizeSpan);
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'file-action-btn';
+                removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+                removeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    ieFiles = ieFiles.filter(f => f.id !== fileObj.id);
+                    ieLog(`Removed file: ${fileObj.name}`, 'info');
+                    updateIeUI();
+                });
+                
+                item.appendChild(info);
+                item.appendChild(removeBtn);
+                ieUploadedFileList.appendChild(item);
+            });
+        } else {
+            if (ieBtn) ieBtn.setAttribute('disabled', 'true');
+            ieUploadedFileList.innerHTML = '<div class="empty-list-msg">No files selected yet.</div>';
+        }
+    }
+
+    function getSafeSheetName(name) {
+        // Replace invalid sheet name characters: \ / ? * : [ ] with underscore
+        let clean = name.replace(/[\\\/\?\*：：\:\[\]]/g, "_");
+        // Truncate to 31 characters (Excel sheet name limit)
+        return clean.substring(0, 31);
+    }
+
+    function autofitColumns(ws) {
+        if (!ws['!ref']) return;
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        const cols = [];
+        
+        // Initialize widths
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            cols.push({ wch: 10 }); // minimum default width
+        }
+        
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            // Skip Row 0 (merged title row) to prevent Column A from expanding to title length
+            if (R === 0 && ws['!merges'] && ws['!merges'].length > 0) {
+                continue;
+            }
+            
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const cell_address = { c: C, r: R };
+                const cell_ref = XLSX.utils.encode_cell(cell_address);
+                const cell = ws[cell_ref];
+                if (cell && cell.v !== undefined && cell.v !== null) {
+                    const len = String(cell.v).length;
+                    if (len > cols[C].wch) {
+                        cols[C].wch = len;
+                    }
+                }
+            }
+        }
+        
+        // Add padding and cap width to prevent single long values from making columns too wide
+        cols.forEach(col => {
+            col.wch = Math.min(Math.max(col.wch + 3, 10), 50);
+        });
+        
+        ws['!cols'] = cols;
+    }
+
+    function formatWorksheetCells(ws, hasTitleRow = true) {
+        if (!ws['!ref']) return;
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const cell_address = { c: C, r: R };
+                const cell_ref = XLSX.utils.encode_cell(cell_address);
+                
+                if (!ws[cell_ref]) {
+                    ws[cell_ref] = { t: 's', v: '' };
+                }
+                
+                const cell = ws[cell_ref];
+                const isTitleRow = hasTitleRow && R === 0;
+                const isHeaderRow = (hasTitleRow && R === 1) || (!hasTitleRow && R === 0);
+                const isDataRow = (hasTitleRow && R >= 2) || (!hasTitleRow && R >= 1);
+
+                // Convert Jio Code (Column H, index 7) to plain string to prevent scientific notation
+                if (C === 7 && isDataRow && cell.v !== undefined && cell.v !== null && String(cell.v).trim() !== "") {
+                    let rawVal = cell.v;
+                    let cleanStr = String(rawVal).trim();
+                    
+                    if (typeof rawVal === 'number') {
+                        cleanStr = String(rawVal);
+                        if (cleanStr.toLowerCase().includes('e')) {
+                            // If it's a number that got converted to scientific notation (e.g. 7.01842e+11)
+                            cleanStr = Number(rawVal).toLocaleString('fullwide', { useGrouping: false });
+                        }
+                    } else {
+                        // If it's a string containing scientific notation (e.g. "7.01842E+11")
+                        if (cleanStr.toLowerCase().includes('e')) {
+                            const num = Number(cleanStr);
+                            if (!isNaN(num)) {
+                                cleanStr = num.toLocaleString('fullwide', { useGrouping: false });
+                            }
+                        }
+                    }
+                    
+                    // If it has decimal point (e.g. "701842000000.00"), get the integer part
+                    if (cleanStr.includes('.')) {
+                        cleanStr = cleanStr.split('.')[0];
+                    }
+                    
+                    cell.v = cleanStr;
+                    cell.t = 's'; // Force Excel cell type to String
+                    cell.z = '@'; // Force text format
+                }
+
+                // Add soft light-grey borders
+                cell.s = {
+                    border: {
+                        top: { style: 'thin', color: { rgb: 'E5E7EB' } },
+                        bottom: { style: 'thin', color: { rgb: 'E5E7EB' } },
+                        left: { style: 'thin', color: { rgb: 'E5E7EB' } },
+                        right: { style: 'thin', color: { rgb: 'E5E7EB' } }
+                    }
+                };
+
+                if (isTitleRow) {
+                    cell.s.font = { name: 'Segoe UI', sz: 12, bold: true, color: { rgb: 'FFFFFF' } };
+                    cell.s.fill = { fgColor: { rgb: '4F46E5' } }; // Indigo theme
+                    cell.s.alignment = { horizontal: 'center', vertical: 'center' };
+                } else if (isHeaderRow) {
+                    cell.s.font = { name: 'Segoe UI', sz: 10, bold: true, color: { rgb: '1F2937' } };
+                    cell.s.fill = { fgColor: { rgb: 'E5E7EB' } }; // Sleek light gray
+                    cell.s.alignment = { horizontal: 'center', vertical: 'center' };
+                } else {
+                    cell.s.font = { name: 'Segoe UI', sz: 9, color: { rgb: '374151' } };
+                    
+                    // Column H (Jio Code) is forced text, left aligned
+                    if (C === 7) {
+                        cell.s.alignment = { horizontal: 'left', vertical: 'center' };
+                    } else {
+                        // Basic alignment check (right align numbers, left align text)
+                        const val = cell.v;
+                        if (val !== undefined && val !== null && !isNaN(Number(val)) && String(val).trim() !== "") {
+                            cell.s.alignment = { horizontal: 'right', vertical: 'center' };
+                        } else {
+                            cell.s.alignment = { horizontal: 'left', vertical: 'center' };
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Auto-fit columns
+        autofitColumns(ws);
+    }
+
+    function createWorksheetWithMergedTitle(titleText, headers, rows) {
+        const aoa = [];
+        
+        // Row 1: Merged Title Row (padded to 12 columns)
+        const titleRow = Array(12).fill("");
+        titleRow[0] = titleText;
+        aoa.push(titleRow);
+        
+        // Row 2: Headers
+        aoa.push(headers);
+        
+        // Rows 3+: Data Rows
+        rows.forEach(r => aoa.push(r));
+        
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        
+        // Merge cells A1 to L1 (0,0 to 0,11)
+        ws['!merges'] = [
+            { s: { r: 0, c: 0 }, e: { r: 0, c: 11 } }
+        ];
+
+        // Format and Auto-fit
+        formatWorksheetCells(ws, true);
+        
+        return ws;
+    }
+
+    function renderIeDashboard(files, zipFilename) {
+        if (!ieOutputContainer) return;
+        ieOutputContainer.innerHTML = '';
+        ieOutputContainer.className = 'processed-container';
+
+        const header = document.createElement('div');
+        header.className = 'processed-header';
+        header.style.display = 'flex';
+        header.style.justifyContent = 'space-between';
+        header.style.alignItems = 'center';
+        header.style.width = '100%';
+        header.style.marginBottom = '1rem';
+        header.innerHTML = `
+            <h3><i class="fa-solid fa-circle-check text-success"></i> Generated Files (${files.length})</h3>
+            <button class="btn btn-primary btn-glow" id="downloadIeZipBtn" style="background: linear-gradient(135deg, #059669, #10b981);">
+                <i class="fa-solid fa-file-zipper"></i> Download ZIP Package
+            </button>
+        `;
+        ieOutputContainer.appendChild(header);
+
+        const listContainer = document.createElement('div');
+        listContainer.className = 'processed-list';
+        listContainer.style.display = 'flex';
+        listContainer.style.flexDirection = 'column';
+        listContainer.style.gap = '0.5rem';
+        listContainer.style.width = '100%';
+        listContainer.style.maxHeight = '300px';
+        listContainer.style.overflowY = 'auto';
+
+        files.forEach((file) => {
+            const item = document.createElement('div');
+            item.className = 'processed-item';
+            item.style.padding = '0.75rem 1rem';
+            item.style.borderRadius = '8px';
+            item.style.display = 'flex';
+            item.style.justifyContent = 'space-between';
+            item.style.alignItems = 'center';
+            item.style.border = '1px solid var(--border-color)';
+            item.style.background = 'rgba(255, 255, 255, 0.8)';
+            
+            if (file.name === "Summary_Report.xlsx") {
+                item.style.borderLeft = '5px solid #d97706';
+            } else if (file.name === "Merged_Errors.xlsx") {
+                item.style.borderLeft = '5px solid #8b5cf6';
+            } else if (file.name.includes("_Cleaned.xlsx")) {
+                item.style.borderLeft = '5px solid #06b6d4';
+            } else {
+                item.style.borderLeft = '5px solid #10b981';
+            }
+
+            const fileInfo = document.createElement('div');
+            fileInfo.className = 'file-details';
+            fileInfo.style.display = 'flex';
+            fileInfo.style.flexDirection = 'column';
+            fileInfo.style.gap = '0.2rem';
+            fileInfo.innerHTML = `
+                <span class="file-name" style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">
+                    <i class="fa-solid fa-file-excel" style="color: #10b981;"></i> ${file.name}
+                </span>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">
+                    ${file.desc} | Size: ${formatBytes(file.size)}
+                </span>
+            `;
+
+            item.appendChild(fileInfo);
+            
+            if (file.blob) {
+                const downloadBtn = document.createElement('button');
+                downloadBtn.className = 'btn btn-primary';
+                downloadBtn.style.padding = '0.3rem 0.6rem';
+                downloadBtn.style.fontSize = '0.75rem';
+                downloadBtn.style.borderRadius = '6px';
+                downloadBtn.innerHTML = '<i class="fa-solid fa-download"></i>';
+                downloadBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    triggerDownload(file.blob, file.name);
+                    ieLog(`Downloaded: ${file.name}`, 'info');
+                });
+                item.appendChild(downloadBtn);
+            }
+
+            listContainer.appendChild(item);
+        });
+
+        ieOutputContainer.appendChild(listContainer);
+
+        const downloadAllBtn = document.getElementById('downloadIeZipBtn');
+        if (downloadAllBtn) {
+            downloadAllBtn.addEventListener('click', () => {
+                if (ieZipBlob) {
+                    triggerDownload(ieZipBlob, zipFilename);
+                    ieLog(`Downloaded ZIP package: ${zipFilename}`, 'info');
+                }
+            });
+        }
+    }
+
+    if (ieBtn) {
+        ieBtn.addEventListener('click', async () => {
+            if (ieFiles.length === 0) return;
+
+            ieBtn.setAttribute('disabled', 'true');
+            if (ieStatus) {
+                ieStatus.className = 'status-indicator processing';
+                ieStatus.innerText = 'Processing';
+            }
+            
+            if (ieOutputContainer) {
+                ieOutputContainer.innerHTML = `
+                    <div class="empty-output-state">
+                        <i class="fa-solid fa-spinner fa-spin placeholder-icon" style="color: #059669;"></i>
+                        <p>Processing files, please wait...</p>
+                    </div>
+                `;
+            }
+            
+            ieLog('Starting Invoice Error Pipeline...', 'process');
+
+            try {
+                const zip = new JSZip();
+                const filesListForDashboard = [];
+
+                for (let k = 0; k < ieFiles.length; k++) {
+                    const fileObj = ieFiles[k];
+                    ieLog(`Parsing ${fileObj.name}...`, 'info');
+                    
+                    const fileAoa = await parseFileToAoa(fileObj.file, fileObj.name);
+                    
+                    if (fileAoa.length === 0) {
+                        ieLog(`Warning: file ${fileObj.name} is empty, skipping`, 'warning');
+                        continue;
+                    }
+
+                    const header = fileAoa[0];
+                    const dataRows = fileAoa.slice(1);
+                    
+                    let deletedInFile = 0;
+                    const mainCleanedRows = [];
+
+                    // Grouping stores
+                    const itemNotExistsGroups = {};
+                    const skuMismatchedWithSkuGroups = {};
+                    const skuMismatchedEmptyGroups = {};
+
+                    dataRows.forEach(row => {
+                        const colKVal = row[10]; // Column K
+                        const colLVal = row[11] || "Unknown-Party"; // Column L
+                        const partyName = String(colLVal).trim();
+
+                        if (colKVal !== undefined && colKVal !== null) {
+                            const strK = String(colKVal).trim();
+                            
+                            // Step 1: Filter out 'Order No Already Exists:' rows
+                            if (strK.includes("Order No Already Exists:")) {
+                                deletedInFile++;
+                                return; // Deleted, skip
+                            }
+                            
+                            // Keep remaining rows in the main cleaned file
+                            mainCleanedRows.push(row);
+
+                            // Check Part A: Item Not Exists
+                            if (strK.includes("Item Not Exists:")) {
+                                if (!itemNotExistsGroups[partyName]) {
+                                    itemNotExistsGroups[partyName] = [];
+                                }
+                                itemNotExistsGroups[partyName].push(row);
+                            }
+                            // Check Part B: Item SKU Mismatched
+                            else if (strK.includes("Item SKU Mismatched:")) {
+                                const rest = strK.replace("Item SKU Mismatched:", "").trim();
+                                if (rest !== "") {
+                                    // Case 1: SKU mismatch with extra details
+                                    if (!skuMismatchedWithSkuGroups[partyName]) {
+                                        skuMismatchedWithSkuGroups[partyName] = [];
+                                    }
+                                    skuMismatchedWithSkuGroups[partyName].push(row);
+                                } else {
+                                    // Case 2: SKU mismatch without details
+                                    if (!skuMismatchedEmptyGroups[partyName]) {
+                                        skuMismatchedEmptyGroups[partyName] = [];
+                                    }
+                                    skuMismatchedEmptyGroups[partyName].push(row);
+                                }
+                            }
+                        } else {
+                            mainCleanedRows.push(row);
+                        }
+                    });
+
+                    ieLog(`Processed ${fileObj.name}: Deleted ${deletedInFile} rows with 'Order No Already Exists:'.`, 'success');
+
+                    // 1. Save Main Cleaned File (with Step 1 rows deleted)
+                    const cleanedAoa = [header, ...mainCleanedRows];
+                    const cleanedWb = XLSX.utils.book_new();
+                    const cleanedWs = XLSX.utils.aoa_to_sheet(cleanedAoa);
+                    formatWorksheetCells(cleanedWs, false);
+                    XLSX.utils.book_append_sheet(cleanedWb, cleanedWs, "CleanedData");
+                    
+                    const cleanedFilename = fileObj.name.replace(/\.xlsx$/i, '_Cleaned.xlsx');
+                    const cleanedBuffer = XLSX.write(cleanedWb, { bookType: 'xlsx', type: 'array' });
+                    const cleanedBlob = new Blob([cleanedBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                    zip.file(cleanedFilename, cleanedBuffer);
+                    
+                    filesListForDashboard.push({
+                        name: cleanedFilename,
+                        size: cleanedBuffer.byteLength,
+                        desc: `Main cleaned file (${mainCleanedRows.length} rows remaining, ${deletedInFile} deleted)`,
+                        blob: cleanedBlob
+                    });
+
+                    // 2. Process and create files for Item Not Exists groups
+                    const notExistsParties = Object.keys(itemNotExistsGroups);
+                    notExistsParties.forEach(party => {
+                        const partyRows = itemNotExistsGroups[party];
+                        const titleText = `${party}-Item Not Exists`;
+                        const ws = createWorksheetWithMergedTitle(titleText, header, partyRows);
+                        
+                        const wb = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wb, ws, getSafeSheetName(titleText));
+                        
+                        const partyFilename = `${party}-Item Not Exists.xlsx`;
+                        const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                        const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                        zip.file(partyFilename, buffer);
+                        
+                        filesListForDashboard.push({
+                            name: partyFilename,
+                            size: buffer.byteLength,
+                            desc: `Item Not Exists for ${party} (${partyRows.length} rows)`,
+                            blob: blob
+                        });
+                    });
+
+                    // 3. Process and create files for SKU Mismatched groups (with details)
+                    const skuMismatchParties = Object.keys(skuMismatchedWithSkuGroups);
+                    skuMismatchParties.forEach(party => {
+                        const partyRows = skuMismatchedWithSkuGroups[party];
+                        const titleText = `${party}-Item SKU Mismatched`;
+                        const ws = createWorksheetWithMergedTitle(titleText, header, partyRows);
+                        
+                        const wb = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wb, ws, getSafeSheetName(titleText));
+                        
+                        const partyFilename = `${party}-Item SKU Mismatched.xlsx`;
+                        const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                        const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                        zip.file(partyFilename, buffer);
+                        
+                        filesListForDashboard.push({
+                            name: partyFilename,
+                            size: buffer.byteLength,
+                            desc: `SKU Mismatched for ${party} (${partyRows.length} rows)`,
+                            blob: blob
+                        });
+                    });
+
+                    // 4. Process and create files for Only SKU Mismatched groups (empty details)
+                    const skuEmptyParties = Object.keys(skuMismatchedEmptyGroups);
+                    skuEmptyParties.forEach(party => {
+                        const partyRows = skuMismatchedEmptyGroups[party];
+                        const titleText = `${party}-Only SKU Mismatched`;
+                        const ws = createWorksheetWithMergedTitle(titleText, header, partyRows);
+                        
+                        const wb = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wb, ws, getSafeSheetName(titleText));
+                        
+                        const partyFilename = `${party}-Only SKU Mismatched.xlsx`;
+                        const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                        const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                        zip.file(partyFilename, buffer);
+                        
+                        filesListForDashboard.push({
+                            name: partyFilename,
+                            size: buffer.byteLength,
+                            desc: `Only SKU Mismatched (Empty Details) for ${party} (${partyRows.length} rows)`,
+                            blob: blob
+                        });
+                    });
+
+                    // 5. Create Merged Error Excel file (all sheets except the Empty SKU Mismatch ones)
+                    const mergedWb = XLSX.utils.book_new();
+                    let hasMergedSheets = false;
+
+                    // Add Item Not Exists sheets
+                    notExistsParties.forEach(party => {
+                        const partyRows = itemNotExistsGroups[party];
+                        const titleText = `${party}-Item Not Exists`;
+                        const ws = createWorksheetWithMergedTitle(titleText, header, partyRows);
+                        XLSX.utils.book_append_sheet(mergedWb, ws, getSafeSheetName(titleText));
+                        hasMergedSheets = true;
+                    });
+
+                    // Add SKU Mismatched (with details) sheets
+                    skuMismatchParties.forEach(party => {
+                        const partyRows = skuMismatchedWithSkuGroups[party];
+                        const titleText = `${party}-Item SKU Mismatched`;
+                        const ws = createWorksheetWithMergedTitle(titleText, header, partyRows);
+                        XLSX.utils.book_append_sheet(mergedWb, ws, getSafeSheetName(titleText));
+                        hasMergedSheets = true;
+                    });
+
+                    if (hasMergedSheets) {
+                        const mergedBuffer = XLSX.write(mergedWb, { bookType: 'xlsx', type: 'array' });
+                        const mergedBlob = new Blob([mergedBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                        zip.file("Merged_Errors.xlsx", mergedBuffer);
+                        
+                        filesListForDashboard.push({
+                            name: "Merged_Errors.xlsx",
+                            size: mergedBuffer.byteLength,
+                            desc: `Merged Excel of all error sheets (excludes empty SKU mismatches)`,
+                            blob: mergedBlob
+                        });
+                    }
+
+                    // 6. Create Summary Report Excel file (excluding empty SKU mismatches)
+                    const summaryData = [
+                        ["Party Name (Seller/Customer)", "Item Not Exists Count", "Item SKU Mismatched Count", "Total Errors", "Errors Present"]
+                    ];
+
+                    const allParties = new Set([...notExistsParties, ...skuMismatchParties]);
+                    const sortedAllParties = Array.from(allParties).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+
+                    sortedAllParties.forEach(party => {
+                        const notExistsCount = (itemNotExistsGroups[party] || []).length;
+                        const skuMismatchCount = (skuMismatchedWithSkuGroups[party] || []).length;
+                        const total = notExistsCount + skuMismatchCount;
+
+                        const errorsList = [];
+                        if (notExistsCount > 0) errorsList.push("Item Not Exists");
+                        if (skuMismatchCount > 0) errorsList.push("Item SKU Mismatched");
+
+                        summaryData.push([
+                            party,
+                            notExistsCount,
+                            skuMismatchCount,
+                            total,
+                            errorsList.join(", ")
+                        ]);
+                    });
+
+                    if (sortedAllParties.length > 0) {
+                        const summaryWb = XLSX.utils.book_new();
+                        const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+                        XLSX.utils.book_append_sheet(summaryWb, summaryWs, "Summary");
+                        
+                        // Format summary sheet (no title row)
+                        formatWorksheetCells(summaryWs, false);
+                        
+                        // Customize header row fill color for Summary sheet specifically
+                        const sRange = XLSX.utils.decode_range(summaryWs['!ref']);
+                        for (let C = sRange.s.c; C <= sRange.e.c; ++C) {
+                            const cell_ref = XLSX.utils.encode_cell({ c: C, r: 0 });
+                            if (summaryWs[cell_ref]) {
+                                summaryWs[cell_ref].s.fill = { fgColor: { rgb: '0F172A' } }; // Dark slate theme
+                                summaryWs[cell_ref].s.font = { name: 'Segoe UI', sz: 10, bold: true, color: { rgb: 'FFFFFF' } };
+                            }
+                        }
+                        
+                        const summaryBuffer = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
+                        const summaryBlob = new Blob([summaryBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                        zip.file("Summary_Report.xlsx", summaryBuffer);
+                        
+                        filesListForDashboard.push({
+                            name: "Summary_Report.xlsx",
+                            size: summaryBuffer.byteLength,
+                            desc: `Summary sheet of errors by party (excludes empty SKU mismatches)`,
+                            blob: summaryBlob
+                        });
+                    }
+                }
+
+                if (filesListForDashboard.length === 0) {
+                    throw new Error("No files were processed successfully.");
+                }
+
+                // Generate Zip Blob
+                ieZipBlob = await zip.generateAsync({ type: 'blob' });
+                const zipFilename = "Invoice_Error_Processed_Package.zip";
+
+                // Render Dashboard
+                renderIeDashboard(filesListForDashboard, zipFilename);
+
+                if (ieStatus) {
+                    ieStatus.className = 'status-indicator success';
+                    ieStatus.innerText = 'Completed';
+                }
+                
+                alert("INVOICE ERROR PIPELINE COMPLETED SUCCESSFULLY");
+                ieLog(`Done! All files generated and packaged into ZIP: "${zipFilename}"`, 'success');
+
+            } catch (err) {
+                ieLog(`Processing failed: ${err.message}`, 'error');
+                if (ieStatus) {
+                    ieStatus.className = 'status-indicator idle';
+                    ieStatus.innerText = 'Failed';
+                }
+                if (ieOutputContainer) {
+                    ieOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-circle-exclamation placeholder-icon" style="color: #ef4444;"></i>
+                            <p style="color: #ef4444; font-weight: 600;">Error: ${err.message}</p>
+                        </div>
+                    `;
+                }
+            } finally {
+                ieBtn.removeAttribute('disabled');
+            }
+        });
+    }
+
+    // Add Clear & Reset button to all tab panel headers dynamically
+    const panelHeaders = document.querySelectorAll('.tab-pane .panel-header');
+    panelHeaders.forEach(header => {
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'btn btn-clear-reset-all';
+        resetBtn.style.fontSize = '0.75rem';
+        resetBtn.style.padding = '0.35rem 0.75rem';
+        resetBtn.style.borderRadius = '8px';
+        resetBtn.style.background = 'linear-gradient(135deg, #fef2f2, #fee2e2)';
+        resetBtn.style.color = '#ef4444';
+        resetBtn.style.border = '1px solid #fca5a5';
+        resetBtn.style.fontWeight = '600';
+        resetBtn.style.cursor = 'pointer';
+        resetBtn.style.display = 'inline-flex';
+        resetBtn.style.alignItems = 'center';
+        resetBtn.style.gap = '0.35rem';
+        resetBtn.style.marginLeft = 'auto'; // Push to the right
+        resetBtn.style.transition = 'all 0.2s ease';
+        resetBtn.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
+        resetBtn.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i> Clear & Reset';
+        
+        // Hover styling
+        resetBtn.addEventListener('mouseenter', () => {
+            resetBtn.style.background = '#fee2e2';
+            resetBtn.style.transform = 'translateY(-1px)';
+        });
+        resetBtn.addEventListener('mouseleave', () => {
+            resetBtn.style.background = 'linear-gradient(135deg, #fef2f2, #fee2e2)';
+            resetBtn.style.transform = 'translateY(0)';
+        });
+        
+        resetBtn.addEventListener('click', () => {
+            window.location.reload();
+        });
+        
+        header.appendChild(resetBtn);
+    });
 
     // Call toggleSubOptions initially to set correct sub-options display
     toggleSubOptions();
