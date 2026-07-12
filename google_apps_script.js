@@ -19,9 +19,9 @@ function doGet(e) {
   if (action === "getParties") {
     try {
       var ss = SpreadsheetApp.getActiveSpreadsheet();
-      var sheet = ss.getSheetByName("PARTY NAME");
+      var sheet = ss.getSheetByName("AJIO PARTY NAME");
       if (!sheet) {
-        return ContentService.createTextOutput(JSON.stringify({status: "error", message: "Sheet 'PARTY NAME' not found"}))
+        return ContentService.createTextOutput(JSON.stringify({status: "error", message: "Sheet 'AJIO PARTY NAME' not found"}))
           .setMimeType(ContentService.MimeType.JSON);
       }
       
@@ -40,6 +40,59 @@ function doGet(e) {
       }
       
       return ContentService.createTextOutput(JSON.stringify({status: "success", parties: parties}))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      return ContentService.createTextOutput(JSON.stringify({status: "error", message: err.toString()}))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+  
+  if (action === "getTrackedErrors") {
+    try {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var sheet = ss.getSheetByName("ERROR TRACKING");
+      if (!sheet) {
+        return ContentService.createTextOutput(JSON.stringify({status: "success", errors: []}))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      
+      var data = sheet.getDataRange().getValues();
+      var header = data[0];
+      var now = new Date().getTime();
+      var THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+      var rowsToKeep = [header];
+      var errors = [];
+      
+      for (var i = 1; i < data.length; i++) {
+        var row = data[i];
+        if (row.length < 9) continue;
+        var createdDateStr = row[6];
+        var createdTime = new Date(createdDateStr).getTime();
+        
+        if (now - createdTime >= THIRTY_DAYS_MS) {
+          continue;
+        }
+        
+        rowsToKeep.push(row);
+        errors.push({
+          id: String(row[0]),
+          type: String(row[1]),
+          fileName: String(row[2]),
+          partyOrWh: String(row[3]),
+          errorType: String(row[4]),
+          rowsCount: Number(row[5]),
+          createdDate: String(row[6]),
+          solved: row[7] === true || String(row[7]).toLowerCase() === "true",
+          solvedDate: String(row[8])
+        });
+      }
+      
+      if (rowsToKeep.length < data.length) {
+        sheet.clearContents();
+        sheet.getRange(1, 1, rowsToKeep.length, rowsToKeep[0].length).setValues(rowsToKeep);
+      }
+      
+      return ContentService.createTextOutput(JSON.stringify({status: "success", errors: errors}))
         .setMimeType(ContentService.MimeType.JSON);
     } catch (err) {
       return ContentService.createTextOutput(JSON.stringify({status: "error", message: err.toString()}))
@@ -67,9 +120,9 @@ function doPost(e) {
     
     // Action: Add Party
     if (action === "addParty") {
-      var sheetParties = getSheetRobust("PARTY NAME");
+      var sheetParties = getSheetRobust("AJIO PARTY NAME");
       if (!sheetParties) {
-        throw new Error("PARTY NAME sheet not found");
+        throw new Error("AJIO PARTY NAME sheet not found");
       }
       sheetParties.appendRow([json.code, json.name]);
       return ContentService.createTextOutput(JSON.stringify({status: "success"}))
@@ -78,9 +131,9 @@ function doPost(e) {
     
     // Action: Edit Party
     if (action === "editParty") {
-      var sheetParties = getSheetRobust("PARTY NAME");
+      var sheetParties = getSheetRobust("AJIO PARTY NAME");
       if (!sheetParties) {
-        throw new Error("PARTY NAME sheet not found");
+        throw new Error("AJIO PARTY NAME sheet not found");
       }
       var data = sheetParties.getDataRange().getValues();
       var updated = false;
@@ -101,13 +154,12 @@ function doPost(e) {
     
     // Action: Delete Party
     if (action === "deleteParty") {
-      var sheetParties = getSheetRobust("PARTY NAME");
+      var sheetParties = getSheetRobust("AJIO PARTY NAME");
       if (!sheetParties) {
-        throw new Error("PARTY NAME sheet not found");
+        throw new Error("AJIO PARTY NAME sheet not found");
       }
       var data = sheetParties.getDataRange().getValues();
       var deleted = false;
-      // Search from bottom up to avoid index shifts
       for (var i = data.length - 1; i >= 1; i--) {
         if (String(data[i][0]).trim() === String(json.code).trim()) {
           sheetParties.deleteRow(i + 1);
@@ -116,6 +168,83 @@ function doPost(e) {
       }
       if (!deleted) {
         throw new Error("Party with Code " + json.code + " not found");
+      }
+      return ContentService.createTextOutput(JSON.stringify({status: "success"}))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Action: Add Tracked Error
+    if (action === "addTrackedError") {
+      var sheet = getSheetRobust("ERROR TRACKING");
+      if (!sheet) {
+        sheet = ss.insertSheet("ERROR TRACKING");
+        sheet.appendRow(["ID", "TYPE", "FILENAME", "PARTY_OR_WH", "ERROR_TYPE", "ROWS_COUNT", "CREATED_DATE", "SOLVED", "SOLVED_DATE"]);
+      }
+      sheet.appendRow([
+        json.id,
+        json.type,
+        json.fileName,
+        json.partyOrWh,
+        json.errorType,
+        json.rowsCount,
+        json.createdDate,
+        json.solved,
+        json.solvedDate
+      ]);
+      return ContentService.createTextOutput(JSON.stringify({status: "success"}))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Action: Solve Tracked Error
+    if (action === "solveTrackedError") {
+      var sheet = getSheetRobust("ERROR TRACKING");
+      if (!sheet) {
+        throw new Error("ERROR TRACKING sheet not found");
+      }
+      var data = sheet.getDataRange().getValues();
+      var updated = false;
+      for (var i = 1; i < data.length; i++) {
+        if (String(data[i][0]).trim() === String(json.id).trim()) {
+          sheet.getRange(i + 1, 8).setValue(true);
+          sheet.getRange(i + 1, 9).setValue(json.solvedDate);
+          updated = true;
+          break;
+        }
+      }
+      if (!updated) {
+        throw new Error("Tracked error with ID " + json.id + " not found");
+      }
+      return ContentService.createTextOutput(JSON.stringify({status: "success"}))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Action: Clear Tracked Errors
+    if (action === "clearTrackedErrors") {
+      var sheet = getSheetRobust("ERROR TRACKING");
+      if (sheet) {
+        sheet.clearContents();
+        sheet.appendRow(["ID", "TYPE", "FILENAME", "PARTY_OR_WH", "ERROR_TYPE", "ROWS_COUNT", "CREATED_DATE", "SOLVED", "SOLVED_DATE"]);
+      }
+      return ContentService.createTextOutput(JSON.stringify({status: "success"}))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Action: Delete Tracked Error
+    if (action === "deleteTrackedError") {
+      var sheet = getSheetRobust("ERROR TRACKING");
+      if (!sheet) {
+        throw new Error("ERROR TRACKING sheet not found");
+      }
+      var data = sheet.getDataRange().getValues();
+      var deleted = false;
+      for (var i = data.length - 1; i >= 1; i--) {
+        if (String(data[i][0]).trim() === String(json.id).trim()) {
+          sheet.deleteRow(i + 1);
+          deleted = true;
+        }
+      }
+      if (!deleted) {
+        throw new Error("Tracked error with ID " + json.id + " not found");
       }
       return ContentService.createTextOutput(JSON.stringify({status: "success"}))
         .setMimeType(ContentService.MimeType.JSON);

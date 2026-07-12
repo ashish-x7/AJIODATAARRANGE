@@ -1822,8 +1822,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     downloadAllBtn.addEventListener('click', () => {
         if (!processedZipBlob) return;
-        triggerDownload(processedZipBlob, 'AJIO_DATA_ARRANGE_Files.zip');
-        log('Downloaded final package: AJIO_DATA_ARRANGE_Files.zip', 'info');
+        triggerDownload(processedZipBlob, 'ajio_data_arrange_bundle.zip');
+        log('Downloaded final package: ajio_data_arrange_bundle.zip', 'info');
     });
 
     /* ==========================================================================
@@ -1852,6 +1852,10 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             
             log(`Switched tab to: ${btn.innerText.trim()}`, 'info');
+            
+            if (targetPaneId === 'tab-error-tracker') {
+                renderErrorTracker();
+            }
         });
     });
 
@@ -3641,9 +3645,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (action === "getParties") {
     try {
       var ss = SpreadsheetApp.getActiveSpreadsheet();
-      var sheet = ss.getSheetByName("PARTY NAME");
+      var sheet = ss.getSheetByName("AJIO PARTY NAME");
       if (!sheet) {
-        return ContentService.createTextOutput(JSON.stringify({status: "error", message: "Sheet 'PARTY NAME' not found"}))
+        return ContentService.createTextOutput(JSON.stringify({status: "error", message: "Sheet 'AJIO PARTY NAME' not found"}))
           .setMimeType(ContentService.MimeType.JSON);
       }
       
@@ -3689,9 +3693,9 @@ function doPost(e) {
     
     // Action: Add Party
     if (action === "addParty") {
-      var sheetParties = getSheetRobust("PARTY NAME");
+      var sheetParties = getSheetRobust("AJIO PARTY NAME");
       if (!sheetParties) {
-        throw new Error("PARTY NAME sheet not found");
+        throw new Error("AJIO PARTY NAME sheet not found");
       }
       sheetParties.appendRow([json.code, json.name]);
       return ContentService.createTextOutput(JSON.stringify({status: "success"}))
@@ -3700,9 +3704,9 @@ function doPost(e) {
     
     // Action: Edit Party
     if (action === "editParty") {
-      var sheetParties = getSheetRobust("PARTY NAME");
+      var sheetParties = getSheetRobust("AJIO PARTY NAME");
       if (!sheetParties) {
-        throw new Error("PARTY NAME sheet not found");
+        throw new Error("AJIO PARTY NAME sheet not found");
       }
       var data = sheetParties.getDataRange().getValues();
       var updated = false;
@@ -3723,9 +3727,9 @@ function doPost(e) {
     
     // Action: Delete Party
     if (action === "deleteParty") {
-      var sheetParties = getSheetRobust("PARTY NAME");
+      var sheetParties = getSheetRobust("AJIO PARTY NAME");
       if (!sheetParties) {
-        throw new Error("PARTY NAME sheet not found");
+        throw new Error("AJIO PARTY NAME sheet not found");
       }
       var data = sheetParties.getDataRange().getValues();
       var deleted = false;
@@ -4491,8 +4495,20 @@ function doPost(e) {
         if (dlZipBtn) {
             dlZipBtn.addEventListener('click', () => {
                 if (separateZipBlob) {
-                    triggerDownload(separateZipBlob, 'Split_Files_Package.zip');
-                    separateLog('Downloaded complete ZIP package: Split_Files_Package.zip', 'info');
+                    let userChoice = "1";
+                    const radios = document.getElementsByName('separateVariant');
+                    radios.forEach(r => {
+                        if (r.checked) userChoice = r.value;
+                    });
+                    
+                    let zipName = "Split_Files_Package.zip";
+                    if (userChoice === "1") zipName = "ajio_simple_seprate_budle.zip";
+                    else if (userChoice === "2") zipName = "ajio_details_seprate_budle.zip";
+                    else if (userChoice === "3") zipName = "ajio_summry_seprate_budle.zip";
+                    else if (userChoice === "4") zipName = "ajio_tax_seprate_budle.zip";
+                    
+                    triggerDownload(separateZipBlob, zipName);
+                    separateLog(`Downloaded complete ZIP package: ${zipName}`, 'info');
                 }
             });
         }
@@ -4847,8 +4863,8 @@ function doPost(e) {
         if (dlZipBtn) {
             dlZipBtn.addEventListener('click', () => {
                 if (renZipBlob) {
-                    triggerDownload(renZipBlob, 'Renamed_Files_Package.zip');
-                    renLog('Downloaded complete ZIP package: Renamed_Files_Package.zip', 'info');
+                    triggerDownload(renZipBlob, 'ajio_rename_file.zip');
+                    renLog('Downloaded complete ZIP package: ajio_rename_file.zip', 'info');
                 }
             });
         }
@@ -5186,8 +5202,8 @@ function doPost(e) {
         if (dlZipBtn) {
             dlZipBtn.addEventListener('click', () => {
                 if (gmZipBlob) {
-                    triggerDownload(gmZipBlob, 'Merged_Files_Package.zip');
-                    gmLog('Downloaded complete ZIP package: Merged_Files_Package.zip', 'info');
+                    triggerDownload(gmZipBlob, 'ajio_murge_file.zip');
+                    gmLog('Downloaded complete ZIP package: ajio_murge_file.zip', 'info');
                 }
             });
         }
@@ -5798,6 +5814,9 @@ function doPost(e) {
                     });
 
                     aeLog(`Generated individual file: "${groupFilename}" with ${groupRows.length} rows.`, 'success');
+                    
+                    // Register tracked error in database
+                    registerTrackedError('ajio', groupFilename, whName, 'Account Center Dispute', groupRows.length);
                 }
 
                 // Write and add the merged workbook to ZIP
@@ -5861,7 +5880,7 @@ function doPost(e) {
 
                 // Generate final ZIP Blob
                 aeProcessedBlob = await zip.generateAsync({ type: 'blob' });
-                aeProcessedFilename = `${baseName}_ajio_price_dispute_package.zip`;
+                aeProcessedFilename = "ajio_price_dispute_bundle.zip";
 
                 if (aeProgressBar) aeProgressBar.style.width = '100%';
                 if (aeProgressPercent) aeProgressPercent.innerText = '100%';
@@ -6988,6 +7007,8 @@ function doPost(e) {
                             desc: `Item Not Exists for ${party} (${partyRows.length} rows)`,
                             blob: blob
                         });
+                        
+                        registerTrackedError('invoice', partyFilename, party, 'Item Not Exists', partyRows.length);
                     });
 
                     // 3. Process and create files for SKU Mismatched groups (with details)
@@ -7011,6 +7032,8 @@ function doPost(e) {
                             desc: `SKU Mismatched for ${party} (${partyRows.length} rows)`,
                             blob: blob
                         });
+                        
+                        registerTrackedError('invoice', partyFilename, party, 'Item SKU Mismatched', partyRows.length);
                     });
 
                     // 4. Process and create files for Only SKU Mismatched groups (empty details)
@@ -7034,6 +7057,8 @@ function doPost(e) {
                             desc: `Only SKU Mismatched (Empty Details) for ${party} (${partyRows.length} rows)`,
                             blob: blob
                         });
+                        
+                        registerTrackedError('invoice', partyFilename, party, 'Only SKU Mismatched', partyRows.length);
                     });
 
                     // 5. Create Merged Error Excel file (all sheets except the Empty SKU Mismatch ones)
@@ -7134,7 +7159,7 @@ function doPost(e) {
 
                 // Generate Zip Blob
                 ieZipBlob = await zip.generateAsync({ type: 'blob' });
-                const zipFilename = "Invoice_Error_Processed_Package.zip";
+                const zipFilename = "ajio_error_bundle.zip";
 
                 // Render Dashboard
                 renderIeDashboard(filesListForDashboard, zipFilename);
@@ -7207,6 +7232,601 @@ function doPost(e) {
 
     // Call toggleSubOptions initially to set correct sub-options display
     toggleSubOptions();
+
+    // Auto-fetch vendors on startup
+    fetchVendors();
+
+    /* ==========================================================================
+       ERROR TRACKING DATABASE & DASHBOARD LOGIC (SHARED CLOUD / LOCAL FALLBACK)
+       ========================================================================== */
+    let trackerSyncStatus = 'offline'; // 'online' (Google Sheets) or 'offline' (LocalStorage)
+
+    // Custom Confirmation Modal System
+    function showCustomConfirm(title, message, callback) {
+        let backdrop = document.getElementById('customConfirmBackdrop');
+        if (!backdrop) {
+            backdrop = document.createElement('div');
+            backdrop.id = 'customConfirmBackdrop';
+            backdrop.className = 'custom-modal-backdrop';
+            backdrop.innerHTML = `
+                <div class="custom-modal-card" style="border: 1px solid rgba(220, 38, 38, 0.15); box-shadow: 0 20px 25px -5px rgba(220, 38, 38, 0.05);">
+                    <div class="custom-modal-header">
+                        <span class="custom-modal-icon error" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 50%; font-size: 1.25rem;"><i class="fa-solid fa-triangle-exclamation"></i></span>
+                        <h3 class="custom-modal-title" id="customConfirmTitle" style="font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.25rem; color: #1f2937; margin: 0;">Confirm Delete</h3>
+                    </div>
+                    <div class="custom-modal-body" id="customConfirmBody" style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.95rem; color: #4b5563; line-height: 1.6; margin-bottom: 1.5rem; white-space: pre-line;"></div>
+                    <div class="custom-modal-footer" style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                        <button class="custom-modal-close-btn" id="customConfirmCancelBtn" style="background: #e5e7eb; color: #374151; box-shadow: none; border: 1px solid #d1d5db; min-width: 90px; height: 38px; border-radius: 8px; font-weight: 600; font-size: 0.85rem; cursor: pointer; transition: all 0.2s ease;">Cancel</button>
+                        <button class="custom-modal-close-btn" id="customConfirmOkBtn" style="background: linear-gradient(135deg, #ef4444, #dc2626); color: white; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.2); min-width: 90px; height: 38px; border-radius: 8px; font-weight: 600; font-size: 0.85rem; cursor: pointer; border: none; transition: all 0.2s ease;">Delete</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(backdrop);
+        }
+
+        const titleEl = document.getElementById('customConfirmTitle');
+        const bodyEl = document.getElementById('customConfirmBody');
+        const okBtn = document.getElementById('customConfirmOkBtn');
+        const cancelBtn = document.getElementById('customConfirmCancelBtn');
+
+        titleEl.innerText = title;
+        bodyEl.innerText = message;
+
+        // Reset event listeners by cloning buttons
+        const newOkBtn = okBtn.cloneNode(true);
+        const newCancelBtn = cancelBtn.cloneNode(true);
+        okBtn.parentNode.replaceChild(newOkBtn, okBtn);
+        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+
+        newOkBtn.addEventListener('click', () => {
+            backdrop.classList.remove('show');
+            callback(true);
+        });
+
+        const closeConfirm = () => {
+            backdrop.classList.remove('show');
+            callback(false);
+        };
+
+        newCancelBtn.addEventListener('click', closeConfirm);
+        backdrop.addEventListener('click', (e) => {
+            if (e.target === backdrop) {
+                closeConfirm();
+            }
+        });
+
+        // Show modal
+        setTimeout(() => {
+            backdrop.classList.add('show');
+        }, 50);
+    }
+
+    // Helper: format sync status badge
+    function updateTrackerSyncBadge() {
+        const badge = document.getElementById('trackerSyncBadge');
+        if (!badge) return;
+        if (trackerSyncStatus === 'online') {
+            badge.style.background = 'rgba(5, 150, 105, 0.1)';
+            badge.style.color = 'var(--color-success)';
+            badge.style.borderColor = 'rgba(5, 150, 105, 0.2)';
+            badge.innerText = 'Google Sheets Sync Active';
+        } else {
+            badge.style.background = 'rgba(245, 158, 11, 0.1)';
+            badge.style.color = '#d97706';
+            badge.style.borderColor = 'rgba(245, 158, 11, 0.2)';
+            badge.innerText = 'Offline Backup Mode';
+        }
+    }
+
+    // 1. Fetch error records (remote first, local fallback)
+    async function fetchTrackedErrors() {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 6000); // 6 sec timeout
+            
+            const response = await fetch(`${GOOGLE_SHEETS_SCRIPT_URL}?action=getTrackedErrors`, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            const result = await response.json();
+            if (result && result.status === 'success') {
+                trackerSyncStatus = 'online';
+                updateTrackerSyncBadge();
+                return result.errors || [];
+            }
+        } catch (e) {
+            console.warn("Google Sheets Error Tracker connection failed, using local storage:", e);
+        }
+        
+        trackerSyncStatus = 'offline';
+        updateTrackerSyncBadge();
+        
+        // Local fallback
+        let records = JSON.parse(localStorage.getItem('trackedErrors') || '[]');
+        const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        records = records.filter(r => (now - new Date(r.createdDate).getTime()) < THIRTY_DAYS_MS);
+        localStorage.setItem('trackedErrors', JSON.stringify(records));
+        return records;
+    }
+
+    // 2. Register a new error entry (sends to Google Sheets in bg, duplicates to local)
+    async function registerTrackedError(type, fileName, partyOrWh, errorType, rowsCount) {
+        const newRecord = {
+            id: 'err-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+            type: type, // 'ajio' or 'invoice'
+            fileName: fileName,
+            partyOrWh: partyOrWh,
+            errorType: errorType,
+            rowsCount: rowsCount,
+            createdDate: new Date().toISOString(),
+            solved: false,
+            solvedDate: ''
+        };
+
+        // Local duplicate immediately (ensures instant load / offline fallback)
+        let records = JSON.parse(localStorage.getItem('trackedErrors') || '[]');
+        records.push(newRecord);
+        localStorage.setItem('trackedErrors', JSON.stringify(records));
+
+        try {
+            const response = await fetch(GOOGLE_SHEETS_SCRIPT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' }, // Avoid CORS preflight on Apps Script
+                body: JSON.stringify({
+                    action: 'addTrackedError',
+                    ...newRecord
+                })
+            });
+            const result = await response.json();
+            if (result && result.status === 'success') {
+                trackerSyncStatus = 'online';
+                updateTrackerSyncBadge();
+            }
+        } catch (e) {
+            console.warn("Failed to write tracked error to Google Sheets:", e);
+        }
+    }
+
+    // 3. Mark an error as solved
+    async function solveTrackedError(id) {
+        const solvedDate = new Date().toISOString();
+
+        // Update locally immediately
+        let records = JSON.parse(localStorage.getItem('trackedErrors') || '[]');
+        const idx = records.findIndex(r => r.id === id);
+        if (idx !== -1) {
+            records[idx].solved = true;
+            records[idx].solvedDate = solvedDate;
+            localStorage.setItem('trackedErrors', JSON.stringify(records));
+        }
+
+        try {
+            const response = await fetch(GOOGLE_SHEETS_SCRIPT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({
+                    action: 'solveTrackedError',
+                    id: id,
+                    solvedDate: solvedDate
+                })
+            });
+            const result = await response.json();
+            if (result && result.status === 'success') {
+                trackerSyncStatus = 'online';
+                updateTrackerSyncBadge();
+            }
+        } catch (e) {
+            console.warn("Failed to solve tracked error on Google Sheets:", e);
+        }
+    }
+
+    // 4. Clear all tracked errors database
+    async function clearTrackedErrorsDb() {
+        localStorage.removeItem('trackedErrors');
+
+        try {
+            const response = await fetch(GOOGLE_SHEETS_SCRIPT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({
+                    action: 'clearTrackedErrors'
+                })
+            });
+            const result = await response.json();
+            if (result && result.status === 'success') {
+                trackerSyncStatus = 'online';
+                updateTrackerSyncBadge();
+            }
+        } catch (e) {
+            console.warn("Failed to clear tracked errors on Google Sheets:", e);
+        }
+    }
+
+    // 4.5. Delete a specific error entry from database
+    async function deleteTrackedError(id) {
+        // Update locally immediately
+        let records = JSON.parse(localStorage.getItem('trackedErrors') || '[]');
+        records = records.filter(r => r.id !== id);
+        localStorage.setItem('trackedErrors', JSON.stringify(records));
+
+        try {
+            const response = await fetch(GOOGLE_SHEETS_SCRIPT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({
+                    action: 'deleteTrackedError',
+                    id: id
+                })
+            });
+            const result = await response.json();
+            if (result && result.status === 'success') {
+                trackerSyncStatus = 'online';
+                updateTrackerSyncBadge();
+            }
+        } catch (e) {
+            console.warn("Failed to delete tracked error on Google Sheets:", e);
+        }
+    }
+
+    // 5. Render Tracker Dashboard
+    async function renderErrorTracker() {
+        const statsActive = document.getElementById('statsActiveErrors');
+        const statsSolved = document.getElementById('statsSolvedErrors');
+        const statsTotal = document.getElementById('statsTotalErrors');
+        const container = document.getElementById('trackerTableContainer');
+        const searchInput = document.getElementById('trackerSearchInput');
+        const statusFilter = document.getElementById('trackerStatusFilter');
+        const sourceFilter = document.getElementById('trackerSourceFilter');
+
+        if (!container) return;
+
+        // Display spinner while loading
+        container.innerHTML = `
+            <div class="empty-output-state">
+                <i class="fa-solid fa-spinner fa-spin placeholder-icon" style="color: var(--color-primary);"></i>
+                <p>Loading tracked errors list from database...</p>
+            </div>
+        `;
+
+        const errors = await fetchTrackedErrors();
+        
+        // Calculate counts
+        const activeCount = errors.filter(e => !e.solved).length;
+        const solvedCount = errors.filter(e => e.solved).length;
+        const totalCount = errors.length;
+
+        if (statsActive) statsActive.innerText = activeCount;
+        if (statsSolved) statsSolved.innerText = solvedCount;
+        if (statsTotal) statsTotal.innerText = totalCount;
+
+        // Apply filters
+        const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+        const statusVal = statusFilter ? statusFilter.value : 'all';
+        const sourceVal = sourceFilter ? sourceFilter.value : 'all';
+
+        const filtered = errors.filter(item => {
+            // Search query matches fileName, partyOrWh, or errorType
+            const matchesQuery = !query || 
+                String(item.fileName).toLowerCase().includes(query) ||
+                String(item.partyOrWh).toLowerCase().includes(query) ||
+                String(item.errorType).toLowerCase().includes(query);
+            
+            // Status match
+            const matchesStatus = statusVal === 'all' || 
+                (statusVal === 'active' && !item.solved) ||
+                (statusVal === 'solved' && item.solved);
+            
+            // Source match
+            const matchesSource = sourceVal === 'all' || item.type === sourceVal;
+
+            return matchesQuery && matchesStatus && matchesSource;
+        });
+
+        // Sort: active (unsolved) first, then by date descending
+        filtered.sort((a, b) => {
+            if (a.solved !== b.solved) {
+                return a.solved ? 1 : -1;
+            }
+            return new Date(b.createdDate) - new Date(a.createdDate);
+        });
+
+        if (filtered.length === 0) {
+            container.innerHTML = `
+                <div class="empty-output-state">
+                    <i class="fa-solid fa-square-check placeholder-icon" style="color: var(--color-success); opacity: 0.8;"></i>
+                    <p>No tracked errors match your criteria.</p>
+                </div>
+            `;
+            return;
+        }
+
+        // Render Table
+        const table = document.createElement('table');
+        table.style.width = '100%';
+        table.style.borderCollapse = 'collapse';
+        table.style.fontSize = '0.85rem';
+        table.style.textAlign = 'left';
+
+        table.innerHTML = `
+            <thead>
+                <tr style="border-bottom: 2px solid var(--border-color); color: var(--text-primary);">
+                    <th style="padding: 0.75rem; font-weight: 700; font-size: 0.75rem; text-transform: uppercase;">Source</th>
+                    <th style="padding: 0.75rem; font-weight: 700; font-size: 0.75rem; text-transform: uppercase;">File / Error Details</th>
+                    <th style="padding: 0.75rem; font-weight: 700; font-size: 0.75rem; text-transform: uppercase;">Party / Wh</th>
+                    <th style="padding: 0.75rem; font-weight: 700; font-size: 0.75rem; text-transform: uppercase; text-align: right;">Rows</th>
+                    <th style="padding: 0.75rem; font-weight: 700; font-size: 0.75rem; text-transform: uppercase;">Date Added</th>
+                    <th style="padding: 0.75rem; font-weight: 700; font-size: 0.75rem; text-transform: uppercase;">Days Active</th>
+                    <th style="padding: 0.75rem; font-weight: 700; font-size: 0.75rem; text-transform: uppercase; text-align: center;">Status</th>
+                    <th style="padding: 0.75rem; font-weight: 700; font-size: 0.75rem; text-transform: uppercase; text-align: center;">Action</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        `;
+
+        const tbody = table.querySelector('tbody');
+
+        filtered.forEach(record => {
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid var(--border-color)';
+            tr.style.transition = 'var(--transition-fast)';
+            
+            // Hover effect
+            tr.addEventListener('mouseenter', () => {
+                tr.style.background = 'rgba(123, 44, 191, 0.02)';
+            });
+            tr.addEventListener('mouseleave', () => {
+                tr.style.background = 'transparent';
+            });
+
+            // Source badge
+            const isAjio = record.type === 'ajio';
+            const sourceBadge = isAjio 
+                ? `<span style="background: rgba(0, 150, 199, 0.08); color: var(--color-secondary); border: 1px solid rgba(0, 150, 199, 0.15); padding: 0.2rem 0.45rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600;">AJIO ERROR</span>`
+                : `<span style="background: rgba(123, 44, 191, 0.08); color: var(--color-primary); border: 1px solid rgba(123, 44, 191, 0.15); padding: 0.2rem 0.45rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600;">INVOICE</span>`;
+
+            // Error Type details
+            const detailHtml = `
+                <div style="font-weight: 600; color: var(--text-primary);">${record.fileName}</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.1rem;">${record.errorType}</div>
+            `;
+
+            // Day counter logic:
+            // If active: Difference between now and createdDate
+            // If solved: Difference between solvedDate and createdDate
+            const createdTime = new Date(record.createdDate).getTime();
+            const endTime = record.solved ? new Date(record.solvedDate).getTime() : Date.now();
+            const diffDays = Math.max(0, Math.floor((endTime - createdTime) / (1000 * 60 * 60 * 24)));
+            const daysText = record.solved 
+                ? `<span style="color: var(--text-muted); font-size: 0.8rem;">Solved in ${diffDays} day${diffDays === 1 ? '' : 's'}</span>`
+                : `<span style="color: var(--color-error); font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; gap: 0.25rem;"><i class="fa-regular fa-clock"></i> ${diffDays} Day${diffDays === 1 ? '' : 's'}</span>`;
+
+            // Date Added formatted cleanly
+            const addedDateFormatted = new Date(record.createdDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+
+            // Status badge
+            const statusBadge = record.solved
+                ? `<span style="background: rgba(5, 150, 105, 0.1); color: var(--color-success); border: 1px solid rgba(5, 150, 105, 0.2); padding: 0.25rem 0.5rem; border-radius: 20px; font-weight: 600; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem;"><i class="fa-solid fa-circle-check"></i> Solved</span>`
+                : `<span style="background: rgba(220, 38, 38, 0.1); color: var(--color-error); border: 1px solid rgba(220, 38, 38, 0.2); padding: 0.25rem 0.5rem; border-radius: 20px; font-weight: 600; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem;"><i class="fa-solid fa-triangle-exclamation"></i> Active</span>`;
+
+            // Action buttons (Solve + Delete)
+            const actionHtml = record.solved
+                ? `<div style="display: flex; gap: 0.4rem; justify-content: center; align-items: center;">
+                       <span style="font-size: 0.75rem; color: var(--text-muted); font-style: italic; margin-right: 0.3rem;">Solved</span>
+                       <button class="btn delete-tracker-btn" data-id="${record.id}" style="padding: 0.35rem 0.6rem; font-size: 0.75rem; border-radius: 6px; background: rgba(220, 38, 38, 0.08); color: var(--color-error); border: 1px solid rgba(220, 38, 38, 0.15); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: var(--transition-fast); border: none;"><i class="fa-solid fa-trash-can"></i></button>
+                   </div>`
+                : `<div style="display: flex; gap: 0.4rem; justify-content: center; align-items: center;">
+                       <button class="btn solve-tracker-btn" data-id="${record.id}" style="padding: 0.35rem 0.7rem; font-size: 0.75rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; background: var(--color-success); color: white; cursor: pointer; font-weight: 600; transition: var(--transition-fast); border: none; box-shadow: 0 2px 6px rgba(5, 150, 105, 0.25);"><i class="fa-solid fa-check-double"></i> Solve</button>
+                       <button class="btn delete-tracker-btn" data-id="${record.id}" style="padding: 0.35rem 0.6rem; font-size: 0.75rem; border-radius: 6px; background: rgba(220, 38, 38, 0.08); color: var(--color-error); border: 1px solid rgba(220, 38, 38, 0.15); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: var(--transition-fast); border: none;"><i class="fa-solid fa-trash-can"></i></button>
+                   </div>`;
+
+            tr.innerHTML = `
+                <td style="padding: 0.75rem; vertical-align: middle;">${sourceBadge}</td>
+                <td style="padding: 0.75rem; vertical-align: middle;">${detailHtml}</td>
+                <td style="padding: 0.75rem; vertical-align: middle; font-weight: 500; color: var(--text-secondary);">${record.partyOrWh}</td>
+                <td style="padding: 0.75rem; vertical-align: middle; text-align: right; font-weight: 600; color: var(--text-secondary);">${record.rowsCount}</td>
+                <td style="padding: 0.75rem; vertical-align: middle; color: var(--text-secondary);">${addedDateFormatted}</td>
+                <td style="padding: 0.75rem; vertical-align: middle;">${daysText}</td>
+                <td style="padding: 0.75rem; vertical-align: middle; text-align: center;">${statusBadge}</td>
+                <td style="padding: 0.75rem; vertical-align: middle; text-align: center;">${actionHtml}</td>
+            `;
+
+            // Event listener for solve button
+            const solveBtn = tr.querySelector('.solve-tracker-btn');
+            if (solveBtn) {
+                solveBtn.addEventListener('mouseenter', () => {
+                    solveBtn.style.transform = 'translateY(-1px)';
+                    solveBtn.style.boxShadow = '0 4px 10px rgba(5, 150, 105, 0.4)';
+                });
+                solveBtn.addEventListener('mouseleave', () => {
+                    solveBtn.style.transform = 'translateY(0)';
+                    solveBtn.style.boxShadow = '0 2px 6px rgba(5, 150, 105, 0.25)';
+                });
+                solveBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    solveBtn.setAttribute('disabled', 'true');
+                    solveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+                    await solveTrackedError(record.id);
+                    renderErrorTracker();
+                });
+            }
+
+            // Event listener for delete button
+            const deleteBtn = tr.querySelector('.delete-tracker-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('mouseenter', () => {
+                    deleteBtn.style.background = 'rgba(220, 38, 38, 0.15)';
+                });
+                deleteBtn.addEventListener('mouseleave', () => {
+                    deleteBtn.style.background = 'rgba(220, 38, 38, 0.08)';
+                });
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    showCustomConfirm(
+                        "Delete Record",
+                        `Are you sure you want to delete the tracked error record for "${record.fileName}"? This action cannot be undone.`,
+                        async (confirmed) => {
+                            if (confirmed) {
+                                deleteBtn.setAttribute('disabled', 'true');
+                                deleteBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+                                await deleteTrackedError(record.id);
+                                renderErrorTracker();
+                            }
+                        }
+                    );
+                });
+            }
+
+            tbody.appendChild(tr);
+        });
+
+        container.innerHTML = '';
+        container.appendChild(table);
+    }
+
+    // Bind filters & toolbar controls
+    const searchInput = document.getElementById('trackerSearchInput');
+    const statusFilter = document.getElementById('trackerStatusFilter');
+    const sourceFilter = document.getElementById('trackerSourceFilter');
+    const clearDbBtn = document.getElementById('clearTrackerDbBtn');
+
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            renderErrorTracker();
+        });
+    }
+    if (statusFilter) {
+        statusFilter.addEventListener('change', () => {
+            renderErrorTracker();
+        });
+    }
+    if (sourceFilter) {
+        sourceFilter.addEventListener('change', () => {
+            renderErrorTracker();
+        });
+    }
+    if (clearDbBtn) {
+        clearDbBtn.addEventListener('click', () => {
+            showCustomConfirm(
+                "Clear History",
+                "Are you sure you want to delete all tracked error dispute history from Google Sheets and localStorage? This will wipe all records permanently.",
+                async (confirmed) => {
+                    if (confirmed) {
+                        clearDbBtn.setAttribute('disabled', 'true');
+                        clearDbBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Clearing...';
+                        await clearTrackedErrorsDb();
+                        clearDbBtn.removeAttribute('disabled');
+                        clearDbBtn.innerHTML = '<i class="fa-solid fa-trash-can"></i> Clear History';
+                        renderErrorTracker();
+                    }
+                }
+            );
+        });
+    }
+
+    // Expose functions globally for debugging/console testing
+    window.errorTracker = {
+        fetch: fetchTrackedErrors,
+        register: registerTrackedError,
+        solve: solveTrackedError,
+        delete: deleteTrackedError,
+        clear: clearTrackedErrorsDb,
+        render: renderErrorTracker
+    };
+
+    // Expose test rename download function globally
+    window.testRenameDownload = function() {
+        if (typeof JSZip === 'undefined') {
+            alert("JSZip is not loaded yet on this page!");
+            return;
+        }
+        const zip = new JSZip();
+        zip.file("test_renamed_file.txt", "This is a mock renamed file inside the ZIP package.");
+        zip.generateAsync({type: "blob"}).then(function(blob) {
+            triggerDownload(blob, 'ajio_rename_file.zip');
+            renLog('Downloaded test ZIP package: ajio_rename_file.zip', 'info');
+        });
+    };
+
+    // Expose test merge download function globally
+    window.testMergeDownload = function() {
+        if (typeof JSZip === 'undefined') {
+            alert("JSZip is not loaded yet on this page!");
+            return;
+        }
+        const zip = new JSZip();
+        zip.file("test_merged_file.txt", "This is a mock merged file inside the ZIP package.");
+        zip.generateAsync({type: "blob"}).then(function(blob) {
+            triggerDownload(blob, 'ajio_murge_file.zip');
+            gmLog('Downloaded test ZIP package: ajio_murge_file.zip', 'info');
+        });
+    };
+
+    // Expose test separate download function globally
+    window.testSeparateDownload = function(choice) {
+        if (typeof JSZip === 'undefined') {
+            alert("JSZip is not loaded yet on this page!");
+            return;
+        }
+        
+        let zipName = "Split_Files_Package.zip";
+        if (choice === 1 || choice === "1") zipName = "ajio_simple_seprate_budle.zip";
+        else if (choice === 2 || choice === "2") zipName = "ajio_details_seprate_budle.zip";
+        else if (choice === 3 || choice === "3") zipName = "ajio_summry_seprate_budle.zip";
+        else if (choice === 4 || choice === "4") zipName = "ajio_tax_seprate_budle.zip";
+
+        const zip = new JSZip();
+        zip.file("test_separated_file.txt", "This is a mock separated file inside the ZIP package.");
+        zip.generateAsync({type: "blob"}).then(function(blob) {
+            triggerDownload(blob, zipName);
+            separateLog(`Downloaded test ZIP package: ${zipName}`, 'info');
+        });
+    };
+
+    // Expose test file converter download function globally
+    window.testFileConverterDownload = function() {
+        if (typeof JSZip === 'undefined') {
+            alert("JSZip is not loaded yet on this page!");
+            return;
+        }
+        const zip = new JSZip();
+        zip.file("test_converted_file.txt", "This is a mock converted file inside the ZIP package.");
+        zip.generateAsync({type: "blob"}).then(function(blob) {
+            triggerDownload(blob, 'ajio_data_arrange_bundle.zip');
+            log('Downloaded test ZIP package: ajio_data_arrange_bundle.zip', 'info');
+        });
+    };
+
+    // Expose test Ajio Error download function globally
+    window.testAjioErrorDownload = function() {
+        if (typeof JSZip === 'undefined') {
+            alert("JSZip is not loaded yet on this page!");
+            return;
+        }
+        const zip = new JSZip();
+        zip.file("test_ajio_error_file.txt", "This is a mock Ajio error output file inside the ZIP package.");
+        zip.generateAsync({type: "blob"}).then(function(blob) {
+            triggerDownload(blob, 'ajio_price_dispute_bundle.zip');
+            aeLog('Downloaded test ZIP package: ajio_price_dispute_bundle.zip', 'info');
+        });
+    };
+
+    // Expose test Invoice Error download function globally
+    window.testInvoiceErrorDownload = function() {
+        if (typeof JSZip === 'undefined') {
+            alert("JSZip is not loaded yet on this page!");
+            return;
+        }
+        const zip = new JSZip();
+        zip.file("test_invoice_error_file.txt", "This is a mock Invoice error output file inside the ZIP package.");
+        zip.generateAsync({type: "blob"}).then(function(blob) {
+            triggerDownload(blob, 'ajio_error_bundle.zip');
+            ieLog('Downloaded test ZIP package: ajio_error_bundle.zip', 'info');
+        });
+    };
+
+
+
+    // Initial load sync status trigger (non-blocking)
+    fetchTrackedErrors();
 
     // Auto-fetch vendors on startup
     fetchVendors();

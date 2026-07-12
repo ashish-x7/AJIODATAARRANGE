@@ -63,6 +63,9 @@
             <button class="tab-btn" data-tab="tab-invoice-error">
                 <i class="fa-solid fa-file-invoice-dollar"></i> Invoice Error
             </button>
+            <button class="tab-btn" data-tab="tab-error-tracker" style="border-left: 2px solid rgba(123, 44, 191, 0.3);">
+                <i class="fa-solid fa-list-check"></i> Error Tracker
+            </button>
         </div>
 
         <!-- Tab 1: Converter Pane -->
@@ -896,6 +899,74 @@
                     </div>
                 </section>
             </main>
+        </div>
+
+        <!-- Tab 9: Error Tracker Pane -->
+        <div id="tab-error-tracker" class="tab-pane hidden-pane" style="width: 100%;">
+            <section class="panel" style="width: 100%; box-shadow: var(--card-shadow); border-radius: 16px; background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(20px); border: 1px solid var(--border-color); padding: 1.5rem;">
+                <div class="panel-header" style="margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <h2 style="font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.4rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.6rem;">
+                        <i class="fa-solid fa-list-check text-purple"></i> Error Dispute Tracker
+                    </h2>
+                    <span id="trackerSyncBadge" class="badge" style="background: rgba(220, 38, 38, 0.1); color: var(--color-error); padding: 0.25rem 0.6rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600;">Connecting...</span>
+                </div>
+
+                <!-- Tracker Stats Cards Grid -->
+                <div id="trackerStatsGrid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; width: 100%;">
+                    <div class="summary-card" style="background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.1); border-radius: 12px; padding: 1rem; text-align: center;">
+                        <h4 style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.25rem; font-weight: 600;">ACTIVE UNRESOLVED</h4>
+                        <div id="statsActiveErrors" style="font-size: 1.8rem; font-weight: 800; color: var(--color-error);">0</div>
+                        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Errors requiring attention</p>
+                    </div>
+                    <div class="summary-card" style="background: rgba(5, 150, 105, 0.05); border: 1px solid rgba(5, 150, 105, 0.1); border-radius: 12px; padding: 1rem; text-align: center;">
+                        <h4 style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.25rem; font-weight: 600;">RESOLVED DISPUTES</h4>
+                        <div id="statsSolvedErrors" style="font-size: 1.8rem; font-weight: 800; color: var(--color-success);">0</div>
+                        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Successfully solved errors</p>
+                    </div>
+                    <div class="summary-card" style="background: rgba(123, 44, 191, 0.05); border: 1px solid rgba(123, 44, 191, 0.1); border-radius: 12px; padding: 1rem; text-align: center;">
+                        <h4 style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.25rem; font-weight: 600;">TOTAL RECORDED (30D)</h4>
+                        <div id="statsTotalErrors" style="font-size: 1.8rem; font-weight: 800; color: var(--color-primary);">0</div>
+                        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Day auto-cleanup active</p>
+                    </div>
+                </div>
+
+                <!-- Toolbar / Filter Bar -->
+                <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem; width: 100%; flex-wrap: wrap;">
+                    <!-- Search Input -->
+                    <div style="position: relative; flex-grow: 1; min-width: 250px;">
+                        <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.85rem;"></i>
+                        <input type="text" id="trackerSearchInput" placeholder="Search by Party, Warehouse, or File..." style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem 0.5rem 0.5rem 2.2rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; width: 100%; box-shadow: 0 1px 3px rgba(0,0,0,0.02); height: 36px;">
+                    </div>
+                    <!-- Status Filter Dropdown -->
+                    <div>
+                        <select id="trackerStatusFilter" style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 2rem 0.4rem 0.75rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; height: 36px; cursor: pointer; outline: none; -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url('data:image/svg+xml;utf8,<svg fill=%22%236b7280%22 height=%2224%22 viewBox=%220 0 24 24%22 width=%2224%22 xmlns=%22http://www.w3.org/2000/svg%22><path d=%22M7 10l5 5 5-5z%22/></svg>'); background-repeat: no-repeat; background-position: right 8px center; background-size: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                            <option value="all">All Statuses</option>
+                            <option value="active">Active (Unsolved)</option>
+                            <option value="solved">Solved</option>
+                        </select>
+                    </div>
+                    <!-- Source Filter Dropdown -->
+                    <div>
+                        <select id="trackerSourceFilter" style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 2rem 0.4rem 0.75rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; height: 36px; cursor: pointer; outline: none; -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url('data:image/svg+xml;utf8,<svg fill=%22%236b7280%22 height=%2224%22 viewBox=%220 0 24 24%22 width=%2224%22 xmlns=%22http://www.w3.org/2000/svg%22><path d=%22M7 10l5 5 5-5z%22/></svg>'); background-repeat: no-repeat; background-position: right 8px center; background-size: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                            <option value="all">All Pipelines</option>
+                            <option value="ajio">Ajio Error Only</option>
+                            <option value="invoice">Invoice Error Only</option>
+                        </select>
+                    </div>
+                    <!-- Clear All Button -->
+                    <button class="btn" id="clearTrackerDbBtn" style="font-size: 0.85rem; color: var(--color-error); border: 1px solid rgba(220, 38, 38, 0.2); background: rgba(220, 38, 38, 0.02); height: 36px; padding: 0 0.75rem; border-radius: 8px; display: flex; align-items: center; gap: 0.4rem; font-weight: 600; cursor: pointer; transition: var(--transition-fast);">
+                        <i class="fa-solid fa-trash-can"></i> Clear History
+                    </button>
+                </div>
+
+                <!-- Tracker Table Container -->
+                <div class="processed-container" id="trackerTableContainer" style="min-height: 400px; justify-content: flex-start; padding: 0.5rem; overflow-y: auto; background: white; border-radius: 12px; border: 1px solid var(--border-color); box-shadow: inset 0 1px 4px rgba(0,0,0,0.01); width: 100%;">
+                    <div class="empty-output-state" id="trackerEmptyState">
+                        <i class="fa-solid fa-spinner fa-spin placeholder-icon" style="color: var(--color-primary);"></i>
+                        <p>Connecting to database and loading tracker history...</p>
+                    </div>
+                </div>
+            </section>
         </div>
 
         <!-- Footer removed -->
