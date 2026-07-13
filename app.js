@@ -6053,9 +6053,14 @@ function doPost(e) {
        ========================================================================== */
     let fcFiles = [];
     let fcZipBlob = null;
+    let fcMode = 'files'; // 'files' or 'folders'
 
     const fcDropzone = document.getElementById('fcDropzone');
     const fcFileInput = document.getElementById('fcFileInput');
+    const fcFolderInput = document.getElementById('fcFolderInput');
+    const fcUploadTitle = document.getElementById('fcUploadTitle');
+    const fcModeFilesBtn = document.getElementById('fcModeFilesBtn');
+    const fcModeFoldersBtn = document.getElementById('fcModeFoldersBtn');
     const fcFileDisplay = document.getElementById('fcFileDisplay');
     const fcBtn = document.getElementById('fcBtn');
     const fcStatus = document.getElementById('fcStatus');
@@ -6069,6 +6074,9 @@ function doPost(e) {
     const clearFcFilesBtn = document.getElementById('clearFcFilesBtn');
     const fcSelectedCount = document.getElementById('fcSelectedCount');
     const fcUploadedFileList = document.getElementById('fcUploadedFileList');
+
+    // Initialize folder input display as hidden by default
+    if (fcFolderInput) fcFolderInput.style.display = 'none';
 
     function fcLog(message, type = 'info') {
         if (!fcConsoleLog) return;
@@ -6087,10 +6095,168 @@ function doPost(e) {
         });
     }
 
-    if (fcDropzone && fcFileInput) {
-        setupMultiDropzone(fcDropzone, fcFileInput, (files) => {
-            let added = 0;
-            files.forEach(file => {
+    // Helper to recursively traverse dragged folders and get files
+    async function getFilesFromDataTransfer(dataTransfer) {
+        console.log("getFilesFromDataTransfer: Started traversal. dataTransfer =", dataTransfer);
+        const files = [];
+        
+        // Helper to read directory entries
+        const readDirectory = (dirEntry) => {
+            return new Promise((resolve) => {
+                const reader = dirEntry.createReader();
+                const allEntries = [];
+                
+                const readEntries = () => {
+                    reader.readEntries((entries) => {
+                        if (entries.length === 0) {
+                            resolve(allEntries);
+                        } else {
+                            allEntries.push(...entries);
+                            readEntries();
+                        }
+                    }, () => resolve([]));
+                };
+                readEntries();
+            });
+        };
+        
+        // Helper to get file from file entry
+        const getFile = (fileEntry) => {
+            return new Promise((resolve) => {
+                fileEntry.file((file) => resolve(file), () => resolve(null));
+            });
+        };
+        
+        // Recursive traverse
+        const traverse = async (entry, path = "") => {
+            console.log("Traversing entry:", entry.name, "isFile:", entry.isFile, "isDirectory:", entry.isDirectory, "currentPath:", path);
+            if (entry.isFile) {
+                const file = await getFile(entry);
+                if (file) {
+                    file.customRelativePath = path ? `${path}/${file.name}` : file.name;
+                    console.log("Found file entry:", file.name, "customRelativePath:", file.customRelativePath);
+                    files.push(file);
+                }
+            } else if (entry.isDirectory) {
+                const entries = await readDirectory(entry);
+                const nextPath = path ? `${path}/${entry.name}` : entry.name;
+                console.log("Found directory entry:", entry.name, "contains entries count:", entries.length, "nextPath:", nextPath);
+                for (const subEntry of entries) {
+                    await traverse(subEntry, nextPath);
+                }
+            }
+        };
+        
+        const items = dataTransfer.items;
+        const entries = [];
+        
+        // CRITICAL: webkitGetAsEntry MUST be called synchronously for all items
+        // before any await yielding occurs, because Chrome clears dataTransfer.items
+        // once the event loop turns.
+        if (items) {
+            console.log("dataTransfer.items found. count =", items.length);
+            for (let i = 0; i < items.length; i++) {
+                try {
+                    const entry = items[i].webkitGetAsEntry();
+                    console.log("Item index", i, "entryName =", entry ? entry.name : "null");
+                    if (entry) {
+                        entries.push(entry);
+                    }
+                } catch (err) {
+                    console.warn("Error getting webkitGetAsEntry at index", i, err);
+                }
+            }
+        }
+        
+        if (entries.length > 0) {
+            console.log("Synchronously extracted entries count =", entries.length, ". Starting async traversal...");
+            for (const entry of entries) {
+                await traverse(entry);
+            }
+        } else {
+            console.log("No webkitGetAsEntry entries found or items was empty. Falling back to dataTransfer.files...");
+            const list = Array.from(dataTransfer.files);
+            list.forEach(file => {
+                file.customRelativePath = file.webkitRelativePath || file.name;
+                files.push(file);
+            });
+        }
+        
+        console.log("getFilesFromDataTransfer finished. Total files parsed =", files.length);
+        return files;
+    }
+
+    function switchFcMode(mode) {
+        if (fcMode === mode) return;
+        fcMode = mode;
+        
+        fcFiles = [];
+        if (fcFileInput) fcFileInput.value = '';
+        if (fcFolderInput) fcFolderInput.value = '';
+        fcZipBlob = null;
+        
+        if (fcOutputContainer) {
+            fcOutputContainer.innerHTML = `
+                <div class="empty-output-state">
+                    <i class="fa-solid fa-folder-plus placeholder-icon"></i>
+                    <p>Upload files and click process to group into folders and zip.</p>
+                </div>
+            `;
+            fcOutputContainer.className = 'processed-container empty';
+        }
+        if (fcStatus) {
+            fcStatus.className = 'status-indicator idle';
+            fcStatus.innerText = 'Idle';
+        }
+        if (fcProgressCard) fcProgressCard.classList.add('hidden');
+        
+        if (mode === 'files') {
+            if (fcFileInput) fcFileInput.style.display = 'block';
+            if (fcFolderInput) fcFolderInput.style.display = 'none';
+            if (fcModeFilesBtn) fcModeFilesBtn.classList.add('active');
+            if (fcModeFoldersBtn) fcModeFoldersBtn.classList.remove('active');
+            if (fcUploadTitle) fcUploadTitle.innerText = "Drag & drop or browse files to group";
+            if (fcFileDisplay) fcFileDisplay.innerText = "Drag & drop or Click to choose files";
+            fcLog("Switched to File Grouping Mode (by name prefix).", "info");
+        } else {
+            if (fcFileInput) fcFileInput.style.display = 'none';
+            if (fcFolderInput) fcFolderInput.style.display = 'block';
+            if (fcModeFilesBtn) fcModeFilesBtn.classList.remove('active');
+            if (fcModeFoldersBtn) fcModeFoldersBtn.classList.add('active');
+            if (fcUploadTitle) fcUploadTitle.innerText = "Drag & drop or browse folders";
+            if (fcFileDisplay) fcFileDisplay.innerText = "Drag & drop or Click to choose folders";
+            fcLog("Switched to Folder Process Mode (zip & verify folders directly).", "info");
+        }
+        
+        updateFcUI();
+    }
+
+    if (fcModeFilesBtn) {
+        fcModeFilesBtn.addEventListener('click', () => switchFcMode('files'));
+    }
+    if (fcModeFoldersBtn) {
+        fcModeFoldersBtn.addEventListener('click', () => switchFcMode('folders'));
+    }
+
+    function handleFcFilesAdded(files) {
+        console.log("handleFcFilesAdded: Received files =", files.length, "Mode =", fcMode);
+        let added = 0;
+        files.forEach(file => {
+            console.log("Processing file in loop:", file.name, 
+                        "size:", file.size, 
+                        "webkitRelativePath:", file.webkitRelativePath, 
+                        "customRelativePath:", file.customRelativePath);
+                        
+            const ext = file.name.split('.').pop().toLowerCase();
+            const isValidExt = ['xlsx', 'xls', 'csv'].includes(ext);
+            const isSystemFile = file.name.startsWith('.') || file.name.startsWith('~') || file.name === "Thumbs.db";
+            
+            if (!isValidExt || isSystemFile) {
+                console.log("File skipped. Reason - Valid extension:", isValidExt, "System file:", isSystemFile);
+                return;
+            }
+            
+            if (fcMode === 'files') {
                 if (!fcFiles.some(f => f.name === file.name && f.size === file.size)) {
                     fcFiles.push({
                         id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
@@ -6099,19 +6265,122 @@ function doPost(e) {
                         file: file
                     });
                     added++;
+                } else {
+                    console.log("File already exists in selection:", file.name);
                 }
-            });
-            if (added > 0) {
-                fcLog(`Added ${added} file(s) to group list.`, 'success');
+            } else {
+                const relativePath = file.customRelativePath || file.webkitRelativePath || file.name;
+                // Normalize backslashes to forward slashes for Windows compatibility
+                const normalizedPath = relativePath.replace(/\\/g, '/');
+                const pathParts = normalizedPath.split('/');
+                
+                console.log("Folder Mode details -> relativePath:", relativePath, 
+                            "normalizedPath:", normalizedPath, 
+                            "pathParts:", pathParts);
+                
+                if (pathParts.length > 1) {
+                    // Extract the immediate parent directory of the file as the folderName
+                    const folderName = pathParts[pathParts.length - 2];
+                    // Construct a clean relative path for the zip: folderName/fileName
+                    const cleanRelativePath = `${folderName}/${file.name}`;
+                    
+                    console.log("Extracted folderName:", folderName, "cleanRelativePath:", cleanRelativePath);
+                    
+                    if (!fcFiles.some(f => f.relativePath === cleanRelativePath && f.size === file.size)) {
+                        fcFiles.push({
+                            id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                            name: file.name,
+                            size: file.size,
+                            file: file,
+                            folderName: folderName,
+                            relativePath: cleanRelativePath
+                        });
+                        added++;
+                    } else {
+                        console.log("File already exists in folder selection:", cleanRelativePath);
+                    }
+                } else {
+                    console.log("Ignored because pathParts.length <= 1");
+                    fcLog(`Ignored file [${file.name}] because it is not inside an uploaded folder.`, 'warning');
+                }
             }
-            updateFcUI();
+        });
+        
+        console.log("Finished handleFcFilesAdded. Added", added, "new files.");
+        if (added > 0) {
+            const unit = fcMode === 'files' ? 'file(s)' : 'file(s) from folders';
+            fcLog(`Added ${added} ${unit} to process list.`, 'success');
+        } else {
+            fcLog(`No new valid Excel files were added.`, 'warning');
+        }
+        updateFcUI();
+    }
+
+    if (fcDropzone) {
+        fcDropzone.addEventListener('click', (e) => {
+            if (e.target === fcFileInput || e.target === fcFolderInput) return;
+            if (fcMode === 'files') {
+                if (fcFileInput) fcFileInput.click();
+            } else {
+                if (fcFolderInput) fcFolderInput.click();
+            }
+        });
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            fcDropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                fcDropzone.classList.add('dragover');
+            });
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            fcDropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                fcDropzone.classList.remove('dragover');
+            });
+        });
+        
+        fcDropzone.addEventListener('drop', async (e) => {
+            let files = [];
+            if (fcMode === 'files') {
+                if (e.dataTransfer.files.length > 0) {
+                    files = Array.from(e.dataTransfer.files);
+                }
+            } else {
+                files = await getFilesFromDataTransfer(e.dataTransfer);
+            }
+            
+            if (files.length > 0) {
+                handleFcFilesAdded(files);
+            }
+        });
+    }
+
+    if (fcFileInput) {
+        fcFileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFcFilesAdded(Array.from(e.target.files));
+                fcFileInput.value = '';
+            }
+        });
+    }
+
+    if (fcFolderInput) {
+        fcFolderInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFcFilesAdded(Array.from(e.target.files));
+                fcFolderInput.value = '';
+            }
         });
     }
 
     if (clearFcFilesBtn) {
         clearFcFilesBtn.addEventListener('click', () => {
             fcFiles = [];
-            fcFileInput.value = '';
+            if (fcFileInput) fcFileInput.value = '';
+            if (fcFolderInput) fcFolderInput.value = '';
             updateFcUI();
             fcLog('Cleared all selected files.', 'info');
         });
@@ -6136,7 +6405,7 @@ function doPost(e) {
                 
                 const nameSpan = document.createElement('span');
                 nameSpan.className = 'file-name';
-                nameSpan.innerText = fileObj.name;
+                nameSpan.innerText = fcMode === 'folders' ? (fileObj.relativePath || fileObj.name) : fileObj.name;
                 
                 const sizeSpan = document.createElement('span');
                 sizeSpan.className = 'file-size';
@@ -6312,34 +6581,51 @@ function doPost(e) {
                 const groups = {};
                 let invalidCount = 0;
                 
-                fcFiles.forEach(fileObj => {
-                    const filename = fileObj.name;
-                    if (filename.includes('-')) {
-                        const prefix = filename.split('-')[0].trim();
-                        if (prefix !== "") {
-                            if (!groups[prefix]) {
-                                groups[prefix] = [];
+                if (fcMode === 'files') {
+                    fcFiles.forEach(fileObj => {
+                        const filename = fileObj.name;
+                        if (filename.includes('-')) {
+                            const prefix = filename.split('-')[0].trim();
+                            if (prefix !== "") {
+                                if (!groups[prefix]) {
+                                    groups[prefix] = [];
+                                }
+                                groups[prefix].push(fileObj);
+                            } else {
+                                invalidCount++;
                             }
-                            groups[prefix].push(fileObj);
                         } else {
                             invalidCount++;
                         }
-                    } else {
-                        invalidCount++;
-                    }
-                });
+                    });
 
-                if (invalidCount > 0) {
-                    fcLog(`Ignored ${invalidCount} file(s) that do not contain a hyphen '-' or have empty prefix.`, 'warning');
+                    if (invalidCount > 0) {
+                        fcLog(`Ignored ${invalidCount} file(s) that do not contain a hyphen '-' or have empty prefix.`, 'warning');
+                    }
+                } else {
+                    fcFiles.forEach(fileObj => {
+                        const folderName = fileObj.folderName;
+                        if (folderName) {
+                            if (!groups[folderName]) {
+                                groups[folderName] = [];
+                            }
+                            groups[folderName].push(fileObj);
+                        } else {
+                            invalidCount++;
+                        }
+                    });
                 }
 
                 const prefixes = Object.keys(groups);
                 if (prefixes.length === 0) {
-                    throw new Error("No files with valid prefix found! Files must contain a '-' in their name.");
+                    throw new Error(fcMode === 'files' ? 
+                        "No files with valid prefix found! Files must contain a '-' in their name." : 
+                        "No valid folders found!");
                 }
 
                 prefixes.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-                fcLog(`Found ${prefixes.length} folder group(s) to process: [${prefixes.join(', ')}]`, 'info');
+                const groupType = fcMode === 'files' ? 'folder group(s)' : 'uploaded folder(s)';
+                fcLog(`Found ${prefixes.length} ${groupType} to process: [${prefixes.join(', ')}]`, 'info');
 
                 const zip = new JSZip();
                 const foldersWithIssues = [];
@@ -6363,11 +6649,19 @@ function doPost(e) {
                         hasMissing = true;
                     }
 
-                    const folder = zip.folder(prefix);
-                    for (let f = 0; f < filesInGroup.length; f++) {
-                        const fileObj = filesInGroup[f];
-                        folder.file(fileObj.name, fileObj.file);
-                        fcLog(`Added file to zip: ${prefix}/${fileObj.name}`, 'info');
+                    if (fcMode === 'files') {
+                        const folder = zip.folder(prefix);
+                        for (let f = 0; f < filesInGroup.length; f++) {
+                            const fileObj = filesInGroup[f];
+                            folder.file(fileObj.name, fileObj.file);
+                            fcLog(`Added file to zip: ${prefix}/${fileObj.name}`, 'info');
+                        }
+                    } else {
+                        for (let f = 0; f < filesInGroup.length; f++) {
+                            const fileObj = filesInGroup[f];
+                            zip.file(fileObj.relativePath, fileObj.file);
+                            fcLog(`Added file to zip: ${fileObj.relativePath}`, 'info');
+                        }
                     }
                 }
 
@@ -6456,13 +6750,13 @@ function doPost(e) {
 
     // Global test function for Folder Create
     window.runFolderCreateTest = function() {
-        // Switch tab to folder create so the user can see it
         const tabBtn = document.querySelector('.tab-btn[data-tab="tab-folder-create"]');
         if (tabBtn) tabBtn.click();
         
+        if (fcModeFilesBtn) fcModeFilesBtn.click();
+        
         fcLog("Running programmatic test...", "info");
         
-        // Create dummy files
         const dummyContent = "Test Data";
         const filesToTest = [
             { name: "206-File1.xlsx", content: dummyContent },
@@ -6491,7 +6785,6 @@ function doPost(e) {
         
         updateFcUI();
         
-        // Programmatically trigger button click
         if (fcBtn) {
             fcLog("Triggering START FOLDER CREATE programmatically...", "info");
             setTimeout(() => {

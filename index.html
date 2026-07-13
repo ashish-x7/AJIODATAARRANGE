@@ -496,11 +496,22 @@
                         <span class="badge">Local Only</span>
                     </div>
 
+                    <!-- Mode Selector: Group Files vs Process Folders -->
+                    <div class="sub-tab-navigation" style="margin-bottom: 1rem; display: flex; gap: 0.5rem; background: rgba(0,0,0,0.02); padding: 0.3rem; border-radius: 10px; border: 1px solid var(--border-color);">
+                        <button class="sub-tab-btn active" id="fcModeFilesBtn" type="button" style="flex: 1; text-align: center; justify-content: center; display: flex; align-items: center; gap: 0.4rem; border: none; cursor: pointer; transition: all 0.2s;">
+                            <i class="fa-solid fa-file-excel"></i> Group Files by Prefix
+                        </button>
+                        <button class="sub-tab-btn" id="fcModeFoldersBtn" type="button" style="flex: 1; text-align: center; justify-content: center; display: flex; align-items: center; gap: 0.4rem; border: none; cursor: pointer; transition: all 0.2s;">
+                            <i class="fa-solid fa-folder-open"></i> Process Folders Directly
+                        </button>
+                    </div>
+
                     <!-- Upload Input: Multiple files -->
                     <div class="merger-upload-card">
-                        <h3><i class="fa-solid fa-file-shield text-purple"></i> Drag & drop or browse files to group</h3>
+                        <h3><i class="fa-solid fa-file-shield text-purple"></i> <span id="fcUploadTitle">Drag & drop or browse files to group</span></h3>
                         <div class="mini-dropzone" id="fcDropzone" style="min-height: 140px; padding: 2rem 1rem;">
                             <input type="file" id="fcFileInput" multiple accept=".xlsx,.xls,.csv" class="file-input-hidden">
+                            <input type="file" id="fcFolderInput" webkitdirectory directory multiple class="file-input-hidden">
                             <div class="mini-dropzone-content">
                                 <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
                                 <span class="filename-display" id="fcFileDisplay">Drag & drop or Click to choose files</span>
