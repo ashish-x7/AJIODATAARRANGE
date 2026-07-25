@@ -4239,7 +4239,7 @@ function doPost(e) {
 
                 if (userChoice === "1") {
                     nameSuffix = "-AJIO";
-                    filterField = (colChoice === "G") ? 6 : 3;
+                    filterField = 3; // Column D (index 3)
                     dataStartRow = 2;
                     headerRowCount = 2;
                 } else if (userChoice === "2") {
