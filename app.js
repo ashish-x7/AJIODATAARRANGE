@@ -799,10 +799,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     log(`Deleted matching rows: ${deletedMatchCount}`, 'info');
 
-                    // 2. Q-V Mismatch
+                    // 2. Q-V Mismatch & Seller SKU Blank Check
                     const finalOdAoa = [cleanOdAoa[0]];
                     const mismatchAoa = [cleanOdAoa[0]];
+                    const blankSkuAoa = [cleanOdAoa[0]];
                     let mismatchCount = 0;
+                    let blankSkuCount = 0;
                     for (let i = 1; i < cleanOdAoa.length; i++) {
                         const row = cleanOdAoa[i];
                         const colA = String(row[0]).trim();
@@ -810,16 +812,22 @@ document.addEventListener('DOMContentLoaded', () => {
                         const colQ = String(row[16]).trim();
                         const colV = String(row[21]).trim();
                         const colAE = String(row[30]).trim();
+                        const colN = String(row[13]).trim();
 
                         const hasMismatch = (colA !== "" && colF !== "" && colQ !== colV && colAE === "");
                         if (hasMismatch) {
                             mismatchAoa.push(row);
                             mismatchCount++;
+                        } else if (colN === "") {
+                            const rowCopy = [...row];
+                            rowCopy[13] = colF; // Replace blank Seller SKU with Invoice No
+                            blankSkuAoa.push(rowCopy);
+                            blankSkuCount++;
                         } else {
                             finalOdAoa.push(row);
                         }
                     }
-                    log(`Q-V mismatch rows: ${mismatchCount}`, 'info');
+                    log(`Q-V mismatch rows: ${mismatchCount}, Blank SKU rows: ${blankSkuCount}`, 'info');
 
                     // 3. Status Stats, Date Range, Invoice Range
                     let cntNew = 0, cntCancelled = 0, cntShipped = 0, cntDelivered = 0;
@@ -894,7 +902,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     // 4. Duplicate Invoices & Discounts
                     const invoiceCounts = {};
                     const duplicateReport = [["DUPLICATE INVOICE LIST", "COUNT"]];
-                    const discountReport = [["INVOICE-DETAILS", "DISCOUNT"]];
+                    const discountReport = [["INVOICE NO", "PERCENTAGE"]];
 
                     for (let i = 1; i < finalOdAoa.length; i++) {
                         const row = finalOdAoa[i];
@@ -906,17 +914,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         const colAB = parseFloat(row[27]) || 0;
                         const colAC = parseFloat(row[28]) || 0;
                         
-                        // Set the discount formula in column AD (index 29)
-                        row[29] = { f: `ROUNDUP(AC${i + 1}/AB${i + 1}*100,0)&"%"`, t: "s" };
+                        // NOT writing percentage formula in Column AD to preserve original data
                         
                         if (colAB !== 0) {
                             const discountVal = Math.ceil((colAC / colAB) * 100);
-                            if (discountVal > 65) {
-                                const colK = String(row[10]).trim();
-                                const colN = String(row[13]).trim();
-                                const invKey = `${invoiceVal}-${colK}-${colN}`;
-                                discountReport.push([invKey, `${discountVal}%`]);
-                            }
+                            const colC = String(row[2]).trim();
+                            const colK = String(row[10]).trim();
+                            const colN = String(row[13]).trim();
+                            const customKey = `${invoiceVal}-${colC}-${colK}-${colN}`;
+                            discountReport.push([customKey, `${discountVal}%`]);
                         }
                     }
 
@@ -946,11 +952,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}PARTLY_CANCEL_QV_MISMATCH.xlsx`, outMismatch);
 
+                    const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
+                    const wbBlankSku = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
+                    const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
+                    outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+
                     const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
                     const wbDuplicate = XLSX.utils.book_new();
                     XLSX.utils.book_append_sheet(wbDuplicate, wsDuplicate, "Duplicates");
                     const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
+
+                    const wsDiscount = XLSX.utils.aoa_to_sheet(discountReport);
+                    const wbDiscount = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wbDiscount, wsDiscount, "Discounts");
+                    const outDiscount = XLSX.write(wbDiscount, { bookType: 'xlsx', type: 'array' });
+                    outputZip.file(`${pathPrefix}DISCOUNT PERCENTAGE.xlsx`, outDiscount);
 
                     const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
                     const detailsHeaders = [
@@ -1308,7 +1326,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // ==================================================================
             const outputZip = new JSZip();
             let allPendingInvoices = [["Filename", "OrderID", "Status"]];
-            let allDiscountReport = [["INVOICE-DETAILS", "DISCOUNT"]];
+            let allDiscountReport = [["INVOICE NO", "PERCENTAGE"]];
 
             for (let idx = 0; idx < vendorCodes.length; idx++) {
                 const groupKey = vendorCodes[idx];
@@ -1387,10 +1405,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     log(`Deleted matching rows: ${deletedMatchCount}`, 'info');
 
-                    // 2. Q-V Mismatch
+                    // 2. Q-V Mismatch & Seller SKU Blank Check
                     const finalOdAoa = [cleanOdAoa[0]];
                     const mismatchAoa = [cleanOdAoa[0]];
+                    const blankSkuAoa = [cleanOdAoa[0]];
                     let mismatchCount = 0;
+                    let blankSkuCount = 0;
                     for (let i = 1; i < cleanOdAoa.length; i++) {
                         const row = cleanOdAoa[i];
                         const colA = String(row[0]).trim();
@@ -1398,16 +1418,22 @@ document.addEventListener('DOMContentLoaded', () => {
                         const colQ = String(row[16]).trim();
                         const colV = String(row[21]).trim();
                         const colAE = String(row[30]).trim();
+                        const colN = String(row[13]).trim();
 
                         const hasMismatch = (colA !== "" && colF !== "" && colQ !== colV && colAE === "");
                         if (hasMismatch) {
                             mismatchAoa.push(row);
                             mismatchCount++;
+                        } else if (colN === "") {
+                            const rowCopy = [...row];
+                            rowCopy[13] = colF; // Replace blank Seller SKU with Invoice No
+                            blankSkuAoa.push(rowCopy);
+                            blankSkuCount++;
                         } else {
                             finalOdAoa.push(row);
                         }
                     }
-                    log(`Q-V mismatch rows found: ${mismatchCount}`, 'info');
+                    log(`Q-V mismatch rows: ${mismatchCount}, Blank SKU rows: ${blankSkuCount}`, 'info');
 
                     // 3. Status Stats, Date Range, Invoice Range
                     let cntNew = 0, cntCancelled = 0, cntShipped = 0, cntDelivered = 0;
@@ -1492,7 +1518,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     // 4. Duplicate Invoices & Discounts
                     const invoiceCounts = {};
                     const duplicateReport = [["DUPLICATE INVOICE LIST", "COUNT"]];
-                    const discountReport = [["INVOICE-DETAILS", "DISCOUNT"]];
+                    const discountReport = [["INVOICE NO", "PERCENTAGE"]];
 
                     for (let i = 1; i < finalOdAoa.length; i++) {
                         const row = finalOdAoa[i];
@@ -1504,20 +1530,18 @@ document.addEventListener('DOMContentLoaded', () => {
                         const colAB = parseFloat(row[27]) || 0;
                         const colAC = parseFloat(row[28]) || 0;
                         
-                        // Set the discount formula in column AD (index 29)
-                        row[29] = { f: `ROUNDUP(AC${i + 1}/AB${i + 1}*100,0)&"%"`, t: "s" };
+                        // NOT writing percentage formula in Column AD to preserve original data
                         
                         if (colAB !== 0) {
                             const discountVal = Math.ceil((colAC / colAB) * 100);
-                            if (discountVal > 65) {
-                                const colK = String(row[10]).trim();
-                                const colN = String(row[13]).trim();
-                                const invKey = `${invoiceVal}-${colK}-${colN}`;
-                                const discRow = [invKey, `${discountVal}%`];
-                                discountReport.push(discRow);
-                                // Accumulate discounts
-                                allDiscountReport.push(discRow);
-                            }
+                            const colC = String(row[2]).trim();
+                            const colK = String(row[10]).trim();
+                            const colN = String(row[13]).trim();
+                            const customKey = `${invoiceVal}-${colC}-${colK}-${colN}`;
+                            const discRow = [customKey, `${discountVal}%`];
+                            discountReport.push(discRow);
+                            // Accumulate discounts
+                            allDiscountReport.push(discRow);
                         }
                     }
 
@@ -1546,11 +1570,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}PARTLY_CANCEL_QV_MISMATCH.xlsx`, outMismatch);
 
+                    const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
+                    const wbBlankSku = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
+                    const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
+                    outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+
                     const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
                     const wbDuplicate = XLSX.utils.book_new();
                     XLSX.utils.book_append_sheet(wbDuplicate, wsDuplicate, "Duplicates");
                     const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
+
+                    const wsDiscount = XLSX.utils.aoa_to_sheet(discountReport);
+                    const wbDiscount = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wbDiscount, wsDiscount, "Discounts");
+                    const outDiscount = XLSX.write(wbDiscount, { bookType: 'xlsx', type: 'array' });
+                    outputZip.file(`${pathPrefix}DISCOUNT PERCENTAGE.xlsx`, outDiscount);
 
                     const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
                     const detailsHeaders = [
@@ -2246,12 +2282,13 @@ document.addEventListener('DOMContentLoaded', () => {
             mergerProgressStepText.innerText = 'Step 2: Processing Q-V Mismatches (Partly Cancel)...';
 
             // ==================================================================
-            // PIPELINE STEP 2: Q-V MISMATCH (PARTLY CANCEL)
+            // PIPELINE STEP 2: Q-V MISMATCH (PARTLY CANCEL) & SELLER SKU BLANK CHECK
             // ==================================================================
-            // Condition: Col A not empty, Col F not empty, Col Q !== Col V, Col AE is empty
             const finalOdAoa = [cleanOdAoa[0]]; // remaining OD rows
             const mismatchAoa = [cleanOdAoa[0]]; // Partly Cancel worksheet
+            const blankSkuAoa = [cleanOdAoa[0]]; // Blank SKU worksheet
             let mismatchCount = 0;
+            let blankSkuCount = 0;
 
             for (let i = 1; i < cleanOdAoa.length; i++) {
                 const row = cleanOdAoa[i];
@@ -2260,17 +2297,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 const colQ = String(row[16]).trim(); // Qty 1
                 const colV = String(row[21]).trim(); // Qty 2
                 const colAE = String(row[30]).trim();
+                const colN = String(row[13]).trim();
 
                 const hasMismatch = (colA !== "" && colF !== "" && colQ !== colV && colAE === "");
 
                 if (hasMismatch) {
                     mismatchAoa.push(row);
                     mismatchCount++;
+                } else if (colN === "") {
+                    const rowCopy = [...row];
+                    rowCopy[13] = colF; // Replace blank Seller SKU with Invoice No
+                    blankSkuAoa.push(rowCopy);
+                    blankSkuCount++;
                 } else {
                     finalOdAoa.push(row);
                 }
             }
-            mergerLog(`Q-V mismatch check completed. Mismatch rows found: ${mismatchCount}`, 'success');
+            mergerLog(`Q-V mismatch rows: ${mismatchCount}, Blank SKU rows: ${blankSkuCount}`, 'success');
 
             mergerProgressBar.style.width = '55%';
             mergerProgressPercent.innerText = '55%';
@@ -2372,7 +2415,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // ==================================================================
             const invoiceCounts = {};
             const duplicateReport = [["DUPLICATE INVOICE LIST", "COUNT"]];
-            const discountReport = [["INVOICE-DETAILS", "DISCOUNT"]];
+            const discountReport = [["INVOICE NO", "PERCENTAGE"]];
 
             for (let i = 1; i < finalOdAoa.length; i++) {
                 const row = finalOdAoa[i];
@@ -2387,17 +2430,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const colAB = parseFloat(row[27]) || 0; // AB
                 const colAC = parseFloat(row[28]) || 0; // AC
                 
-                // Set the discount formula in column AD (index 29)
-                row[29] = { f: `ROUNDUP(AC${i + 1}/AB${i + 1}*100,0)&"%"`, t: "s" };
+                // NOT writing percentage formula in Column AD to preserve original data
                 
                 if (colAB !== 0) {
                     const discountVal = Math.ceil((colAC / colAB) * 100);
-                    if (discountVal > 65) {
-                        const colK = String(row[10]).trim();
-                        const colN = String(row[13]).trim();
-                        const invKey = `${invoiceVal}-${colK}-${colN}`;
-                        discountReport.push([invKey, `${discountVal}%`]);
-                    }
+                    const colC = String(row[2]).trim();
+                    const colK = String(row[10]).trim();
+                    const colN = String(row[13]).trim();
+                    const customKey = `${invoiceVal}-${colC}-${colK}-${colN}`;
+                    discountReport.push([customKey, `${discountVal}%`]);
                 }
             }
 
@@ -2452,6 +2493,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
             zipFolder.file("PARTLY_CANCEL_QV_MISMATCH.xlsx", outMismatch);
 
+            // New Blank SKU File
+            const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
+            const wbBlankSku = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
+            const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
+            zipFolder.file("BLANK SKU.xlsx", outBlankSku);
+
             // 3. Duplicate Invoice File (only if duplicates found)
             const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
             const wbDuplicate = XLSX.utils.book_new();
@@ -2473,12 +2521,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const outPending = XLSX.write(wbPending, { bookType: 'xlsx', type: 'array' });
             // zipFolder.file("PENDING_INVOICE.xlsx", outPending);
 
-            // 6. DISCOUNT PERCENTAGE File (Omitted from ZIP per user request)
+            // 6. DISCOUNT PERCENTAGE File
             const wsDiscount = XLSX.utils.aoa_to_sheet(discountReport);
             const wbDiscount = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wbDiscount, wsDiscount, "Discounts");
             const outDiscount = XLSX.write(wbDiscount, { bookType: 'xlsx', type: 'array' });
-            // zipFolder.file("DISCOUNT_PERCENTAGE.xlsx", outDiscount);
+            zipFolder.file("DISCOUNT PERCENTAGE.xlsx", outDiscount);
 
             // Package final zip
             mergerZipBlob = await pipelineZip.generateAsync({ type: 'blob' });
@@ -2492,6 +2540,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ranges,
                 lastRangeStr,
                 outputRangeFilename,
+                blankSkuAoa,
                 cleanODFilename,
                 dateRangeStr,
                 warehouseStr,
@@ -2888,10 +2937,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     mergerLog(`Deleted matching rows: ${deletedMatchCount}`, 'info');
 
-                    // 2. Q-V Mismatch
+                    // 2. Q-V Mismatch & Seller SKU Blank Check
                     const finalOdAoa = [cleanOdAoa[0]];
                     const mismatchAoa = [cleanOdAoa[0]];
+                    const blankSkuAoa = [cleanOdAoa[0]];
                     let mismatchCount = 0;
+                    let blankSkuCount = 0;
                     for (let i = 1; i < cleanOdAoa.length; i++) {
                         const row = cleanOdAoa[i];
                         const colA = String(row[0]).trim();
@@ -2899,16 +2950,22 @@ document.addEventListener('DOMContentLoaded', () => {
                         const colQ = String(row[16]).trim();
                         const colV = String(row[21]).trim();
                         const colAE = String(row[30]).trim();
+                        const colN = String(row[13]).trim();
 
                         const hasMismatch = (colA !== "" && colF !== "" && colQ !== colV && colAE === "");
                         if (hasMismatch) {
                             mismatchAoa.push(row);
                             mismatchCount++;
+                        } else if (colN === "") {
+                            const rowCopy = [...row];
+                            rowCopy[13] = colF; // Replace blank Seller SKU with Invoice No
+                            blankSkuAoa.push(rowCopy);
+                            blankSkuCount++;
                         } else {
                             finalOdAoa.push(row);
                         }
                     }
-                    mergerLog(`Q-V mismatch rows: ${mismatchCount}`, 'info');
+                    mergerLog(`Q-V mismatch rows: ${mismatchCount}, Blank SKU rows: ${blankSkuCount}`, 'info');
 
                     // 3. Status Stats, Date Range, Invoice Range
                     let cntNew = 0, cntCancelled = 0, cntShipped = 0, cntDelivered = 0;
@@ -2983,7 +3040,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     // 4. Duplicate Invoices & Discounts
                     const invoiceCounts = {};
                     const duplicateReport = [["DUPLICATE INVOICE LIST", "COUNT"]];
-                    const discountReport = [["INVOICE-DETAILS", "DISCOUNT"]];
+                    const discountReport = [["INVOICE NO", "PERCENTAGE"]];
 
                     for (let i = 1; i < finalOdAoa.length; i++) {
                         const row = finalOdAoa[i];
@@ -2995,17 +3052,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         const colAB = parseFloat(row[27]) || 0;
                         const colAC = parseFloat(row[28]) || 0;
                         
-                        // Set the discount formula in column AD (index 29)
-                        row[29] = { f: `ROUNDUP(AC${i + 1}/AB${i + 1}*100,0)&"%"`, t: "s" };
+                        // NOT writing percentage formula in Column AD to preserve original data
                         
                         if (colAB !== 0) {
                             const discountVal = Math.ceil((colAC / colAB) * 100);
-                            if (discountVal > 65) {
-                                const colK = String(row[10]).trim();
-                                const colN = String(row[13]).trim();
-                                const invKey = `${invoiceVal}-${colK}-${colN}`;
-                                discountReport.push([invKey, `${discountVal}%`]);
-                            }
+                            const colC = String(row[2]).trim();
+                            const colK = String(row[10]).trim();
+                            const colN = String(row[13]).trim();
+                            const customKey = `${invoiceVal}-${colC}-${colK}-${colN}`;
+                            discountReport.push([customKey, `${discountVal}%`]);
                         }
                     }
 
@@ -3035,11 +3090,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}PARTLY_CANCEL_QV_MISMATCH.xlsx`, outMismatch);
 
+                    const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
+                    const wbBlankSku = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
+                    const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
+                    outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+
                     const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
                     const wbDuplicate = XLSX.utils.book_new();
                     XLSX.utils.book_append_sheet(wbDuplicate, wsDuplicate, "Duplicates");
                     const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
+
+                    const wsDiscount = XLSX.utils.aoa_to_sheet(discountReport);
+                    const wbDiscount = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wbDiscount, wsDiscount, "Discounts");
+                    const outDiscount = XLSX.write(wbDiscount, { bookType: 'xlsx', type: 'array' });
+                    outputZip.file(`${pathPrefix}DISCOUNT PERCENTAGE.xlsx`, outDiscount);
 
                     const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
                     const detailsHeaders = [
@@ -3206,6 +3273,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <button class="sub-tab-btn" data-subtab="subtab-details"><i class="fa-solid fa-circle-info"></i> Details Log</button>
             <button class="sub-tab-btn" data-subtab="subtab-pending"><i class="fa-solid fa-clock"></i> Pending <span class="badge-count">${data.pendingInvoices.length - 1}</span></button>
             <button class="sub-tab-btn" data-subtab="subtab-mismatch"><i class="fa-solid fa-triangle-exclamation"></i> Mismatch <span class="badge-count">${data.mismatchAoa.length - 1}</span></button>
+            <button class="sub-tab-btn" data-subtab="subtab-blank-sku"><i class="fa-solid fa-barcode"></i> Blank SKU <span class="badge-count">${data.blankSkuAoa.length - 1}</span></button>
             <button class="sub-tab-btn" data-subtab="subtab-duplicates"><i class="fa-solid fa-clone"></i> Duplicates <span class="badge-count">${data.duplicateReport.length - 1}</span></button>
             <button class="sub-tab-btn" data-subtab="subtab-discounts"><i class="fa-solid fa-tag"></i> Discounts <span class="badge-count">${data.discountReport.length - 1}</span></button>
         `;
@@ -3229,6 +3297,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="stat-box deleted">
                         <div class="stat-val">${data.deletedMatchCount}</div>
                         <div class="stat-label">Matching Rows Deleted</div>
+                    </div>
+                    <div class="stat-box mismatch" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); color: #d97706;">
+                        <div class="stat-val">${data.blankSkuAoa.length - 1}</div>
+                        <div class="stat-label">Blank SKU Rows Separated</div>
                     </div>
                     <div class="stat-box remaining">
                         <div class="stat-val">${data.finalOdAoa.length - 1}</div>
@@ -3288,6 +3360,13 @@ document.addEventListener('DOMContentLoaded', () => {
         paneMismatch.className = 'sub-tab-pane';
         paneMismatch.appendChild(createScrollableTable(data.mismatchAoa));
         panesWrapper.appendChild(paneMismatch);
+
+        // --- SUBTAB: Blank SKUs ---
+        const paneBlankSku = document.createElement('div');
+        paneBlankSku.id = 'subtab-blank-sku';
+        paneBlankSku.className = 'sub-tab-pane';
+        paneBlankSku.appendChild(createScrollableTable(data.blankSkuAoa));
+        panesWrapper.appendChild(paneBlankSku);
 
         // --- SUBTAB: Duplicates ---
         const paneDuplicates = document.createElement('div');
@@ -6284,10 +6363,16 @@ function doPost(e) {
                             "pathParts:", pathParts);
                 
                 if (pathParts.length > 1) {
-                    // Extract the immediate parent directory of the file as the folderName
-                    const folderName = pathParts[pathParts.length - 2];
-                    // Construct a clean relative path for the zip: folderName/fileName
-                    const cleanRelativePath = `${folderName}/${file.name}`;
+                    let folderName = "";
+                    let cleanRelativePath = "";
+                    
+                    if (pathParts.length > 2) {
+                        folderName = pathParts[1];
+                        cleanRelativePath = pathParts.slice(1).join('/');
+                    } else {
+                        folderName = pathParts[0];
+                        cleanRelativePath = pathParts.join('/');
+                    }
                     
                     console.log("Extracted folderName:", folderName, "cleanRelativePath:", cleanRelativePath);
                     
@@ -6739,6 +6824,7 @@ function doPost(e) {
                     fcStatus.className = 'status-indicator idle';
                     fcStatus.innerText = 'Failed';
                 }
+                if (fcProgressCard) fcProgressCard.classList.add('hidden');
                 if (fcOutputContainer) {
                     fcOutputContainer.innerHTML = `
                         <div class="empty-output-state">
