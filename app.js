@@ -952,11 +952,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}PARTLY_CANCEL_QV_MISMATCH.xlsx`, outMismatch);
 
-                    const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
-                    const wbBlankSku = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
-                    const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+                    // BLANK SKU file - only create when there's actual blank SKU data
+                    if (blankSkuCount > 0) {
+                        const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
+                        const wbBlankSku = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
+                        const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
+                        outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+                        log(`Blank SKU file created with ${blankSkuCount} rows.`, 'info');
+                    } else {
+                        log(`No blank SKU rows found - skipping BLANK SKU file.`, 'info');
+                    }
 
                     const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
                     const wbDuplicate = XLSX.utils.book_new();
@@ -964,12 +970,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
 
-                    const wsDiscount = XLSX.utils.aoa_to_sheet(discountReport);
-                    const wbDiscount = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDiscount, wsDiscount, "Discounts");
-                    const outDiscount = XLSX.write(wbDiscount, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}DISCOUNT PERCENTAGE.xlsx`, outDiscount);
-
+                    // Build combined SUMMARY file with Details + Discount Percentage sheets
                     const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
                     const detailsHeaders = [
                         "Filename", "Invoice Range", "Total Orders", "New", "Cancelled", 
@@ -982,11 +983,16 @@ document.addEventListener('DOMContentLoaded', () => {
                             cntShipped, cntDelivered, cntRTS, cntPO, cntOther, dateRangeStr, warehouseStr
                         ]
                     ];
-                    const wsDetails = XLSX.utils.aoa_to_sheet(detailsData);
-                    const wbDetails = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDetails, wsDetails, "Details Log");
-                    const outDetails = XLSX.write(wbDetails, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}DETAILS.xlsx`, outDetails);
+
+                    const wbSummaryFile = XLSX.utils.book_new();
+                    // Sheet 1: Details Log
+                    const wsDetailsSheet = XLSX.utils.aoa_to_sheet(detailsData);
+                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDetailsSheet, "Details Log");
+                    // Sheet 2: Discount Percentage
+                    const wsDiscountSheet = XLSX.utils.aoa_to_sheet(discountReport);
+                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDiscountSheet, "Discount Percentage");
+                    const outSummaryFile = XLSX.write(wbSummaryFile, { bookType: 'xlsx', type: 'array' });
+                    outputZip.file(`${pathPrefix}SUMMARY.xlsx`, outSummaryFile);
 
                     batchResults.push({
                         vendorCode: vendorCode,
@@ -1570,11 +1576,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}PARTLY_CANCEL_QV_MISMATCH.xlsx`, outMismatch);
 
-                    const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
-                    const wbBlankSku = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
-                    const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+                    // BLANK SKU file - only create when there's actual blank SKU data
+                    if (blankSkuCount > 0) {
+                        const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
+                        const wbBlankSku = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
+                        const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
+                        outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+                        log(`Blank SKU file created with ${blankSkuCount} rows.`, 'info');
+                    } else {
+                        log(`No blank SKU rows found - skipping BLANK SKU file.`, 'info');
+                    }
 
                     const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
                     const wbDuplicate = XLSX.utils.book_new();
@@ -1582,12 +1594,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
 
-                    const wsDiscount = XLSX.utils.aoa_to_sheet(discountReport);
-                    const wbDiscount = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDiscount, wsDiscount, "Discounts");
-                    const outDiscount = XLSX.write(wbDiscount, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}DISCOUNT PERCENTAGE.xlsx`, outDiscount);
-
+                    // Build combined SUMMARY file with Details + Discount Percentage sheets
                     const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
                     const detailsHeaders = [
                         "Filename", "Invoice Range", "Total Orders", "New", "Cancelled", 
@@ -1600,11 +1607,16 @@ document.addEventListener('DOMContentLoaded', () => {
                             cntShipped, cntDelivered, cntRTS, cntPO, cntOther, dateRangeStr, warehouseStr
                         ]
                     ];
-                    const wsDetails = XLSX.utils.aoa_to_sheet(detailsData);
-                    const wbDetails = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDetails, wsDetails, "Details Log");
-                    const outDetails = XLSX.write(wbDetails, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}DETAILS.xlsx`, outDetails);
+
+                    const wbSummaryFile = XLSX.utils.book_new();
+                    // Sheet 1: Details Log
+                    const wsDetailsSheet = XLSX.utils.aoa_to_sheet(detailsData);
+                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDetailsSheet, "Details Log");
+                    // Sheet 2: Discount Percentage
+                    const wsDiscountSheet = XLSX.utils.aoa_to_sheet(discountReport);
+                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDiscountSheet, "Discount Percentage");
+                    const outSummaryFile = XLSX.write(wbSummaryFile, { bookType: 'xlsx', type: 'array' });
+                    outputZip.file(`${pathPrefix}SUMMARY.xlsx`, outSummaryFile);
 
                     batchResults.push({
                         vendorCode: vendorCode,
@@ -2493,12 +2505,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
             zipFolder.file("PARTLY_CANCEL_QV_MISMATCH.xlsx", outMismatch);
 
-            // New Blank SKU File
-            const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
-            const wbBlankSku = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
-            const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
-            zipFolder.file("BLANK SKU.xlsx", outBlankSku);
+            // New Blank SKU File - only create when there's actual blank SKU data
+            if (blankSkuCount > 0) {
+                const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
+                const wbBlankSku = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
+                const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
+                zipFolder.file("BLANK SKU.xlsx", outBlankSku);
+                mergerLog(`Blank SKU file created with ${blankSkuCount} rows.`, 'info');
+            } else {
+                mergerLog(`No blank SKU rows found - skipping BLANK SKU file.`, 'info');
+            }
 
             // 3. Duplicate Invoice File (only if duplicates found)
             const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
@@ -2507,26 +2524,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
             zipFolder.file("2 MORE INVOICE.xlsx", outDuplicate);
 
-            // 4. DETAILS File
-            const wsDetails = XLSX.utils.aoa_to_sheet(detailsData);
-            const wbDetails = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wbDetails, wsDetails, "Details Log");
-            const outDetails = XLSX.write(wbDetails, { bookType: 'xlsx', type: 'array' });
-            zipFolder.file("DETAILS.xlsx", outDetails);
-
-            // 5. PENDING INVOICE File (Omitted from ZIP per user request)
-            const wsPending = XLSX.utils.aoa_to_sheet(pendingInvoices);
-            const wbPending = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wbPending, wsPending, "Pending Invoices");
-            const outPending = XLSX.write(wbPending, { bookType: 'xlsx', type: 'array' });
-            // zipFolder.file("PENDING_INVOICE.xlsx", outPending);
-
-            // 6. DISCOUNT PERCENTAGE File
-            const wsDiscount = XLSX.utils.aoa_to_sheet(discountReport);
-            const wbDiscount = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wbDiscount, wsDiscount, "Discounts");
-            const outDiscount = XLSX.write(wbDiscount, { bookType: 'xlsx', type: 'array' });
-            zipFolder.file("DISCOUNT PERCENTAGE.xlsx", outDiscount);
+            // 4. Combined SUMMARY File (Details Log + Discount Percentage sheets)
+            const wbSummaryFile = XLSX.utils.book_new();
+            // Sheet 1: Details Log
+            const wsDetailsSheet = XLSX.utils.aoa_to_sheet(detailsData);
+            XLSX.utils.book_append_sheet(wbSummaryFile, wsDetailsSheet, "Details Log");
+            // Sheet 2: Discount Percentage
+            const wsDiscountSheet = XLSX.utils.aoa_to_sheet(discountReport);
+            XLSX.utils.book_append_sheet(wbSummaryFile, wsDiscountSheet, "Discount Percentage");
+            const outSummaryFile = XLSX.write(wbSummaryFile, { bookType: 'xlsx', type: 'array' });
+            zipFolder.file("SUMMARY.xlsx", outSummaryFile);
 
             // Package final zip
             mergerZipBlob = await pipelineZip.generateAsync({ type: 'blob' });
@@ -3090,11 +3097,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}PARTLY_CANCEL_QV_MISMATCH.xlsx`, outMismatch);
 
-                    const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
-                    const wbBlankSku = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
-                    const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+                    // BLANK SKU file - only create when there's actual blank SKU data
+                    if (blankSkuCount > 0) {
+                        const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
+                        const wbBlankSku = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
+                        const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
+                        outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+                        log(`Blank SKU file created with ${blankSkuCount} rows.`, 'info');
+                    } else {
+                        log(`No blank SKU rows found - skipping BLANK SKU file.`, 'info');
+                    }
 
                     const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
                     const wbDuplicate = XLSX.utils.book_new();
@@ -3102,12 +3115,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
 
-                    const wsDiscount = XLSX.utils.aoa_to_sheet(discountReport);
-                    const wbDiscount = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDiscount, wsDiscount, "Discounts");
-                    const outDiscount = XLSX.write(wbDiscount, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}DISCOUNT PERCENTAGE.xlsx`, outDiscount);
-
+                    // Build combined SUMMARY file with Details + Discount Percentage sheets
                     const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
                     const detailsHeaders = [
                         "Filename", "Invoice Range", "Total Orders", "New", "Cancelled", 
@@ -3120,11 +3128,16 @@ document.addEventListener('DOMContentLoaded', () => {
                             cntShipped, cntDelivered, cntRTS, cntPO, cntOther, dateRangeStr, warehouseStr
                         ]
                     ];
-                    const wsDetails = XLSX.utils.aoa_to_sheet(detailsData);
-                    const wbDetails = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDetails, wsDetails, "Details Log");
-                    const outDetails = XLSX.write(wbDetails, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}DETAILS.xlsx`, outDetails);
+
+                    const wbSummaryFile = XLSX.utils.book_new();
+                    // Sheet 1: Details Log
+                    const wsDetailsSheet = XLSX.utils.aoa_to_sheet(detailsData);
+                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDetailsSheet, "Details Log");
+                    // Sheet 2: Discount Percentage
+                    const wsDiscountSheet = XLSX.utils.aoa_to_sheet(discountReport);
+                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDiscountSheet, "Discount Percentage");
+                    const outSummaryFile = XLSX.write(wbSummaryFile, { bookType: 'xlsx', type: 'array' });
+                    outputZip.file(`${pathPrefix}SUMMARY.xlsx`, outSummaryFile);
 
                     batchResults.push({
                         vendorCode: vendorCode,
@@ -4440,12 +4453,31 @@ function doPost(e) {
                     XLSX.utils.book_append_sheet(newWb, newWs, "Sheet1");
 
                     // Filename formatting
+                    // Strip "AJ" prefix only when the part before the first hyphen is exactly 5 characters
+                    // e.g. "AJ258-XYZ" → prefix "AJ258" (5 chars) → strip AJ → "258-XYZ"
+                    // e.g. "AJ2-XYZ" → prefix "AJ2" (3 chars) → keep as-is → "AJ2-XYZ"
+                    // e.g. "AJ22-XYZAA" → prefix "AJ22" (4 chars) → keep as-is → "AJ22-XYZAA"
+                    let displayKey = keyVal;
+                    const hyphenIdx = keyVal.indexOf("-");
+                    if (hyphenIdx !== -1) {
+                        const prefixPart = keyVal.substring(0, hyphenIdx);
+                        if (prefixPart.length === 5 && /^[A-Za-z]{2}\d{3}$/.test(prefixPart)) {
+                            // Strip the first 2 letters (e.g. "AJ") from the key
+                            displayKey = keyVal.substring(2);
+                        }
+                    } else {
+                        // No hyphen: check if entire keyVal is 5 chars matching pattern
+                        if (keyVal.length === 5 && /^[A-Za-z]{2}\d{3}$/.test(keyVal)) {
+                            displayKey = keyVal.substring(2);
+                        }
+                    }
+
                     let finalName = "";
                     if (userChoice === "4") {
-                        const firstNum = keyVal.split("-")[0];
-                        finalName = `${firstNum}-Tax-${keyVal}-AJIO`;
+                        const firstNum = displayKey.split("-")[0];
+                        finalName = `${firstNum}-Tax-${displayKey}-AJIO`;
                     } else {
-                        finalName = `${keyVal}${nameSuffix}`;
+                        finalName = `${displayKey}${nameSuffix}`;
                     }
 
                     const outFilename = `${finalName} ${dtStamp}_${String(fileCounter).padStart(2, '0')}.xlsx`;
