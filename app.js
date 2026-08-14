@@ -5744,6 +5744,19 @@ function doPost(e) {
                 aeLog(`Processed: Deleted ${deletedCount} rows (Reason filter: ${deletedCount - deletedByDateCount}, Date filter: ${deletedByDateCount}). Retained ${retainedCount} rows.`, 'success');
                 aeLog(`Lookup Results (for retained rows): ${lookupMatchCount} successful matches, ${lookupMissCount} unmatched invoice(s).`, lookupMissCount > 0 ? 'warning' : 'success');
 
+                if (retainedCount === 0) {
+                    aeLog("No one dispute this time, all clear", "success");
+                    if (aeProgressBar) aeProgressBar.style.width = '100%';
+                    if (aeProgressPercent) aeProgressPercent.innerText = '100%';
+                    if (aeProgressStepText) aeProgressStepText.innerText = 'Completed. No disputes found.';
+
+                    aeProcessedBlob = null;
+                    aeProcessedFilename = null;
+
+                    renderAeResults(deletedCount, deletedByDateCount, retainedCount, lookupMatchCount, lookupMissCount, []);
+                    return;
+                }
+
                 if (aeProgressBar) aeProgressBar.style.width = '90%';
                 if (aeProgressPercent) aeProgressPercent.innerText = '90%';
                 if (aeProgressStepText) aeProgressStepText.innerText = 'Grouping rows and generating ZIP package...';
@@ -6057,22 +6070,52 @@ function doPost(e) {
         header.style.alignItems = 'center';
         header.style.width = '100%';
         header.style.marginBottom = '1rem';
-        header.innerHTML = `
-            <h3><i class="fa-solid fa-circle-check text-success"></i> Ajio Error Outputs</h3>
-            <button class="btn btn-success btn-glow" id="downloadAeZipBtn">
-                <i class="fa-solid fa-file-zipper"></i> Download Package (ZIP)
-            </button>
-        `;
-        aeOutputContainer.appendChild(header);
+        
+        if (retained > 0) {
+            header.innerHTML = `
+                <h3><i class="fa-solid fa-circle-check text-success"></i> Ajio Error Outputs</h3>
+                <button class="btn btn-success btn-glow" id="downloadAeZipBtn">
+                    <i class="fa-solid fa-file-zipper"></i> Download Package (ZIP)
+                </button>
+            `;
+            aeOutputContainer.appendChild(header);
 
-        const dlBtn = header.querySelector('#downloadAeZipBtn');
-        if (dlBtn) {
-            dlBtn.addEventListener('click', () => {
-                if (aeProcessedBlob && aeProcessedFilename) {
-                    triggerDownload(aeProcessedBlob, aeProcessedFilename);
-                    aeLog(`Downloaded ZIP package: ${aeProcessedFilename}`, 'info');
-                }
-            });
+            const dlBtn = header.querySelector('#downloadAeZipBtn');
+            if (dlBtn) {
+                dlBtn.addEventListener('click', () => {
+                    if (aeProcessedBlob && aeProcessedFilename) {
+                        triggerDownload(aeProcessedBlob, aeProcessedFilename);
+                        aeLog(`Downloaded ZIP package: ${aeProcessedFilename}`, 'info');
+                    }
+                });
+            }
+        } else {
+            header.innerHTML = `
+                <h3><i class="fa-solid fa-circle-check text-success"></i> Ajio Error Outputs</h3>
+            `;
+            aeOutputContainer.appendChild(header);
+
+            const emptyBanner = document.createElement('div');
+            emptyBanner.style.background = 'rgba(16, 185, 129, 0.05)';
+            emptyBanner.style.border = '1px solid rgba(16, 185, 129, 0.2)';
+            emptyBanner.style.borderRadius = '12px';
+            emptyBanner.style.padding = '1.5rem';
+            emptyBanner.style.display = 'flex';
+            emptyBanner.style.flexDirection = 'column';
+            emptyBanner.style.alignItems = 'center';
+            emptyBanner.style.justifyContent = 'center';
+            emptyBanner.style.gap = '0.75rem';
+            emptyBanner.style.textAlign = 'center';
+            emptyBanner.style.marginBottom = '1.5rem';
+            emptyBanner.style.width = '100%';
+            emptyBanner.innerHTML = `
+                <i class="fa-solid fa-circle-check text-success" style="font-size: 2.5rem; animation: float 4s ease-in-out infinite;"></i>
+                <div style="font-size: 1.1rem; font-weight: 600; color: #10b981; font-family: 'Space Grotesk', sans-serif;">No one dispute this time, all clear</div>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0; max-width: 400px;">
+                    All price dispute rows have been filtered out (either because the dispute amount was 0 or because they matched the date range filter).
+                </p>
+            `;
+            aeOutputContainer.appendChild(emptyBanner);
         }
 
         // Metrics Grid
@@ -6106,62 +6149,64 @@ function doPost(e) {
         `;
         aeOutputContainer.appendChild(metricsGrid);
 
-        // List of generated files inside package
-        const listHeader = document.createElement('h4');
-        listHeader.style.fontFamily = "'Space Grotesk', sans-serif";
-        listHeader.style.marginBottom = '0.5rem';
-        listHeader.style.color = 'var(--text-primary)';
-        listHeader.style.fontSize = '0.9rem';
-        listHeader.innerHTML = `<i class="fa-solid fa-folder-open text-purple"></i> Packaged Files (${files.length})`;
-        aeOutputContainer.appendChild(listHeader);
+        if (retained > 0) {
+            // List of generated files inside package
+            const listHeader = document.createElement('h4');
+            listHeader.style.fontFamily = "'Space Grotesk', sans-serif";
+            listHeader.style.marginBottom = '0.5rem';
+            listHeader.style.color = 'var(--text-primary)';
+            listHeader.style.fontSize = '0.9rem';
+            listHeader.innerHTML = `<i class="fa-solid fa-folder-open text-purple"></i> Packaged Files (${files.length})`;
+            aeOutputContainer.appendChild(listHeader);
 
-        const listContainer = document.createElement('div');
-        listContainer.className = 'processed-list';
-        listContainer.style.display = 'flex';
-        listContainer.style.flexDirection = 'column';
-        listContainer.style.gap = '0.5rem';
-        listContainer.style.width = '100%';
-        listContainer.style.maxHeight = '250px';
-        listContainer.style.overflowY = 'auto';
+            const listContainer = document.createElement('div');
+            listContainer.className = 'processed-list';
+            listContainer.style.display = 'flex';
+            listContainer.style.flexDirection = 'column';
+            listContainer.style.gap = '0.5rem';
+            listContainer.style.width = '100%';
+            listContainer.style.maxHeight = '250px';
+            listContainer.style.overflowY = 'auto';
 
-        files.forEach((file) => {
-            const item = document.createElement('div');
-            item.className = 'processed-item';
-            item.style.padding = '0.65rem 0.85rem';
-            item.style.borderRadius = '8px';
-            item.style.display = 'flex';
-            item.style.justifyContent = 'space-between';
-            item.style.alignItems = 'center';
-            item.style.border = '1px solid var(--border-color)';
-            item.style.background = 'rgba(255, 255, 255, 0.8)';
-            item.style.borderLeft = '4px solid var(--color-success)';
+            files.forEach((file) => {
+                const item = document.createElement('div');
+                item.className = 'processed-item';
+                item.style.padding = '0.65rem 0.85rem';
+                item.style.borderRadius = '8px';
+                item.style.display = 'flex';
+                item.style.justifyContent = 'space-between';
+                item.style.alignItems = 'center';
+                item.style.border = '1px solid var(--border-color)';
+                item.style.background = 'rgba(255, 255, 255, 0.8)';
+                item.style.borderLeft = '4px solid var(--color-success)';
 
-            const fileInfo = document.createElement('div');
-            fileInfo.className = 'file-info';
-            fileInfo.innerHTML = `
-                <i class="fa-solid fa-file-excel text-success" style="margin-right: 0.5rem;"></i>
-                <span class="file-name" style="font-weight: 600; font-size: 0.85rem; color: var(--text-primary);">${file.name}</span>
-                <span class="file-size" style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.5rem;">(${formatBytes(file.size)} | ${file.rows} rows)</span>
-            `;
+                const fileInfo = document.createElement('div');
+                fileInfo.className = 'file-info';
+                fileInfo.innerHTML = `
+                    <i class="fa-solid fa-file-excel text-success" style="margin-right: 0.5rem;"></i>
+                    <span class="file-name" style="font-weight: 600; font-size: 0.85rem; color: var(--text-primary);">${file.name}</span>
+                    <span class="file-size" style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.5rem;">(${formatBytes(file.size)} | ${file.rows} rows)</span>
+                `;
 
-            const downloadBtn = document.createElement('button');
-            downloadBtn.className = 'btn btn-primary';
-            downloadBtn.style.padding = '0.3rem 0.6rem';
-            downloadBtn.style.fontSize = '0.75rem';
-            downloadBtn.style.borderRadius = '6px';
-            downloadBtn.innerHTML = '<i class="fa-solid fa-download"></i>';
-            downloadBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                triggerDownload(file.blob, file.name);
-                aeLog(`Downloaded individual file: ${file.name}`, 'info');
+                const downloadBtn = document.createElement('button');
+                downloadBtn.className = 'btn btn-primary';
+                downloadBtn.style.padding = '0.3rem 0.6rem';
+                downloadBtn.style.fontSize = '0.75rem';
+                downloadBtn.style.borderRadius = '6px';
+                downloadBtn.innerHTML = '<i class="fa-solid fa-download"></i>';
+                downloadBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    triggerDownload(file.blob, file.name);
+                    aeLog(`Downloaded individual file: ${file.name}`, 'info');
+                });
+
+                item.appendChild(fileInfo);
+                item.appendChild(downloadBtn);
+                listContainer.appendChild(item);
             });
 
-            item.appendChild(fileInfo);
-            item.appendChild(downloadBtn);
-            listContainer.appendChild(item);
-        });
-
-        aeOutputContainer.appendChild(listContainer);
+            aeOutputContainer.appendChild(listContainer);
+        }
     }
 
     /* ==========================================================================
