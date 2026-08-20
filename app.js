@@ -5653,20 +5653,40 @@ function doPost(e) {
                 // Date parsing helper
                 function parseExcelDate(val) {
                     if (val === undefined || val === null || val === "") return null;
-                    if (val instanceof Date) return val;
-                    if (typeof val === 'number' || (!isNaN(val) && !isNaN(parseFloat(val)))) {
+                    if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+                    if (typeof val === 'number' || (!isNaN(val) && !isNaN(parseFloat(val)) && typeof val !== 'string')) {
                         const num = parseFloat(val);
                         return new Date(Math.round((num - 25569) * 86400 * 1000));
                     }
                     const str = String(val).trim();
                     if (str === "") return null;
-                    const ddmmyyyyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+
+                    // Check if numeric string serial date (e.g. "45450")
+                    if (/^\d{4,5}(\.\d+)?$/.test(str)) {
+                        const num = parseFloat(str);
+                        return new Date(Math.round((num - 25569) * 86400 * 1000));
+                    }
+
+                    // DD/MM/YYYY or DD-MM-YYYY (with optional time)
+                    const ddmmyyyyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
                     if (ddmmyyyyMatch) {
                         const day = parseInt(ddmmyyyyMatch[1], 10);
                         const month = parseInt(ddmmyyyyMatch[2], 10) - 1;
                         const year = parseInt(ddmmyyyyMatch[3], 10);
-                        return new Date(year, month, day);
+                        const d = new Date(year, month, day);
+                        if (!isNaN(d.getTime())) return d;
                     }
+
+                    // YYYY-MM-DD or YYYY/MM/DD (with optional time)
+                    const yyyymmddMatch = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+                    if (yyyymmddMatch) {
+                        const year = parseInt(yyyymmddMatch[1], 10);
+                        const month = parseInt(yyyymmddMatch[2], 10) - 1;
+                        const day = parseInt(yyyymmddMatch[3], 10);
+                        const d = new Date(year, month, day);
+                        if (!isNaN(d.getTime())) return d;
+                    }
+
                     const parsed = new Date(str);
                     if (!isNaN(parsed.getTime())) {
                         return parsed;
@@ -5682,29 +5702,39 @@ function doPost(e) {
 
                 for (let i = detailsHeaderRowIndex + 1; i < detailsAoa.length; i++) {
                     const row = detailsAoa[i];
-                    if (!row) continue;
+                    if (!row || row.length === 0) continue;
 
-                    // 1. Row filter condition: check Column V
+                    // Check if entire row is empty or blank
+                    const isBlank = row.every(cell => cell === undefined || cell === null || String(cell).trim() === "");
+                    if (isBlank) continue;
+
+                    // 1. Invoice validation (must have non-empty invoice and not total/summary)
+                    const invoiceVal = row[invoiceColDetails] !== undefined ? String(row[invoiceColDetails]).trim() : "";
+                    const invoiceKey = invoiceVal.toUpperCase();
+                    if (invoiceVal === "" || invoiceKey === "TOTAL" || invoiceKey === "GRAND TOTAL") {
+                        continue;
+                    }
+
+                    // 2. Row filter condition: check Column V (Reason)
                     const reasonVal = row[reasonColDetails] !== undefined ? String(row[reasonColDetails]) : "";
                     const reasonNormalized = reasonVal.trim().toLowerCase().replace(/\s+/g, '');
+                    const disputeMatch = String(reasonVal).match(/Price\s+Dispute\s*:\s*(-?\d+(?:\.\d+)?)/i);
+                    const disputeVal = disputeMatch ? parseFloat(disputeMatch[1]) : (reasonNormalized === "0" ? 0 : NaN);
 
-                    if (reasonNormalized === "0" || reasonNormalized === "pricedispute:0") {
+                    if (disputeVal === 0 || reasonNormalized === "0" || reasonNormalized === "pricedispute:0" || reasonNormalized === "pricedispute:0.0" || reasonNormalized === "pricedispute:0.00") {
                         deletedCount++;
                         continue; // Skip/delete this row
                     }
 
-                    // 2. Perform Lookup
-                    const invoiceVal = row[invoiceColDetails] !== undefined ? String(row[invoiceColDetails]) : "";
-                    const invoiceKey = invoiceVal.trim().toUpperCase();
-
+                    // 3. Perform Lookup
                     let lookupVal = "";
                     let isMatched = false;
-                    if (invoiceKey !== "" && dataMap.has(invoiceKey)) {
+                    if (dataMap.has(invoiceKey)) {
                         lookupVal = dataMap.get(invoiceKey);
                         isMatched = true;
                     }
 
-                    // 3. Date Range Filter against Column W (lookupVal)
+                    // 4. Date Range Filter against Column W (lookupVal)
                     let shouldDeleteByDate = false;
                     if (fromDate || toDate) {
                         const parsedDate = parseExcelDate(lookupVal);
@@ -5771,8 +5801,10 @@ function doPost(e) {
                 const warehouseGroups = new Map();
                 for (let i = detailsHeaderRowIndex + 1; i < processedDetailsAoa.length; i++) {
                     const row = processedDetailsAoa[i];
-                    const whName = String(row[warehouseNameColDetails]).trim();
-                    if (whName === "") continue;
+                    let whName = String(row[warehouseNameColDetails] || "").trim();
+                    if (whName === "") {
+                        whName = "Unassigned-Warehouse";
+                    }
 
                     if (!warehouseGroups.has(whName)) {
                         warehouseGroups.set(whName, []);
@@ -5781,6 +5813,19 @@ function doPost(e) {
                 }
 
                 aeLog(`Grouped into ${warehouseGroups.size} warehouse(s).`, 'info');
+
+                if (warehouseGroups.size === 0) {
+                    aeLog("No one dispute this time, all clear", "success");
+                    if (aeProgressBar) aeProgressBar.style.width = '100%';
+                    if (aeProgressPercent) aeProgressPercent.innerText = '100%';
+                    if (aeProgressStepText) aeProgressStepText.innerText = 'Completed. No disputes found.';
+
+                    aeProcessedBlob = null;
+                    aeProcessedFilename = null;
+
+                    renderAeResults(deletedCount, deletedByDateCount, 0, lookupMatchCount, lookupMissCount, []);
+                    return;
+                }
 
                 // Create the merged workbook
                 const mergedWb = XLSX.utils.book_new();
@@ -5948,19 +5993,21 @@ function doPost(e) {
                     registerTrackedError('ajio', groupFilename, whName, 'Account Center Dispute', groupRows.length);
                 }
 
-                // Write and add the merged workbook to ZIP
-                const mergedBuffer = XLSX.write(mergedWb, { bookType: 'xlsx', type: 'array' });
-                const mergedFilename = "ajio price dispute.xlsx";
-                zip.file(mergedFilename, mergedBuffer);
-                const mergedBlob = new Blob([mergedBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-                
-                filesList.push({
-                    name: mergedFilename,
-                    size: mergedBlob.size,
-                    rows: retainedCount,
-                    blob: mergedBlob
-                });
-                aeLog(`Generated merged file: "${mergedFilename}" with all ${warehouseGroups.size} sheet(s).`, 'success');
+                if (warehouseGroups.size > 0) {
+                    // Write and add the merged workbook to ZIP
+                    const mergedBuffer = XLSX.write(mergedWb, { bookType: 'xlsx', type: 'array' });
+                    const mergedFilename = "ajio price dispute.xlsx";
+                    zip.file(mergedFilename, mergedBuffer);
+                    const mergedBlob = new Blob([mergedBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                    
+                    filesList.push({
+                        name: mergedFilename,
+                        size: mergedBlob.size,
+                        rows: retainedCount,
+                        blob: mergedBlob
+                    });
+                    aeLog(`Generated merged file: "${mergedFilename}" with all ${warehouseGroups.size} sheet(s).`, 'success');
+                }
 
                 // 3. Generate Cleaned Details File (with Column W cleared)
                 const cleanedDetailsAoa = [];
