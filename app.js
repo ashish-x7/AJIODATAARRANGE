@@ -3,80 +3,270 @@
    ========================================================================== */
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Custom Alert Modal System overriding window.alert
-    window.alert = function(message, callback) {
-        let backdrop = document.getElementById('customAlertBackdrop');
-        if (!backdrop) {
-            backdrop = document.createElement('div');
-            backdrop.id = 'customAlertBackdrop';
-            backdrop.className = 'custom-modal-backdrop';
-            backdrop.innerHTML = `
-                <div class="custom-modal-card">
-                    <div class="custom-modal-header">
-                        <span class="custom-modal-icon" id="customAlertIcon"></span>
-                        <h3 class="custom-modal-title" id="customAlertTitle">Notification</h3>
-                    </div>
-                    <div class="custom-modal-body" id="customAlertBody"></div>
-                    <div class="custom-modal-footer">
-                        <button class="custom-modal-close-btn" id="customAlertCloseBtn">OK</button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(backdrop);
-        }
+    /* ==========================================================================
+       CUSTOM ALERT & CONFIRM MODAL DIALOG SYSTEM
+       ========================================================================== */
+    function showCustomDialog(message, options = {}) {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('customDialogModal');
+            const card = document.getElementById('customDialogCard');
+            const titleEl = document.getElementById('customDialogTitle');
+            const msgEl = document.getElementById('customDialogMessage');
+            const iconEl = document.getElementById('customDialogIcon');
+            const cancelBtn = document.getElementById('customDialogCancelBtn');
+            const confirmBtn = document.getElementById('customDialogConfirmBtn');
 
-        const closeBtn = document.getElementById('customAlertCloseBtn');
-        const newCloseBtn = closeBtn.cloneNode(true);
-        closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
-
-        newCloseBtn.addEventListener('click', () => {
-            backdrop.classList.remove('show');
-            if (typeof callback === 'function') {
-                callback();
+            if (!modal || !card) {
+                if (options.isConfirm) resolve(window.confirm(message));
+                else { window.alert(message); resolve(true); }
+                return;
             }
-        });
-        
-        // Allow close on clicking backdrop overlay as well
-        backdrop.onclick = (e) => {
-            if (e.target === backdrop) {
-                backdrop.classList.remove('show');
-                if (typeof callback === 'function') {
-                    callback();
+
+            const isConfirm = !!options.isConfirm;
+            const title = options.title || (isConfirm ? 'Confirmation Required' : 'Notification');
+            const confirmText = options.confirmText || (isConfirm ? 'Confirm' : 'OK');
+            const cancelText = options.cancelText || 'Cancel';
+            
+            let type = options.type;
+            if (!type) {
+                const lower = (message + ' ' + title).toLowerCase();
+                if (lower.includes('delete') || lower.includes('remove') || lower.includes('error') || lower.includes('fail') || lower.includes('invalid')) {
+                    type = isConfirm ? 'danger' : 'error';
+                } else if (lower.includes('success') || lower.includes('completed') || lower.includes('transferred') || lower.includes('merged') || lower.includes('copied') || lower.includes('zipped')) {
+                    type = 'success';
+                } else if (lower.includes('warning') || lower.includes('mismatch')) {
+                    type = 'warning';
+                } else {
+                    type = isConfirm ? 'warning' : 'info';
                 }
             }
-        };
 
-        const titleEl = document.getElementById('customAlertTitle');
-        const iconEl = document.getElementById('customAlertIcon');
-        const bodyEl = document.getElementById('customAlertBody');
-        
-        bodyEl.innerText = message;
-        
-        // Match icon type by keyword
-        const lowerMsg = message.toLowerCase();
-        if (lowerMsg.includes('error') || lowerMsg.includes('fail') || lowerMsg.includes('missing') || lowerMsg.includes('invalid')) {
-            titleEl.innerText = "Error";
-            iconEl.className = "custom-modal-icon error";
-            iconEl.innerHTML = '<i class="fa-solid fa-circle-xmark"></i>';
-        } else if (lowerMsg.includes('warning') || lowerMsg.includes('mismatch')) {
-            titleEl.innerText = "Warning";
-            iconEl.className = "custom-modal-icon warning";
-            iconEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i>';
-        } else if (lowerMsg.includes('success') || lowerMsg.includes('completed') || lowerMsg.includes('done') || lowerMsg.includes('copied') || lowerMsg.includes('merged')) {
-            titleEl.innerText = "Success";
-            iconEl.className = "custom-modal-icon success";
-            iconEl.innerHTML = '<i class="fa-solid fa-circle-check"></i>';
-        } else {
-            titleEl.innerText = "Notification";
-            iconEl.className = "custom-modal-icon info";
-            iconEl.innerHTML = '<i class="fa-solid fa-circle-info"></i>';
+            titleEl.innerText = title;
+            msgEl.innerText = message;
+            confirmBtn.innerText = confirmText;
+            cancelBtn.innerText = cancelText;
+
+            if (isConfirm) {
+                cancelBtn.style.display = 'inline-flex';
+            } else {
+                cancelBtn.style.display = 'none';
+            }
+
+            card.className = `custom-dialog-card dialog-${type === 'error' ? 'danger' : type}`;
+
+            if (type === 'danger' || type === 'error') {
+                iconEl.className = isConfirm ? 'fa-solid fa-trash-can' : 'fa-solid fa-circle-xmark';
+                confirmBtn.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
+            } else if (type === 'success') {
+                iconEl.className = 'fa-solid fa-circle-check';
+                confirmBtn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+            } else if (type === 'warning') {
+                iconEl.className = 'fa-solid fa-triangle-exclamation';
+                confirmBtn.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+            } else {
+                iconEl.className = 'fa-solid fa-circle-info';
+                confirmBtn.style.background = 'linear-gradient(135deg, #8b5cf6, #6d28d9)';
+            }
+
+            modal.classList.add('show');
+
+            const cleanup = () => {
+                modal.classList.remove('show');
+                confirmBtn.removeEventListener('click', onConfirm);
+                cancelBtn.removeEventListener('click', onCancel);
+                modal.removeEventListener('click', onBackdropClick);
+                document.removeEventListener('keydown', onKeyDown);
+            };
+
+            const onConfirm = (e) => {
+                if (e) e.stopPropagation();
+                cleanup();
+                resolve(true);
+            };
+
+            const onCancel = (e) => {
+                if (e) e.stopPropagation();
+                cleanup();
+                resolve(false);
+            };
+
+            const onBackdropClick = (e) => {
+                if (e.target === modal) {
+                    if (isConfirm) onCancel(e);
+                    else onConfirm(e);
+                }
+            };
+
+            const onKeyDown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    onConfirm();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    if (isConfirm) onCancel();
+                    else onConfirm();
+                }
+            };
+
+            confirmBtn.addEventListener('click', onConfirm);
+            cancelBtn.addEventListener('click', onCancel);
+            modal.addEventListener('click', onBackdropClick);
+            document.addEventListener('keydown', onKeyDown);
+            confirmBtn.focus();
+        });
+    }
+
+    function customAlert(message, options = {}) {
+        return showCustomDialog(message, { ...options, isConfirm: false });
+    }
+
+    function customConfirm(message, options = {}) {
+        return showCustomDialog(message, { ...options, isConfirm: true });
+    }
+
+    function showCustomNotification(title, message, type = 'info') {
+        if (!message) {
+            message = title;
+            title = 'Notification';
         }
-        
-        // Open with slight delay for transitions
-        setTimeout(() => {
-            backdrop.classList.add('show');
-        }, 50);
+        return showCustomDialog(message, { title, type, isConfirm: false });
+    }
+
+    function showCustomAlert(message, type = 'success') {
+        return showCustomDialog(message, { title: 'Notification', type, isConfirm: false });
+    }
+
+    function showCustomConfirm(titleOrMessage, messageOrCallback, typeOrCallback, callback) {
+        let title = 'Confirmation Required';
+        let message = '';
+        let type = 'danger';
+        let cb = null;
+
+        if (typeof messageOrCallback === 'function') {
+            message = titleOrMessage;
+            cb = messageOrCallback;
+        } else if (typeof typeOrCallback === 'function') {
+            title = titleOrMessage;
+            message = messageOrCallback;
+            cb = typeOrCallback;
+        } else if (typeof callback === 'function') {
+            title = titleOrMessage;
+            message = messageOrCallback;
+            type = typeOrCallback || 'danger';
+            cb = callback;
+        } else {
+            if (messageOrCallback) {
+                title = titleOrMessage;
+                message = messageOrCallback;
+                type = typeOrCallback || 'danger';
+            } else {
+                message = titleOrMessage;
+            }
+        }
+
+        const promise = showCustomDialog(message, { title, type, isConfirm: true, confirmText: 'Confirm' });
+        if (cb) {
+            promise.then(confirmed => {
+                cb(confirmed);
+            });
+        }
+        return promise;
+    }
+
+    window.customAlert = customAlert;
+    window.customConfirm = customConfirm;
+    window.showCustomNotification = showCustomNotification;
+    window.showCustomAlert = showCustomAlert;
+    window.showCustomConfirm = showCustomConfirm;
+
+    // Override global alert
+    window.alert = function(message, callback) {
+        customAlert(message).then(() => {
+            if (typeof callback === 'function') callback();
+        });
     };
+
+    /* ==========================================================================
+       PERSISTENT TAB SESSIONS (1-HOUR AUTO-EXPIRY VIA INDEXEDDB)
+       ========================================================================== */
+    const SESSION_DB_NAME = 'AjioDataArrangeStorage_v1';
+    const SESSION_DB_VERSION = 1;
+    const SESSION_STORE_NAME = 'tab_sessions';
+    const SESSION_TTL_MS = 60 * 60 * 1000; // 1 Hour (60 minutes)
+
+    function openSessionDB() {
+        return new Promise((resolve) => {
+            if (!window.indexedDB) return resolve(null);
+            const req = indexedDB.open(SESSION_DB_NAME, SESSION_DB_VERSION);
+            req.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(SESSION_STORE_NAME)) {
+                    db.createObjectStore(SESSION_STORE_NAME);
+                }
+            };
+            req.onsuccess = (e) => resolve(e.target.result);
+            req.onerror = (e) => {
+                console.warn('IndexedDB open error:', e);
+                resolve(null);
+            };
+        });
+    }
+
+    async function saveTabSession(key, data) {
+        try {
+            const db = await openSessionDB();
+            if (!db) return;
+            const tx = db.transaction(SESSION_STORE_NAME, 'readwrite');
+            const store = tx.objectStore(SESSION_STORE_NAME);
+            const record = {
+                savedAt: Date.now(),
+                data: data
+            };
+            store.put(record, key);
+        } catch (e) {
+            console.warn(`Error saving session for ${key}:`, e);
+        }
+    }
+
+    async function loadTabSession(key) {
+        try {
+            const db = await openSessionDB();
+            if (!db) return null;
+            return new Promise((resolve) => {
+                const tx = db.transaction(SESSION_STORE_NAME, 'readwrite');
+                const store = tx.objectStore(SESSION_STORE_NAME);
+                const req = store.get(key);
+                req.onsuccess = () => {
+                    const res = req.result;
+                    if (!res) return resolve(null);
+                    const age = Date.now() - res.savedAt;
+                    if (age > SESSION_TTL_MS) {
+                        // Expired after 1 hour -> auto delete
+                        store.delete(key);
+                        resolve(null);
+                    } else {
+                        resolve(res.data);
+                    }
+                };
+                req.onerror = () => resolve(null);
+            });
+        } catch (e) {
+            console.warn(`Error loading session for ${key}:`, e);
+            return null;
+        }
+    }
+
+    async function clearTabSession(key) {
+        try {
+            const db = await openSessionDB();
+            if (!db) return;
+            const tx = db.transaction(SESSION_STORE_NAME, 'readwrite');
+            const store = tx.objectStore(SESSION_STORE_NAME);
+            store.delete(key);
+        } catch (e) {
+            console.warn(`Error clearing session for ${key}:`, e);
+        }
+    }
 
     // Hardcoded Google Sheets Apps Script Web App URL
     const GOOGLE_SHEETS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyOMN8UOshlf0-rUsH1KSVxbP3JJHXynE3Ykg21gOuTSuu8DJv7G1a1LQabthyVjM1dVQ/exec";
@@ -414,9 +604,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 removeBtn.className = 'file-action-btn';
                 removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
                 removeBtn.title = "Remove file";
-                removeBtn.addEventListener('click', (e) => {
+                removeBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    removeFile(fileObj.id);
+                    const ok = await showCustomConfirm('Remove File', `Are you sure you want to remove "${fileObj.name}"?`, 'danger', 'Remove');
+                    if (ok) removeFile(fileObj.id);
                 });
                 
                 item.appendChild(info);
@@ -431,7 +622,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Clear All Files
-    clearBtn.addEventListener('click', () => {
+    clearBtn.addEventListener('click', async () => {
+        const ok = await showCustomConfirm('Clear All', 'Are you sure you want to clear all files and reset results?', 'danger', 'Clear All');
+        if (!ok) return;
+
         selectedFiles = [];
         processedFiles = [];
         processedZipBlob = null;
@@ -465,7 +659,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Clear Selected Files only
     if (clearFilesBtn) {
-        clearFilesBtn.addEventListener('click', () => {
+        clearFilesBtn.addEventListener('click', async () => {
+            const ok = await showCustomConfirm('Clear Files', 'Are you sure you want to clear all selected files?', 'danger', 'Clear Files');
+            if (!ok) return;
+
             selectedFiles = [];
             fileInput.value = '';
             if (zipInput) zipInput.value = '';
@@ -755,7 +952,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const errorMsg = `Missing ${!odEntry ? 'OD' : ''}${!odEntry && !accEntry ? ' and ' : ''}${!accEntry ? 'Account Details' : ''} file`;
                     batchResults.push({
                         vendorCode: vendorCode,
-                        partyName: getPartyNameForCode(vendorCode),
+                        partyName: getPartyNameForCode(vendorCode, files),
                         invoiceRange: "N/A",
                         status: "Failed",
                         errorMsg: errorMsg
@@ -932,7 +1129,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     }
 
-                    const fullPartyName = getPartyNameForCode(vendorCode);
+                    const fullPartyName = getPartyNameForCode(vendorCode, files);
                     const cleanName = cleanPartyName(fullPartyName, vendorCode);
                     const subfolderName = `${vendorCode}-(${outputRangeFilename})`;
                     const cleanODFilename = `${vendorCode}-${outputRangeFilename}-OD.xlsx`;
@@ -952,11 +1149,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}PARTLY_CANCEL_QV_MISMATCH.xlsx`, outMismatch);
 
-                    const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
-                    const wbBlankSku = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
-                    const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+                    // BLANK SKU file - only create when there's actual blank SKU data
+                    if (blankSkuCount > 0) {
+                        const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
+                        const wbBlankSku = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
+                        const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
+                        outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+                        log(`Blank SKU file created with ${blankSkuCount} rows.`, 'info');
+                    } else {
+                        log(`No blank SKU rows found - skipping BLANK SKU file.`, 'info');
+                    }
 
                     const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
                     const wbDuplicate = XLSX.utils.book_new();
@@ -964,12 +1167,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
 
-                    const wsDiscount = XLSX.utils.aoa_to_sheet(discountReport);
-                    const wbDiscount = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDiscount, wsDiscount, "Discounts");
-                    const outDiscount = XLSX.write(wbDiscount, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}DISCOUNT PERCENTAGE.xlsx`, outDiscount);
-
+                    // Build combined SUMMARY file with Details + Discount Percentage sheets
                     const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
                     const detailsHeaders = [
                         "Filename", "Invoice Range", "Total Orders", "New", "Cancelled", 
@@ -982,11 +1180,16 @@ document.addEventListener('DOMContentLoaded', () => {
                             cntShipped, cntDelivered, cntRTS, cntPO, cntOther, dateRangeStr, warehouseStr
                         ]
                     ];
-                    const wsDetails = XLSX.utils.aoa_to_sheet(detailsData);
-                    const wbDetails = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDetails, wsDetails, "Details Log");
-                    const outDetails = XLSX.write(wbDetails, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}DETAILS.xlsx`, outDetails);
+
+                    const wbSummaryFile = XLSX.utils.book_new();
+                    // Sheet 1: Details Log
+                    const wsDetailsSheet = XLSX.utils.aoa_to_sheet(detailsData);
+                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDetailsSheet, "Details Log");
+                    // Sheet 2: Discount Percentage
+                    const wsDiscountSheet = XLSX.utils.aoa_to_sheet(discountReport);
+                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDiscountSheet, "Discount Percentage");
+                    const outSummaryFile = XLSX.write(wbSummaryFile, { bookType: 'xlsx', type: 'array' });
+                    outputZip.file(`${pathPrefix}SUMMARY.xlsx`, outSummaryFile);
 
                     batchResults.push({
                         vendorCode: vendorCode,
@@ -1012,7 +1215,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.error(`[BATCH] Vendor [${vendorCode}] FAILED:`, vendorErr);
                     batchResults.push({
                         vendorCode: vendorCode,
-                        partyName: getPartyNameForCode(vendorCode),
+                        partyName: getPartyNameForCode(vendorCode, files),
                         invoiceRange: "N/A",
                         status: "Failed",
                         errorMsg: vendorErr.message
@@ -1570,11 +1773,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}PARTLY_CANCEL_QV_MISMATCH.xlsx`, outMismatch);
 
-                    const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
-                    const wbBlankSku = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
-                    const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+                    // BLANK SKU file - only create when there's actual blank SKU data
+                    if (blankSkuCount > 0) {
+                        const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
+                        const wbBlankSku = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
+                        const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
+                        outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+                        log(`Blank SKU file created with ${blankSkuCount} rows.`, 'info');
+                    } else {
+                        log(`No blank SKU rows found - skipping BLANK SKU file.`, 'info');
+                    }
 
                     const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
                     const wbDuplicate = XLSX.utils.book_new();
@@ -1582,12 +1791,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
 
-                    const wsDiscount = XLSX.utils.aoa_to_sheet(discountReport);
-                    const wbDiscount = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDiscount, wsDiscount, "Discounts");
-                    const outDiscount = XLSX.write(wbDiscount, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}DISCOUNT PERCENTAGE.xlsx`, outDiscount);
-
+                    // Build combined SUMMARY file with Details + Discount Percentage sheets
                     const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
                     const detailsHeaders = [
                         "Filename", "Invoice Range", "Total Orders", "New", "Cancelled", 
@@ -1600,11 +1804,16 @@ document.addEventListener('DOMContentLoaded', () => {
                             cntShipped, cntDelivered, cntRTS, cntPO, cntOther, dateRangeStr, warehouseStr
                         ]
                     ];
-                    const wsDetails = XLSX.utils.aoa_to_sheet(detailsData);
-                    const wbDetails = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDetails, wsDetails, "Details Log");
-                    const outDetails = XLSX.write(wbDetails, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}DETAILS.xlsx`, outDetails);
+
+                    const wbSummaryFile = XLSX.utils.book_new();
+                    // Sheet 1: Details Log
+                    const wsDetailsSheet = XLSX.utils.aoa_to_sheet(detailsData);
+                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDetailsSheet, "Details Log");
+                    // Sheet 2: Discount Percentage
+                    const wsDiscountSheet = XLSX.utils.aoa_to_sheet(discountReport);
+                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDiscountSheet, "Discount Percentage");
+                    const outSummaryFile = XLSX.write(wbSummaryFile, { bookType: 'xlsx', type: 'array' });
+                    outputZip.file(`${pathPrefix}SUMMARY.xlsx`, outSummaryFile);
 
                     batchResults.push({
                         vendorCode: vendorCode,
@@ -1901,6 +2110,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (targetPaneId === 'tab-error-tracker') {
                 renderErrorTracker();
             }
+            if (targetPaneId === 'tab-vendors') {
+                if (typeof fetchVendors === 'function' && (!vendorParties || vendorParties.length === 0)) {
+                    fetchVendors();
+                }
+            }
         });
     });
 
@@ -1974,10 +2188,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Setup Merger Mode Switcher Toggles
 
-    // Apps Script code template
-    const appsScriptCode = `function doPost(e) {
+    // Apps Script code template supporting all actions (Vendors, Errors, Invoices, Discounts)
+    const appsScriptCode = `function doGet(e) {
+  return handleRequest(e, (e && e.parameter) || {});
+}
+
+function doPost(e) {
+  var params = {};
   try {
-    var json = JSON.parse(e.postData.contents);
+    if (e.postData && e.postData.contents) {
+      params = JSON.parse(e.postData.contents);
+    }
+  } catch(err) {}
+  return handleRequest(e, params);
+}
+
+function handleRequest(e, params) {
+  try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     
     function getSheetRobust(name) {
@@ -1987,34 +2214,114 @@ document.addEventListener('DOMContentLoaded', () => {
         var sName = sheets[i].getName().toUpperCase().trim();
         if (sName === target) return sheets[i];
       }
-      return null;
+      return ss.insertSheet(name);
     }
     
-    // 1. Update PENDING INVOICE sheet
-    if (json.pendingInvoices && json.pendingInvoices.length > 0) {
+    var action = (params && params.action) || (e && e.parameter && e.parameter.action) || "";
+    
+    // 1. Get Parties
+    if (action === "getParties") {
+      var sheet = getSheetRobust("PARTIES");
+      var data = sheet.getDataRange().getValues();
+      var parties = [];
+      for (var i = 1; i < data.length; i++) {
+        if (data[i][0] !== "" || data[i][1] !== "") {
+          parties.push({ code: String(data[i][0]).trim(), name: String(data[i][1]).trim() });
+        }
+      }
+      return jsonResponse({ status: "success", parties: parties });
+    }
+    
+    // 2. Add Party
+    if (action === "addParty") {
+      var sheet = getSheetRobust("PARTIES");
+      if (sheet.getLastRow() === 0) sheet.appendRow(["Vendor Code", "Party Name"]);
+      sheet.appendRow([params.code, params.name]);
+      return jsonResponse({ status: "success" });
+    }
+    
+    // 3. Edit Party
+    if (action === "editParty") {
+      var sheet = getSheetRobust("PARTIES");
+      var data = sheet.getDataRange().getValues();
+      for (var i = 1; i < data.length; i++) {
+        if (String(data[i][0]).trim() === String(params.oldCode).trim()) {
+          sheet.getRange(i + 1, 1).setValue(params.newCode);
+          sheet.getRange(i + 1, 2).setValue(params.newName);
+          return jsonResponse({ status: "success" });
+        }
+      }
+      return jsonResponse({ status: "error", message: "Party not found" });
+    }
+    
+    // 4. Delete Party
+    if (action === "deleteParty") {
+      var sheet = getSheetRobust("PARTIES");
+      var data = sheet.getDataRange().getValues();
+      for (var i = 1; i < data.length; i++) {
+        if (String(data[i][0]).trim() === String(params.code).trim()) {
+          sheet.deleteRow(i + 1);
+          return jsonResponse({ status: "success" });
+        }
+      }
+      return jsonResponse({ status: "success" });
+    }
+    
+    // 5. Get Tracked Errors
+    if (action === "getTrackedErrors") {
+      var sheet = getSheetRobust("ERROR_LOGS");
+      var data = sheet.getDataRange().getValues();
+      var errors = [];
+      for (var i = 1; i < data.length; i++) {
+        if (data[i][0]) {
+          errors.push({
+            id: String(data[i][0]),
+            type: data[i][1],
+            fileName: data[i][2],
+            partyOrWh: data[i][3],
+            errorType: data[i][4],
+            rowsCount: data[i][5],
+            createdDate: data[i][6],
+            solved: data[i][7] === true || data[i][7] === "true",
+            solvedDate: data[i][8] || null
+          });
+        }
+      }
+      return jsonResponse({ status: "success", errors: errors });
+    }
+    
+    // 6. Track Error
+    if (action === "trackError") {
+      var sheet = getSheetRobust("ERROR_LOGS");
+      if (sheet.getLastRow() === 0) sheet.appendRow(["ID", "Type", "FileName", "PartyOrWarehouse", "ErrorType", "RowsCount", "CreatedDate", "Solved", "SolvedDate"]);
+      var err = params.record || params;
+      sheet.appendRow([err.id, err.type, err.fileName, err.partyOrWh, err.errorType, err.rowsCount, err.createdDate, err.solved, err.solvedDate]);
+      return jsonResponse({ status: "success" });
+    }
+    
+    // 7. Update PENDING INVOICE
+    if (params.pendingInvoices && params.pendingInvoices.length > 0) {
       var sheetPending = getSheetRobust("PENDING INVOICE");
-      if (sheetPending) {
-        sheetPending.clearContents();
-        sheetPending.getRange(1, 1, json.pendingInvoices.length, json.pendingInvoices[0].length).setValues(json.pendingInvoices);
-      }
+      sheetPending.clearContents();
+      sheetPending.getRange(1, 1, params.pendingInvoices.length, params.pendingInvoices[0].length).setValues(params.pendingInvoices);
     }
     
-    // 2. Update DISCOUNT sheet
-    if (json.discountReport && json.discountReport.length > 0) {
+    // 8. Update DISCOUNT
+    if (params.discountReport && params.discountReport.length > 0) {
       var sheetDiscount = getSheetRobust("DISCOUNT");
-      if (sheetDiscount) {
-        sheetDiscount.clearContents();
-        sheetDiscount.getRange(1, 1, json.discountReport.length, json.discountReport[0].length).setValues(json.discountReport);
-      }
+      sheetDiscount.clearContents();
+      sheetDiscount.getRange(1, 1, params.discountReport.length, params.discountReport[0].length).setValues(params.discountReport);
     }
     
-    return ContentService.createTextOutput(JSON.stringify({status: "success"}))
-      .setMimeType(ContentService.MimeType.JSON);
-      
+    return jsonResponse({ status: "success" });
   } catch(err) {
-    return ContentService.createTextOutput(JSON.stringify({status: "error", message: err.toString()}))
-      .setMimeType(ContentService.MimeType.JSON);
+    return jsonResponse({ status: "error", message: err.toString() });
   }
+}
+
+function jsonResponse(data) {
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
 }`;
 
     const copyScriptBtn = document.getElementById('copyScriptBtn');
@@ -2493,12 +2800,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
             zipFolder.file("PARTLY_CANCEL_QV_MISMATCH.xlsx", outMismatch);
 
-            // New Blank SKU File
-            const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
-            const wbBlankSku = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
-            const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
-            zipFolder.file("BLANK SKU.xlsx", outBlankSku);
+            // New Blank SKU File - only create when there's actual blank SKU data
+            if (blankSkuCount > 0) {
+                const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
+                const wbBlankSku = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
+                const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
+                zipFolder.file("BLANK SKU.xlsx", outBlankSku);
+                mergerLog(`Blank SKU file created with ${blankSkuCount} rows.`, 'info');
+            } else {
+                mergerLog(`No blank SKU rows found - skipping BLANK SKU file.`, 'info');
+            }
 
             // 3. Duplicate Invoice File (only if duplicates found)
             const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
@@ -2507,26 +2819,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
             zipFolder.file("2 MORE INVOICE.xlsx", outDuplicate);
 
-            // 4. DETAILS File
-            const wsDetails = XLSX.utils.aoa_to_sheet(detailsData);
-            const wbDetails = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wbDetails, wsDetails, "Details Log");
-            const outDetails = XLSX.write(wbDetails, { bookType: 'xlsx', type: 'array' });
-            zipFolder.file("DETAILS.xlsx", outDetails);
-
-            // 5. PENDING INVOICE File (Omitted from ZIP per user request)
-            const wsPending = XLSX.utils.aoa_to_sheet(pendingInvoices);
-            const wbPending = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wbPending, wsPending, "Pending Invoices");
-            const outPending = XLSX.write(wbPending, { bookType: 'xlsx', type: 'array' });
-            // zipFolder.file("PENDING_INVOICE.xlsx", outPending);
-
-            // 6. DISCOUNT PERCENTAGE File
-            const wsDiscount = XLSX.utils.aoa_to_sheet(discountReport);
-            const wbDiscount = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wbDiscount, wsDiscount, "Discounts");
-            const outDiscount = XLSX.write(wbDiscount, { bookType: 'xlsx', type: 'array' });
-            zipFolder.file("DISCOUNT PERCENTAGE.xlsx", outDiscount);
+            // 4. Combined SUMMARY File (Details Log + Discount Percentage sheets)
+            const wbSummaryFile = XLSX.utils.book_new();
+            // Sheet 1: Details Log
+            const wsDetailsSheet = XLSX.utils.aoa_to_sheet(detailsData);
+            XLSX.utils.book_append_sheet(wbSummaryFile, wsDetailsSheet, "Details Log");
+            // Sheet 2: Discount Percentage
+            const wsDiscountSheet = XLSX.utils.aoa_to_sheet(discountReport);
+            XLSX.utils.book_append_sheet(wbSummaryFile, wsDiscountSheet, "Discount Percentage");
+            const outSummaryFile = XLSX.write(wbSummaryFile, { bookType: 'xlsx', type: 'array' });
+            zipFolder.file("SUMMARY.xlsx", outSummaryFile);
 
             // Package final zip
             mergerZipBlob = await pipelineZip.generateAsync({ type: 'blob' });
@@ -2645,13 +2947,75 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Helper: Find party name from local synced list
-    function getPartyNameForCode(code) {
-        const match = vendorParties.find(v => String(v.code).trim() === String(code).trim());
-        if (match) {
-            return match.name;
+    // Helper: Find party name from local synced list, local storage cache, or filename patterns
+    function getPartyNameForCode(code, filesList = []) {
+        const strCode = String(code).trim();
+        
+        // 1. Check in active vendorParties
+        if (Array.isArray(vendorParties) && vendorParties.length > 0) {
+            const match = vendorParties.find(v => String(v.code).trim() === strCode);
+            if (match && match.name && !match.name.toLowerCase().includes('unknown')) {
+                return match.name;
+            }
         }
-        return `${code}-Unknown`;
+
+        // 2. Check in localStorage cachedVendorParties
+        try {
+            const cached = JSON.parse(localStorage.getItem('cachedVendorParties') || '[]');
+            if (Array.isArray(cached) && cached.length > 0) {
+                const match = cached.find(v => String(v.code).trim() === strCode);
+                if (match && match.name && !match.name.toLowerCase().includes('unknown')) {
+                    if (!vendorParties.some(v => String(v.code).trim() === strCode)) {
+                        vendorParties.push(match);
+                    }
+                    return match.name;
+                }
+            }
+        } catch (e) {}
+
+        // 3. Extract party name from filenames
+        const searchFiles = [];
+        if (Array.isArray(filesList)) searchFiles.push(...filesList);
+        if (Array.isArray(fcFiles)) searchFiles.push(...fcFiles);
+        if (Array.isArray(gmFiles)) searchFiles.push(...gmFiles);
+        if (typeof sepVariantResults === 'object') {
+            ['simple', 'details', 'summary', 'tax'].forEach(k => {
+                if (sepVariantResults[k] && Array.isArray(sepVariantResults[k].files)) {
+                    searchFiles.push(...sepVariantResults[k].files);
+                }
+            });
+        }
+
+        for (const f of searchFiles) {
+            const fname = typeof f === 'string' ? f : (f.name || f.originalName || '');
+            if (!fname) continue;
+
+            // Pattern 1: e.g. "101-BHARVITA-AJIO..." or "127-More & More-AJIO..."
+            const m1 = fname.match(new RegExp(`^${strCode}-([^-]+?)-(?:AJIO|Details|Summary|Tax|OD)`, 'i'));
+            if (m1 && m1[1] && m1[1].trim() && !m1[1].toLowerCase().includes('dropship') && !m1[1].toLowerCase().includes('unknown')) {
+                const extracted = m1[1].trim();
+                const fullName = `${strCode}-${extracted}`;
+                if (!vendorParties.some(v => String(v.code).trim() === strCode)) {
+                    vendorParties.push({ code: strCode, name: fullName });
+                    try { localStorage.setItem('cachedVendorParties', JSON.stringify(vendorParties)); } catch(e){}
+                }
+                return fullName;
+            }
+
+            // Pattern 2: e.g. "101-BHARVITA..." where next token is not DropShipOrderReports
+            const m2 = fname.match(new RegExp(`^${strCode}-([^._]+?)(?:[._-]|$)`));
+            if (m2 && m2[1] && m2[1].trim() && !m2[1].toLowerCase().includes('dropship') && !m2[1].toLowerCase().includes('unknown') && !m2[1].toLowerCase().includes('report')) {
+                const extracted = m2[1].trim();
+                const fullName = `${strCode}-${extracted}`;
+                if (!vendorParties.some(v => String(v.code).trim() === strCode)) {
+                    vendorParties.push({ code: strCode, name: fullName });
+                    try { localStorage.setItem('cachedVendorParties', JSON.stringify(vendorParties)); } catch(e){}
+                }
+                return fullName;
+            }
+        }
+
+        return `${strCode}-Unknown`;
     }
 
     // Helper: Extract party name without the code prefix
@@ -3090,11 +3454,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}PARTLY_CANCEL_QV_MISMATCH.xlsx`, outMismatch);
 
-                    const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
-                    const wbBlankSku = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
-                    const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+                    // BLANK SKU file - only create when there's actual blank SKU data
+                    if (blankSkuCount > 0) {
+                        const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
+                        const wbBlankSku = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
+                        const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
+                        outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+                        log(`Blank SKU file created with ${blankSkuCount} rows.`, 'info');
+                    } else {
+                        log(`No blank SKU rows found - skipping BLANK SKU file.`, 'info');
+                    }
 
                     const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
                     const wbDuplicate = XLSX.utils.book_new();
@@ -3102,12 +3472,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
                     outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
 
-                    const wsDiscount = XLSX.utils.aoa_to_sheet(discountReport);
-                    const wbDiscount = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDiscount, wsDiscount, "Discounts");
-                    const outDiscount = XLSX.write(wbDiscount, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}DISCOUNT PERCENTAGE.xlsx`, outDiscount);
-
+                    // Build combined SUMMARY file with Details + Discount Percentage sheets
                     const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
                     const detailsHeaders = [
                         "Filename", "Invoice Range", "Total Orders", "New", "Cancelled", 
@@ -3120,11 +3485,16 @@ document.addEventListener('DOMContentLoaded', () => {
                             cntShipped, cntDelivered, cntRTS, cntPO, cntOther, dateRangeStr, warehouseStr
                         ]
                     ];
-                    const wsDetails = XLSX.utils.aoa_to_sheet(detailsData);
-                    const wbDetails = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDetails, wsDetails, "Details Log");
-                    const outDetails = XLSX.write(wbDetails, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}DETAILS.xlsx`, outDetails);
+
+                    const wbSummaryFile = XLSX.utils.book_new();
+                    // Sheet 1: Details Log
+                    const wsDetailsSheet = XLSX.utils.aoa_to_sheet(detailsData);
+                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDetailsSheet, "Details Log");
+                    // Sheet 2: Discount Percentage
+                    const wsDiscountSheet = XLSX.utils.aoa_to_sheet(discountReport);
+                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDiscountSheet, "Discount Percentage");
+                    const outSummaryFile = XLSX.write(wbSummaryFile, { bookType: 'xlsx', type: 'array' });
+                    outputZip.file(`${pathPrefix}SUMMARY.xlsx`, outSummaryFile);
 
                     batchResults.push({
                         vendorCode: vendorCode,
@@ -3583,10 +3953,13 @@ document.addEventListener('DOMContentLoaded', () => {
         URL.revokeObjectURL(url);
     }
 
-    /* ==========================================================================
-       VENDOR DATA MANAGEMENT SYSTEM
-       ========================================================================== */
     let vendorParties = [];
+    try {
+        const savedParties = localStorage.getItem('cachedVendorParties');
+        if (savedParties) {
+            vendorParties = JSON.parse(savedParties);
+        }
+    } catch (e) {}
 
     // DOM Elements for Vendor Data Tab
     const vendorSyncStatus = document.getElementById('vendorSyncStatus');
@@ -3648,42 +4021,6 @@ document.addEventListener('DOMContentLoaded', () => {
         
         closeBtn.addEventListener('click', () => {
             overlay.remove();
-        });
-    }
-
-    // Custom Confirm Dialog Modal
-    function showCustomConfirm(message, onConfirm) {
-        const overlay = document.createElement('div');
-        overlay.className = 'modal-overlay';
-        
-        const card = document.createElement('div');
-        card.className = 'modal-card';
-        
-        card.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
-                <i class="fa-solid fa-circle-question" style="font-size: 1.5rem; color: var(--color-primary);"></i>
-                <h3 style="margin: 0; font-family: 'Space Grotesk', sans-serif;">Confirm Delete</h3>
-            </div>
-            <p style="margin: 0.5rem 0 1rem 0; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5;">${message}</p>
-            <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 0.5rem;">
-                <button class="btn btn-secondary cancel-btn" style="padding: 0.4rem 1rem; font-size: 0.8rem; border-radius: 8px;">Cancel</button>
-                <button class="btn confirm-btn" style="padding: 0.4rem 1rem; font-size: 0.8rem; border-radius: 8px; background: var(--color-error); color: white; border: none; cursor: pointer; font-weight: 600;">Delete</button>
-            </div>
-        `;
-        
-        overlay.appendChild(card);
-        document.body.appendChild(overlay);
-        
-        const cancelBtn = card.querySelector('.cancel-btn');
-        const confirmBtn = card.querySelector('.confirm-btn');
-        
-        cancelBtn.addEventListener('click', () => {
-            overlay.remove();
-        });
-        
-        confirmBtn.addEventListener('click', () => {
-            overlay.remove();
-            onConfirm();
         });
     }
 
@@ -3979,50 +4316,52 @@ function doPost(e) {
     }
 
     // Fetch Vendors from Google Sheets
-    function fetchVendors() {
-        if (!vendorSyncStatus) return;
+    async function fetchVendors() {
+        if (!GOOGLE_SHEETS_SCRIPT_URL) {
+            vendorLog("No Google Sheets URL configured.", "error");
+            renderVendorTable();
+            return;
+        }
 
-        vendorSyncStatus.className = 'status-indicator processing';
+        vendorSyncStatus.className = 'status-indicator syncing';
         vendorSyncStatus.innerText = 'Syncing...';
         vendorLog("Fetching vendor directory from Google Sheets...", "process");
 
-        if (vendorEmptyState) {
-            vendorEmptyState.innerHTML = `
-                <i class="fa-solid fa-spinner fa-spin placeholder-icon"></i>
-                <p>Connecting to Google Sheets and loading directory...</p>
-            `;
-            vendorEmptyState.classList.remove('hidden');
-        }
+        try {
+            // Try POST first with action: 'getParties'
+            let res = await fetch(GOOGLE_SHEETS_SCRIPT_URL, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'getParties' })
+            }).then(r => r.json()).catch(() => null);
 
-        const fetchUrl = `${GOOGLE_SHEETS_SCRIPT_URL}?action=getParties`;
+            // Fallback to GET if POST didn't return parties
+            if (!res || !res.parties) {
+                res = await fetch(`${GOOGLE_SHEETS_SCRIPT_URL}?action=getParties`)
+                    .then(r => r.json()).catch(() => null);
+            }
 
-        fetch(fetchUrl)
-            .then(res => res.json())
-            .then(res => {
-                if (res.status === "error") {
-                    throw new Error(res.message || "Failed to fetch vendor data");
-                }
-                vendorParties = res.parties || [];
+            if (res && res.parties && Array.isArray(res.parties) && res.parties.length > 0) {
+                vendorParties = res.parties;
+                try { localStorage.setItem('cachedVendorParties', JSON.stringify(vendorParties)); } catch(e){}
                 vendorLog(`Fetched ${vendorParties.length} vendor record(s) from Google Sheets successfully.`, "success");
                 vendorSyncStatus.className = 'status-indicator success';
                 vendorSyncStatus.innerText = 'Connected';
                 renderVendorTable();
-            })
-            .catch(err => {
-                vendorLog(`Fetch failed: ${err.message}. Please check if the updated Apps Script is deployed.`, "error");
-                vendorSyncStatus.className = 'status-indicator idle';
-                vendorSyncStatus.innerText = 'Offline';
-                // Show empty state with error note
-                vendorTableContainer.innerHTML = `
-                    <div class="empty-output-state text-error" style="color: var(--color-error)">
-                        <i class="fa-solid fa-triangle-exclamation" style="font-size: 3rem;"></i>
-                        <p style="margin-top: 0.5rem; font-weight: 500;">Connection Failed</p>
-                        <p style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; margin-top: 0.25rem;">
-                            Unable to load vendor list. Ensure the Apps Script is updated and CORS requests are enabled.
-                        </p>
-                    </div>
-                `;
-            });
+                return;
+            }
+        } catch (err) {}
+
+        // Local fallback
+        const savedParties = localStorage.getItem('cachedVendorParties');
+        if (savedParties) {
+            try {
+                vendorParties = JSON.parse(savedParties);
+            } catch(e) {}
+        }
+        vendorLog(`Google Sheets sync offline. Active vendors in local cache: ${vendorParties.length}`, "info");
+        vendorSyncStatus.className = 'status-indicator idle';
+        vendorSyncStatus.innerText = 'Offline';
+        renderVendorTable();
     }
 
     // Add Vendor to Google Sheets
@@ -4184,27 +4523,36 @@ function doPost(e) {
        ========================================================================== */
     // State Variables
     let separateFile = null;
-    let separateZipBlob = null;
+    /* ==========================================================================
+       SEPARATE FILE (4-VARIANT PARALLEL BATCH) LOGIC
+       ========================================================================== */
+    const sepUploadedFiles = {
+        simple: null,
+        details: null,
+        summary: null,
+        tax: null
+    };
 
-    // DOM Elements
-    const separateDropzone = document.getElementById('separateDropzone');
-    const separateFileInput = document.getElementById('separateFileInput');
-    const separateFileDisplay = document.getElementById('separateFileDisplay');
+    const sepVariantResults = {
+        simple: { label: '1. SIMPLE', files: [], zipBlob: null, zipName: 'ajio_simple_seprate_bundle.zip', color: '#8b5cf6' },
+        details: { label: '2. DETAILS', files: [], zipBlob: null, zipName: 'ajio_details_seprate_bundle.zip', color: '#4f46e5' },
+        summary: { label: '3. SUMMARY', files: [], zipBlob: null, zipName: 'ajio_summry_seprate_bundle.zip', color: '#2563eb' },
+        tax: { label: '4. TAX SPLIT', files: [], zipBlob: null, zipName: 'ajio_tax_seprate_bundle.zip', color: '#0d9488' }
+    };
+
+    let sepModalCurrentFilter = 'all';
+
     const separateBtn = document.getElementById('separateBtn');
-    
+    const sepSelectedCount = document.getElementById('sepSelectedCount');
     const separateStatus = document.getElementById('separateStatus');
     const separateProgressCard = document.getElementById('separateProgressCard');
     const separateProgressBar = document.getElementById('separateProgressBar');
     const separateProgressPercent = document.getElementById('separateProgressPercent');
     const separateProgressStepText = document.getElementById('separateProgressStepText');
     const separateOutputContainer = document.getElementById('separateOutputContainer');
-    
     const separateConsoleLog = document.getElementById('separateConsoleLog');
     const clearSeparateLogBtn = document.getElementById('clearSeparateLogBtn');
-
-    const separateVariantRadios = document.getElementsByName('separateVariant');
-    const simpleSubOptions = document.getElementById('simpleSubOptions');
-    const simpleColChoiceRadios = document.getElementsByName('simpleColChoice');
+    const clearAllSepFilesBtn = document.getElementById('clearAllSepFilesBtn');
 
     // Color list matching the VBA macro exactly
     const separateColorList = [
@@ -4221,7 +4569,6 @@ function doPost(e) {
         'rgb(157, 195, 230)', 'rgb(146, 208, 80)'
     ];
 
-    // Logging Utility
     function separateLog(message, type = 'info') {
         if (!separateConsoleLog) return;
         const line = document.createElement('div');
@@ -4232,7 +4579,6 @@ function doPost(e) {
         separateConsoleLog.scrollTop = separateConsoleLog.scrollHeight;
     }
 
-    // Clear log button
     if (clearSeparateLogBtn) {
         clearSeparateLogBtn.addEventListener('click', () => {
             separateConsoleLog.innerHTML = '';
@@ -4240,47 +4586,233 @@ function doPost(e) {
         });
     }
 
-    // Dynamic visibility of suboptions for Option 1
-    function toggleSubOptions() {
-        let selectedVariant = "1";
-        separateVariantRadios.forEach(r => {
-            if (r.checked) selectedVariant = r.value;
+    function updateSepUploadState() {
+        let count = 0;
+        ['simple', 'details', 'summary', 'tax'].forEach(k => {
+            if (sepUploadedFiles[k]) count++;
         });
-        if (selectedVariant === "1") {
-            if (simpleSubOptions) simpleSubOptions.style.display = "flex";
-        } else {
-            if (simpleSubOptions) simpleSubOptions.style.display = "none";
-        }
-    }
 
-    separateVariantRadios.forEach(radio => {
-        radio.addEventListener('change', toggleSubOptions);
-    });
+        if (sepSelectedCount) sepSelectedCount.innerText = count;
 
-    // Initialize dropzone
-    if (separateDropzone && separateFileInput) {
-        setupMiniDropzone(separateDropzone, separateFileInput, (file) => {
-            separateFile = file;
-            separateFileDisplay.innerText = file.name;
-            separateFileDisplay.title = file.name;
-            separateDropzone.classList.add('file-selected');
-            separateLog(`Selected source file: ${file.name} (${formatBytes(file.size)})`, 'success');
-            checkSeparateInputs();
-        });
-    }
-
-    function checkSeparateInputs() {
-        if (separateFile && separateBtn) {
+        if (count > 0 && separateBtn) {
             separateBtn.removeAttribute('disabled');
         } else if (separateBtn) {
             separateBtn.setAttribute('disabled', 'true');
         }
     }
 
-    // Main Run Separation Logic
+    function initSepVariantUpload(key, dropzoneId, inputId, displayId, clearBtnId) {
+        const dropzone = document.getElementById(dropzoneId);
+        const input = document.getElementById(inputId);
+        const display = document.getElementById(displayId);
+        const clearBtn = document.getElementById(clearBtnId);
+
+        if (!dropzone || !input) return;
+
+        setupMiniDropzone(dropzone, input, (file) => {
+            sepUploadedFiles[key] = file;
+            if (display) {
+                display.innerText = `${file.name} (${formatBytes(file.size)})`;
+                display.title = file.name;
+            }
+            dropzone.classList.add('file-selected');
+            if (clearBtn) clearBtn.style.display = 'inline-block';
+            separateLog(`Selected file for ${sepVariantResults[key].label}: ${file.name}`, 'success');
+            updateSepUploadState();
+        });
+
+        if (clearBtn) {
+            clearBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const ok = await showCustomConfirm('Remove File', `Are you sure you want to remove the ${sepVariantResults[key].label} file?`, 'danger', 'Remove');
+                if (!ok) return;
+
+                sepUploadedFiles[key] = null;
+                input.value = '';
+                if (display) display.innerText = `Click or drag ${sepVariantResults[key].label.split('. ')[1]} file`;
+                dropzone.classList.remove('file-selected');
+                clearBtn.style.display = 'none';
+                separateLog(`Cleared file for ${sepVariantResults[key].label}`, 'info');
+                updateSepUploadState();
+            });
+        }
+    }
+
+    initSepVariantUpload('simple', 'sepDropzoneSimple', 'sepFileInputSimple', 'sepFileDisplaySimple', 'clearSepSimpleBtn');
+    initSepVariantUpload('details', 'sepDropzoneDetails', 'sepFileInputDetails', 'sepFileDisplayDetails', 'clearSepDetailsBtn');
+    initSepVariantUpload('summary', 'sepDropzoneSummary', 'sepFileInputSummary', 'sepFileDisplaySummary', 'clearSepSummaryBtn');
+    initSepVariantUpload('tax', 'sepDropzoneTax', 'sepFileInputTax', 'sepFileDisplayTax', 'clearSepTaxBtn');
+
+    if (clearAllSepFilesBtn) {
+        clearAllSepFilesBtn.addEventListener('click', async () => {
+            const ok = await showCustomConfirm('Clear All Files', 'Are you sure you want to clear all uploaded files and separated data?', 'danger', 'Clear All');
+            if (!ok) return;
+
+            ['simple', 'details', 'summary', 'tax'].forEach(k => {
+                sepUploadedFiles[k] = null;
+                if (sepVariantResults[k]) {
+                    sepVariantResults[k].files = [];
+                    sepVariantResults[k].zipBlob = null;
+                }
+                const input = document.getElementById(`sepFileInput${k.charAt(0).toUpperCase() + k.slice(1)}`);
+                const display = document.getElementById(`sepFileDisplay${k.charAt(0).toUpperCase() + k.slice(1)}`);
+                const dropzone = document.getElementById(`sepDropzone${k.charAt(0).toUpperCase() + k.slice(1)}`);
+                const clearBtn = document.getElementById(`clearSep${k.charAt(0).toUpperCase() + k.slice(1)}Btn`);
+                if (input) input.value = '';
+                if (display) display.innerText = `Click or drag ${sepVariantResults[k].label.split('. ')[1]} file`;
+                if (dropzone) dropzone.classList.remove('file-selected');
+                if (clearBtn) clearBtn.style.display = 'none';
+            });
+            updateSepUploadState();
+            renderSeparateDashboard();
+            clearTabSession('separate_tab');
+            separateLog('Cleared all uploaded files and separated data.', 'info');
+        });
+    }
+
+    async function rebuildSepVariantZip(variantKey) {
+        const vData = sepVariantResults[variantKey];
+        if (!vData) return;
+        try {
+            if (!vData.files || vData.files.length === 0) {
+                vData.zipBlob = null;
+                return;
+            }
+            const zip = new JSZip();
+            for (const file of vData.files) {
+                if (file.blob) {
+                    const buffer = await file.blob.arrayBuffer();
+                    zip.file(file.name, buffer);
+                }
+            }
+            vData.zipBlob = await zip.generateAsync({ type: 'blob' });
+        } catch (e) {
+            console.error(`Failed to rebuild ZIP for ${variantKey}:`, e);
+        }
+    }
+
+    async function saveSepFileRename(fileObj, newBaseName) {
+        if (!fileObj) return;
+        newBaseName = (newBaseName || '').trim();
+        if (!newBaseName) {
+            alert('Filename cannot be empty.');
+            return;
+        }
+
+        const lastDot = fileObj.name.lastIndexOf('.');
+        const origExt = lastDot !== -1 ? fileObj.name.substring(lastDot) : '.xlsx';
+
+        if (newBaseName.toLowerCase().endsWith(origExt.toLowerCase())) {
+            newBaseName = newBaseName.substring(0, newBaseName.length - origExt.length).trim();
+        }
+
+        fileObj.name = newBaseName + origExt;
+
+        let vKey = fileObj.variantKey;
+        if (!vKey || !sepVariantResults[vKey]) {
+            for (const k of ['simple', 'details', 'summary', 'tax']) {
+                if (sepVariantResults[k] && sepVariantResults[k].files.some(f => (fileObj.id && f.id === fileObj.id) || f.name === fileObj.name)) {
+                    vKey = k;
+                    fileObj.variantKey = k;
+                    break;
+                }
+            }
+        }
+
+        if (vKey) {
+            await rebuildSepVariantZip(vKey);
+        }
+
+        renderSeparateDashboard();
+        const modal = document.getElementById('sepFullscreenModal');
+        if (modal && modal.classList.contains('show')) {
+            renderSepModalTableRows();
+        }
+        saveTabSession('separate_tab', { results: sepVariantResults });
+        separateLog(`Manually renamed file in [${fileObj.variantLabel || vKey}] to: "${fileObj.name}"`, 'success');
+    }
+
+    async function deleteSepFile(fileObj) {
+        if (!fileObj) return;
+        const fileName = fileObj.name || 'this file';
+        const variantLabel = fileObj.variantLabel || 'Selected Variant';
+
+        const ok = await customConfirm(
+            `Are you sure you want to delete "${fileName}" from ${variantLabel}?`,
+            {
+                title: 'Delete File Confirmation',
+                confirmText: 'Yes, Delete',
+                cancelText: 'Cancel',
+                type: 'danger'
+            }
+        );
+        if (!ok) return;
+
+        let vKey = fileObj.variantKey;
+        if (!vKey || !sepVariantResults[vKey]) {
+            for (const k of ['simple', 'details', 'summary', 'tax']) {
+                if (sepVariantResults[k] && sepVariantResults[k].files.some(f => (fileObj.id && f.id === fileObj.id) || f.name === fileObj.name)) {
+                    vKey = k;
+                    break;
+                }
+            }
+        }
+
+        if (vKey && sepVariantResults[vKey]) {
+            const vData = sepVariantResults[vKey];
+            vData.files = vData.files.filter(f => {
+                if (fileObj.id && f.id) {
+                    return f.id !== fileObj.id;
+                }
+                return f.name !== fileObj.name;
+            });
+            await rebuildSepVariantZip(vKey);
+        }
+
+        renderSeparateDashboard();
+        const modal = document.getElementById('sepFullscreenModal');
+        if (modal && modal.classList.contains('show')) {
+            renderSepModalTableRows();
+        }
+        saveTabSession('separate_tab', { results: sepVariantResults });
+        separateLog(`Deleted "${fileName}" from [${variantLabel}]`, 'info');
+    }
+
+    function getAllSeparatedFiles() {
+        let all = [];
+        ['simple', 'details', 'summary', 'tax'].forEach(k => {
+            if (sepVariantResults[k] && sepVariantResults[k].files) {
+                all = all.concat(sepVariantResults[k].files);
+            }
+        });
+        return all;
+    }
+
+    async function downloadAllSepZips() {
+        const activeKeys = ['simple', 'details', 'summary', 'tax'].filter(k => sepVariantResults[k].files.length > 0 && sepVariantResults[k].zipBlob);
+        if (activeKeys.length === 0) {
+            alert('No separated files available to download.');
+            return;
+        }
+
+        separateLog(`Downloading ${activeKeys.length} ZIP packages...`, 'process');
+        activeKeys.forEach((k, idx) => {
+            const vData = sepVariantResults[k];
+            setTimeout(() => {
+                triggerDownload(vData.zipBlob, vData.zipName);
+                separateLog(`Downloaded ZIP package: ${vData.zipName}`, 'info');
+            }, idx * 350);
+        });
+    }
+
+    // Main Run Separation Logic (Batch / Parallel across all uploaded variants)
     if (separateBtn) {
         separateBtn.addEventListener('click', async () => {
-            if (!separateFile) return;
+            const activeVariants = ['simple', 'details', 'summary', 'tax'].filter(k => sepUploadedFiles[k] !== null);
+            if (activeVariants.length === 0) {
+                alert('Please upload at least one Excel file to separate.');
+                return;
+            }
 
             separateBtn.setAttribute('disabled', 'true');
             if (separateStatus) {
@@ -4288,206 +4820,190 @@ function doPost(e) {
                 separateStatus.innerText = 'Processing';
             }
             if (separateProgressCard) separateProgressCard.classList.remove('hidden');
-            if (separateProgressBar) separateProgressBar.style.width = '10%';
-            if (separateProgressPercent) separateProgressPercent.innerText = '10%';
-            if (separateProgressStepText) separateProgressStepText.innerText = 'Reading file...';
-            
+            if (separateProgressBar) separateProgressBar.style.width = '5%';
+            if (separateProgressPercent) separateProgressPercent.innerText = '5%';
+            if (separateProgressStepText) separateProgressStepText.innerText = 'Initializing separation...';
+
             if (separateOutputContainer) {
-                separateOutputContainer.innerHTML = '';
-                separateOutputContainer.className = 'processed-container empty';
                 separateOutputContainer.innerHTML = `
                     <div class="empty-output-state">
                         <i class="fa-solid fa-spinner fa-spin placeholder-icon" style="color: #8b5cf6;"></i>
-                        <p>Splitting file by warehouse codes, please wait...</p>
+                        <p>Splitting files across ${activeVariants.length} variant(s), please wait...</p>
                     </div>
                 `;
             }
 
-            separateLog('Starting File Separation Pipeline...', 'process');
+            separateLog(`Starting Batch File Separation across ${activeVariants.length} variant(s)...`, 'process');
 
             try {
-                // Get selected options
-                let userChoice = "1";
-                separateVariantRadios.forEach(r => {
-                    if (r.checked) userChoice = r.value;
-                });
-
-                let colChoice = "D";
-                if (simpleColChoiceRadios) {
-                    simpleColChoiceRadios.forEach(r => {
-                        if (r.checked) colChoice = r.value;
-                    });
-                }
-
-                // Determine settings based on variant selection
-                let filterField = 3; // 0-indexed column index (Column D = index 3)
-                let dataStartRow = 2; // 0-indexed row index (Row 3 = index 2)
-                let nameSuffix = "-AJIO";
-                let headerRowCount = 2; // Header is rows 1-2
-
-                if (userChoice === "1") {
-                    nameSuffix = "-AJIO";
-                    filterField = 3; // Column D (index 3)
-                    dataStartRow = 2;
-                    headerRowCount = 2;
-                } else if (userChoice === "2") {
-                    nameSuffix = " DETAILS SHEET AJIO";
-                    filterField = 3;
-                    dataStartRow = 2;
-                    headerRowCount = 2;
-                } else if (userChoice === "3") {
-                    nameSuffix = " SUMMARY SHEET AJIO";
-                    filterField = 6;
-                    dataStartRow = 2;
-                    headerRowCount = 2;
-                } else if (userChoice === "4") {
-                    nameSuffix = "-AJIO";
-                    filterField = 0; // Column A
-                    dataStartRow = 1; // Row 2
-                    headerRowCount = 1; // Header is row 1
-                }
-
-                separateLog(`Configuration selected: Variant ${userChoice} (Filter Column Index: ${filterField}, Header Rows: ${headerRowCount})`, 'info');
-
-                // Read file
-                const buffer = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = (e) => resolve(e.target.result);
-                    reader.onerror = (e) => reject(new Error("File read error"));
-                    reader.readAsArrayBuffer(separateFile);
-                });
-
-                if (separateProgressBar) separateProgressBar.style.width = '30%';
-                if (separateProgressPercent) separateProgressPercent.innerText = '30%';
-                if (separateProgressStepText) separateProgressStepText.innerText = 'Parsing Excel data...';
-                separateLog('Parsing Excel spreadsheet...', 'info');
-
-                const wb = XLSX.read(buffer, { type: 'array' });
-                const firstSheetName = wb.SheetNames[0];
-                const ws = wb.Sheets[firstSheetName];
-                const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
-
-                if (aoa.length <= headerRowCount) {
-                    throw new Error("Excel sheet contains no data below the header rows.");
-                }
-
-                separateLog(`Spreadsheet loaded. Sheet name: "${firstSheetName}". Total rows: ${aoa.length}`, 'info');
-
-                if (separateProgressBar) separateProgressBar.style.width = '50%';
-                if (separateProgressPercent) separateProgressPercent.innerText = '50%';
-                if (separateProgressStepText) separateProgressStepText.innerText = 'Identifying unique filter keys...';
-
-                // Extract unique values in the filter column
-                const keys = [];
-                const keyMap = {};
-                for (let r = dataStartRow; r < aoa.length; r++) {
-                    const val = String(aoa[r][filterField] || "").trim();
-                    if (val !== "") {
-                        if (!keyMap[val]) {
-                            keyMap[val] = true;
-                            keys.push(val);
-                        }
-                    }
-                }
-
-                if (keys.length === 0) {
-                    throw new Error("No valid keys found in the filter column.");
-                }
-
-                separateLog(`Found ${keys.length} unique values to split by: ${keys.join(', ')}`, 'success');
-
-                // Generate stamp
                 const now = new Date();
                 const pad = (n) => String(n).padStart(2, '0');
                 const dtStamp = `${pad(now.getDate())}-${pad(now.getMonth() + 1)}-${now.getFullYear()} ${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
 
-                const pipelineZip = new JSZip();
-                const splitFiles = [];
-                let fileCounter = 1;
+                let totalProcessedVariants = 0;
 
-                // Loop through keys and generate workbooks
-                for (let i = 0; i < keys.length; i++) {
-                    const keyVal = keys[i];
-                    separateLog(`Processing key: [${keyVal}] (${i + 1}/${keys.length})`, 'process');
+                for (let vIdx = 0; vIdx < activeVariants.length; vIdx++) {
+                    const vKey = activeVariants[vIdx];
+                    const sourceFile = sepUploadedFiles[vKey];
+                    const vData = sepVariantResults[vKey];
 
-                    // Progress percentage (mapping 50% to 90%)
-                    const percent = 50 + Math.floor((i / keys.length) * 40);
-                    if (separateProgressBar) separateProgressBar.style.width = `${percent}%`;
-                    if (separateProgressPercent) separateProgressPercent.innerText = `${percent}%`;
-                    if (separateProgressStepText) separateProgressStepText.innerText = `Splitting file ${i + 1} of ${keys.length}: ${keyVal}...`;
+                    let filterField = 3;
+                    let dataStartRow = 2;
+                    let nameSuffix = "-AJIO";
+                    let headerRowCount = 2;
 
-                    // Copy Header row(s)
-                    const newRows = [];
-                    for (let h = 0; h < headerRowCount; h++) {
-                        if (aoa[h]) {
-                            newRows.push([...aoa[h]]);
-                        }
+                    if (vKey === 'simple') {
+                        nameSuffix = "-AJIO";
+                        filterField = 3;
+                        dataStartRow = 2;
+                        headerRowCount = 2;
+                    } else if (vKey === 'details') {
+                        nameSuffix = " DETAILS SHEET AJIO";
+                        filterField = 3;
+                        dataStartRow = 2;
+                        headerRowCount = 2;
+                    } else if (vKey === 'summary') {
+                        nameSuffix = " SUMMARY SHEET AJIO";
+                        filterField = 6;
+                        dataStartRow = 2;
+                        headerRowCount = 2;
+                    } else if (vKey === 'tax') {
+                        nameSuffix = "-AJIO";
+                        filterField = 0;
+                        dataStartRow = 1;
+                        headerRowCount = 1;
                     }
 
-                    // Copy matching data rows
-                    let matchedCount = 0;
-                    for (let r = dataStartRow; r < aoa.length; r++) {
-                        const rowVal = String(aoa[r][filterField] || "").trim();
-                        if (rowVal === keyVal) {
-                            newRows.push([...aoa[r]]);
-                            matchedCount++;
-                        }
-                    }
+                    separateLog(`[${vData.label}] Reading ${sourceFile.name}...`, 'info');
 
-                    // Build new workbook
-                    const newWb = XLSX.utils.book_new();
-                    const newWs = XLSX.utils.aoa_to_sheet(newRows);
-                    XLSX.utils.book_append_sheet(newWb, newWs, "Sheet1");
-
-                    // Filename formatting
-                    let finalName = "";
-                    if (userChoice === "4") {
-                        const firstNum = keyVal.split("-")[0];
-                        finalName = `${firstNum}-Tax-${keyVal}-AJIO`;
-                    } else {
-                        finalName = `${keyVal}${nameSuffix}`;
-                    }
-
-                    const outFilename = `${finalName} ${dtStamp}_${String(fileCounter).padStart(2, '0')}.xlsx`;
-                    const excelBuffer = XLSX.write(newWb, { bookType: 'xlsx', type: 'array' });
-                    const fileBlob = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-
-                    pipelineZip.file(outFilename, excelBuffer);
-
-                    // Map visual color
-                    const uiColor = separateColorList[(fileCounter - 1) % separateColorList.length];
-
-                    splitFiles.push({
-                        name: outFilename,
-                        size: fileBlob.size,
-                        rows: matchedCount,
-                        blob: fileBlob,
-                        color: uiColor
+                    const buffer = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => resolve(e.target.result);
+                        reader.onerror = (e) => reject(new Error(`Failed to read file ${sourceFile.name}`));
+                        reader.readAsArrayBuffer(sourceFile);
                     });
 
-                    separateLog(`File generated: "${outFilename}" with ${matchedCount} data rows.`, 'info');
-                    fileCounter++;
+                    const wb = XLSX.read(buffer, { type: 'array' });
+                    const firstSheetName = wb.SheetNames[0];
+                    const ws = wb.Sheets[firstSheetName];
+                    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+
+                    if (aoa.length <= headerRowCount) {
+                        throw new Error(`[${vData.label}] "${sourceFile.name}" contains no data rows below header.`);
+                    }
+
+                    const keys = [];
+                    const keyMap = {};
+                    for (let r = dataStartRow; r < aoa.length; r++) {
+                        const val = String(aoa[r][filterField] || "").trim();
+                        if (val !== "") {
+                            if (!keyMap[val]) {
+                                keyMap[val] = true;
+                                keys.push(val);
+                            }
+                        }
+                    }
+
+                    if (keys.length === 0) {
+                        throw new Error(`[${vData.label}] No valid keys found in filter column (Col ${colIndexToLetter(filterField)}).`);
+                    }
+
+                    separateLog(`[${vData.label}] Found ${keys.length} unique group keys to split.`, 'process');
+
+                    const pipelineZip = new JSZip();
+                    const splitFiles = [];
+                    let fileCounter = 1;
+
+                    for (let i = 0; i < keys.length; i++) {
+                        const keyVal = keys[i];
+                        
+                        const newRows = [];
+                        for (let h = 0; h < headerRowCount; h++) {
+                            if (aoa[h]) newRows.push([...aoa[h]]);
+                        }
+
+                        let matchedCount = 0;
+                        for (let r = dataStartRow; r < aoa.length; r++) {
+                            const rowVal = String(aoa[r][filterField] || "").trim();
+                            if (rowVal === keyVal) {
+                                newRows.push([...aoa[r]]);
+                                matchedCount++;
+                            }
+                        }
+
+                        const newWb = XLSX.utils.book_new();
+                        const newWs = XLSX.utils.aoa_to_sheet(newRows);
+                        XLSX.utils.book_append_sheet(newWb, newWs, "Sheet1");
+
+                        let displayKey = keyVal;
+                        const hyphenIdx = keyVal.indexOf("-");
+                        if (hyphenIdx !== -1) {
+                            const prefixPart = keyVal.substring(0, hyphenIdx);
+                            if (prefixPart.length === 5 && /^[A-Za-z]{2}\d{3}$/.test(prefixPart)) {
+                                displayKey = keyVal.substring(2);
+                            }
+                        } else {
+                            if (keyVal.length === 5 && /^[A-Za-z]{2}\d{3}$/.test(keyVal)) {
+                                displayKey = keyVal.substring(2);
+                            }
+                        }
+
+                        let finalName = "";
+                        if (vKey === "tax") {
+                            const firstNum = displayKey.split("-")[0];
+                            finalName = `${firstNum}-Tax-${displayKey}-AJIO`;
+                        } else {
+                            finalName = `${displayKey}${nameSuffix}`;
+                        }
+
+                        const outFilename = `${finalName} ${dtStamp}_${String(fileCounter).padStart(2, '0')}.xlsx`;
+                        const excelBuffer = XLSX.write(newWb, { bookType: 'xlsx', type: 'array' });
+                        const fileBlob = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+
+                        pipelineZip.file(outFilename, excelBuffer);
+
+                        const uiColor = separateColorList[(fileCounter - 1) % separateColorList.length];
+
+                        splitFiles.push({
+                            id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                            variantKey: vKey,
+                            variantLabel: vData.label,
+                            name: outFilename,
+                            originalName: outFilename,
+                            size: fileBlob.size,
+                            rows: matchedCount,
+                            blob: fileBlob,
+                            aoa: newRows,
+                            color: uiColor
+                        });
+
+                        fileCounter++;
+                    }
+
+                    vData.files = splitFiles;
+                    vData.zipBlob = await pipelineZip.generateAsync({ type: 'blob' });
+                    totalProcessedVariants++;
+
+                    const progressPct = Math.round(((vIdx + 1) / activeVariants.length) * 90);
+                    if (separateProgressBar) separateProgressBar.style.width = `${progressPct}%`;
+                    if (separateProgressPercent) separateProgressPercent.innerText = `${progressPct}%`;
+                    if (separateProgressStepText) separateProgressStepText.innerText = `Finished ${vData.label} (${splitFiles.length} files)...`;
+                    separateLog(`[${vData.label}] Completed packaging ${splitFiles.length} file(s).`, 'success');
                 }
 
-                if (separateProgressBar) separateProgressBar.style.width = '95%';
-                if (separateProgressPercent) separateProgressPercent.innerText = '95%';
-                if (separateProgressStepText) separateProgressStepText.innerText = 'Packaging final ZIP file...';
-                separateLog('Compiling ZIP archive package...', 'process');
-
-                separateZipBlob = await pipelineZip.generateAsync({ type: 'blob' });
-
-                // Render visual output dashboard
-                renderSeparateDashboard(splitFiles);
+                renderSeparateDashboard();
+                saveTabSession('separate_tab', { results: sepVariantResults });
 
                 if (separateProgressBar) separateProgressBar.style.width = '100%';
                 if (separateProgressPercent) separateProgressPercent.innerText = '100%';
-                if (separateProgressStepText) separateProgressStepText.innerText = 'All steps processed successfully!';
+                if (separateProgressStepText) separateProgressStepText.innerText = 'Separation completed successfully!';
 
                 if (separateStatus) {
                     separateStatus.className = 'status-indicator success';
                     separateStatus.innerText = 'Completed';
                 }
-                separateLog('Split operation successful. Files are ready for download.', 'success');
+                alert("SEPARATION PROCESS COMPLETED SUCCESSFULLY!");
+                separateLog('Batch separation pipeline finished successfully. All variant ZIPs ready.', 'success');
 
             } catch (err) {
                 separateLog(`Separation Pipeline failed: ${err.message}`, 'error');
@@ -4495,11 +5011,7 @@ function doPost(e) {
                     separateStatus.className = 'status-indicator idle';
                     separateStatus.innerText = 'Failed';
                 }
-                if (separateProgressStepText) separateProgressStepText.innerText = 'An error occurred during execution.';
-
                 if (separateOutputContainer) {
-                    separateOutputContainer.innerHTML = '';
-                    separateOutputContainer.className = 'processed-container empty';
                     separateOutputContainer.innerHTML = `
                         <div class="empty-output-state">
                             <i class="fa-solid fa-circle-exclamation placeholder-icon" style="color: #ef4444;"></i>
@@ -4513,13 +5025,24 @@ function doPost(e) {
         });
     }
 
-    // Function to render the processed list in the dashboard
-    function renderSeparateDashboard(files) {
+    function renderSeparateDashboard() {
         if (!separateOutputContainer) return;
         separateOutputContainer.innerHTML = '';
         separateOutputContainer.className = 'processed-container';
 
-        // Header element with Download All ZIP button
+        const allFiles = getAllSeparatedFiles();
+        const activeVariants = ['simple', 'details', 'summary', 'tax'].filter(k => sepVariantResults[k].files.length > 0);
+
+        if (allFiles.length === 0) {
+            separateOutputContainer.innerHTML = `
+                <div class="empty-output-state">
+                    <i class="fa-solid fa-file-export placeholder-icon"></i>
+                    <p>Upload files and click process to separate into bundles.</p>
+                </div>
+            `;
+            return;
+        }
+
         const header = document.createElement('div');
         header.className = 'processed-header';
         header.style.display = 'flex';
@@ -4527,93 +5050,565 @@ function doPost(e) {
         header.style.alignItems = 'center';
         header.style.width = '100%';
         header.style.marginBottom = '1rem';
+        header.style.flexWrap = 'wrap';
+        header.style.gap = '0.5rem';
+
         header.innerHTML = `
-            <h3><i class="fa-solid fa-circle-check text-success"></i> Split Files (${files.length})</h3>
-            <button class="btn btn-primary btn-glow" id="downloadAllSeparateBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
-                <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
-            </button>
+            <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                <h3 style="margin: 0;"><i class="fa-solid fa-circle-check text-success"></i> Separated Files (${allFiles.length})</h3>
+                <span class="badge" style="background:#ede9fe; color:#6d28d9; font-size:0.75rem; font-weight:700;">${activeVariants.length} Active Variant(s)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <button class="btn" id="openAllSepFullscreenBtn" type="button" style="background: linear-gradient(135deg, #4f46e5, #3730a3); color: #ffffff !important; display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.9rem; font-size: 0.8rem; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(79, 70, 229, 0.25);">
+                    <i class="fa-solid fa-expand"></i> Full View (All)
+                </button>
+                <button class="btn btn-glow" id="downloadAllSepZipsBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: #ffffff !important; font-size: 0.8rem; font-weight: 600; padding: 0.45rem 0.9rem; border-radius: 8px; border: none; cursor: pointer;">
+                    <i class="fa-solid fa-file-zipper"></i> Download All (4 ZIPs)
+                </button>
+            </div>
         `;
         separateOutputContainer.appendChild(header);
 
-        // List container
-        const listContainer = document.createElement('div');
-        listContainer.className = 'processed-list';
-        listContainer.style.display = 'flex';
-        listContainer.style.flexDirection = 'column';
-        listContainer.style.gap = '0.5rem';
-        listContainer.style.width = '100%';
-        listContainer.style.maxHeight = '450px';
-        listContainer.style.overflowY = 'auto';
-        listContainer.style.paddingRight = '0.25rem';
+        const grid = document.createElement('div');
+        grid.style.display = 'grid';
+        grid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(300px, 1fr))';
+        grid.style.gap = '0.85rem';
+        grid.style.width = '100%';
 
-        files.forEach((file, index) => {
-            const item = document.createElement('div');
-            item.className = 'processed-item';
-            // Custom styling using VBA colors
-            item.style.borderLeft = `5px solid ${file.color}`;
-            item.style.background = 'rgba(255, 255, 255, 0.8)';
-            item.style.padding = '0.75rem 1rem';
-            item.style.borderRadius = '8px';
-            item.style.display = 'flex';
-            item.style.justifyContent = 'space-between';
-            item.style.alignItems = 'center';
-            item.style.boxShadow = '0 2px 4px rgba(0,0,0,0.02)';
-            item.style.border = '1px solid var(--border-color)';
-            item.style.borderLeftWidth = '5px';
+        ['simple', 'details', 'summary', 'tax'].forEach(k => {
+            const vData = sepVariantResults[k];
+            const fileCount = vData.files.length;
+            const card = document.createElement('div');
+            card.className = 'processed-item';
+            card.style.borderLeft = `5px solid ${vData.color}`;
+            card.style.background = 'white';
+            card.style.padding = '0.9rem 1rem';
+            card.style.borderRadius = '10px';
+            card.style.display = 'flex';
+            card.style.flexDirection = 'column';
+            card.style.gap = '0.55rem';
+            card.style.boxShadow = '0 2px 4px rgba(0,0,0,0.04)';
+            card.style.border = '1px solid var(--border-color)';
+            card.style.borderLeftWidth = '5px';
 
-            item.innerHTML = `
-                <div class="file-details" style="display: flex; flex-direction: column; gap: 0.2rem;">
-                    <span class="file-name" style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem; word-break: break-all;" title="${file.name}">${file.name}</span>
-                    <div style="display: flex; gap: 1rem; font-size: 0.75rem; color: var(--text-muted);">
-                        <span><i class="fa-solid fa-database"></i> ${file.rows} Rows</span>
-                        <span><i class="fa-solid fa-weight-hanging"></i> ${formatBytes(file.size)}</span>
-                    </div>
+            const totalRows = vData.files.reduce((acc, f) => acc + f.rows, 0);
+            const totalBytes = vData.files.reduce((acc, f) => acc + f.size, 0);
+
+            card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: 700; font-size: 0.9rem; color: #1e293b; display: flex; align-items: center; gap: 0.4rem;">
+                        <i class="fa-solid fa-folder-closed" style="color: ${vData.color};"></i> ${vData.label}
+                    </span>
+                    <span class="badge" style="background: #f1f5f9; color: #475569; font-size: 0.72rem; font-weight: 700;">
+                        ${fileCount > 0 ? `${fileCount} Files` : 'Not Processed'}
+                    </span>
                 </div>
-                <button class="btn btn-success download-single-btn" data-index="${index}" style="font-size: 0.75rem; padding: 0.4rem 0.75rem; display: flex; align-items: center; gap: 0.3rem;">
-                    <i class="fa-solid fa-download"></i> Download
-                </button>
+                ${fileCount > 0 ? `
+                    <div style="display: flex; gap: 0.8rem; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap;">
+                        <span><i class="fa-solid fa-database"></i> ${totalRows.toLocaleString()} Rows</span>
+                        <span><i class="fa-solid fa-weight-hanging"></i> ${formatBytes(totalBytes)}</span>
+                        <span><i class="fa-solid fa-file-zipper"></i> ${vData.zipName}</span>
+                    </div>
+                    <div style="display: flex; gap: 0.4rem; margin-top: 0.35rem; flex-wrap: wrap;">
+                        <button type="button" class="btn open-var-modal-btn" data-variant="${k}" style="background: linear-gradient(135deg, #4f46e5, #3730a3); color: #ffffff !important; font-size: 0.74rem; font-weight: 600; padding: 0.4rem 0.6rem; border-radius: 8px; flex: 1; min-width: 95px; display: flex; align-items: center; justify-content: center; gap: 0.3rem; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);">
+                            <i class="fa-solid fa-expand"></i> Full View (${fileCount})
+                        </button>
+                        <button type="button" class="btn move-var-folder-btn" data-variant="${k}" style="background: linear-gradient(135deg, #059669, #10b981); color: #ffffff !important; font-size: 0.74rem; font-weight: 600; padding: 0.4rem 0.6rem; border-radius: 8px; flex: 1.3; min-width: 140px; display: flex; align-items: center; justify-content: center; gap: 0.3rem; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(5, 150, 105, 0.2);" title="Move only ${vData.label} files to Folder Create">
+                            <i class="fa-solid fa-folder-plus"></i> Move to Folder Create
+                        </button>
+                        <button type="button" class="btn dl-var-zip-btn" data-variant="${k}" style="background: linear-gradient(135deg, #7c3aed, #6d28d9); color: #ffffff !important; font-size: 0.74rem; font-weight: 600; padding: 0.4rem 0.6rem; border-radius: 8px; flex: 1; min-width: 95px; display: flex; align-items: center; justify-content: center; gap: 0.3rem; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(124, 58, 237, 0.2);">
+                            <i class="fa-solid fa-download"></i> ZIP
+                        </button>
+                    </div>
+                ` : `
+                    <div style="font-size: 0.75rem; color: var(--text-muted); padding: 0.5rem 0;">No file uploaded for this variant.</div>
+                `}
             `;
-            listContainer.appendChild(item);
+
+            const fullViewBtn = card.querySelector('.open-var-modal-btn');
+            if (fullViewBtn) {
+                fullViewBtn.addEventListener('click', () => {
+                    openSepFullscreenModal(k);
+                });
+            }
+
+            const moveBtn = card.querySelector('.move-var-folder-btn');
+            if (moveBtn) {
+                moveBtn.addEventListener('click', () => {
+                    moveToFolderCreateFromSeparate(k);
+                });
+            }
+
+            const dlZipBtn = card.querySelector('.dl-var-zip-btn');
+            if (dlZipBtn) {
+                dlZipBtn.addEventListener('click', () => {
+                    if (vData.zipBlob) {
+                        triggerDownload(vData.zipBlob, vData.zipName);
+                        separateLog(`Downloaded ZIP: ${vData.zipName}`, 'info');
+                    }
+                });
+            }
+
+            grid.appendChild(card);
         });
 
-        separateOutputContainer.appendChild(listContainer);
+        separateOutputContainer.appendChild(grid);
 
-        // Bind download all ZIP click
-        const dlZipBtn = document.getElementById('downloadAllSeparateBtn');
-        if (dlZipBtn) {
-            dlZipBtn.addEventListener('click', () => {
-                if (separateZipBlob) {
-                    let userChoice = "1";
-                    const radios = document.getElementsByName('separateVariant');
-                    radios.forEach(r => {
-                        if (r.checked) userChoice = r.value;
-                    });
-                    
-                    let zipName = "Split_Files_Package.zip";
-                    if (userChoice === "1") zipName = "ajio_simple_seprate_budle.zip";
-                    else if (userChoice === "2") zipName = "ajio_details_seprate_budle.zip";
-                    else if (userChoice === "3") zipName = "ajio_summry_seprate_budle.zip";
-                    else if (userChoice === "4") zipName = "ajio_tax_seprate_budle.zip";
-                    
-                    triggerDownload(separateZipBlob, zipName);
-                    separateLog(`Downloaded complete ZIP package: ${zipName}`, 'info');
-                }
+        const openAllModalBtn = document.getElementById('openAllSepFullscreenBtn');
+        if (openAllModalBtn) {
+            openAllModalBtn.addEventListener('click', () => {
+                openSepFullscreenModal('all');
             });
         }
 
-        // Bind single file downloads
-        const singleBtns = listContainer.querySelectorAll('.download-single-btn');
-        singleBtns.forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const idx = parseInt(btn.getAttribute('data-index'));
-                const file = files[idx];
-                if (file) {
-                    triggerDownload(file.blob, file.name);
-                    separateLog(`Downloaded split file: ${file.name}`, 'info');
+        const dlAllZipsBtn = document.getElementById('downloadAllSepZipsBtn');
+        if (dlAllZipsBtn) {
+            dlAllZipsBtn.addEventListener('click', downloadAllSepZips);
+        }
+    }
+
+    function openSepFullscreenModal(variantFilter = 'all') {
+        const modal = document.getElementById('sepFullscreenModal');
+        if (!modal) return;
+
+        sepModalCurrentFilter = variantFilter;
+
+        const allFiles = getAllSeparatedFiles();
+        const simpleCount = sepVariantResults.simple.files.length;
+        const detailsCount = sepVariantResults.details.files.length;
+        const summaryCount = sepVariantResults.summary.files.length;
+        const taxCount = sepVariantResults.tax.files.length;
+
+        const totalBadge = document.getElementById('modalSepTotalBadge');
+        if (totalBadge) totalBadge.innerHTML = `<i class="fa-solid fa-files"></i> Total: ${allFiles.length}`;
+
+        const simpleBadge = document.getElementById('modalSepSimpleBadge');
+        if (simpleBadge) simpleBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Simple: ${simpleCount}`;
+
+        const detailsBadge = document.getElementById('modalSepDetailsBadge');
+        if (detailsBadge) detailsBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Details: ${detailsCount}`;
+
+        const summaryBadge = document.getElementById('modalSepSummaryBadge');
+        if (summaryBadge) summaryBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Summary: ${summaryCount}`;
+
+        const taxBadge = document.getElementById('modalSepTaxBadge');
+        if (taxBadge) taxBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Tax: ${taxCount}`;
+
+        const filterAllBtn = document.getElementById('modalSepFilterAllBtn');
+        const filterSimpleBtn = document.getElementById('modalSepFilterSimpleBtn');
+        const filterDetailsBtn = document.getElementById('modalSepFilterDetailsBtn');
+        const filterSummaryBtn = document.getElementById('modalSepFilterSummaryBtn');
+        const filterTaxBtn = document.getElementById('modalSepFilterTaxBtn');
+
+        if (filterAllBtn) filterAllBtn.innerText = `All Files (${allFiles.length})`;
+        if (filterSimpleBtn) filterSimpleBtn.innerText = `1. Simple (${simpleCount})`;
+        if (filterDetailsBtn) filterDetailsBtn.innerText = `2. Details (${detailsCount})`;
+        if (filterSummaryBtn) filterSummaryBtn.innerText = `3. Summary (${summaryCount})`;
+        if (filterTaxBtn) filterTaxBtn.innerText = `4. Tax Split (${taxCount})`;
+
+        document.querySelectorAll('.sep-filter-btn').forEach(btn => btn.classList.remove('active'));
+        const targetBtn = document.querySelector(`.sep-filter-btn[data-filter="${variantFilter}"]`) || filterAllBtn;
+        if (targetBtn) targetBtn.classList.add('active');
+
+        const searchInput = document.getElementById('modalSepSearchInput');
+        if (searchInput) searchInput.value = '';
+
+        renderSepModalTableRows();
+        modal.classList.add('show');
+    }
+
+    function closeSepFullscreenModal() {
+        const modal = document.getElementById('sepFullscreenModal');
+        if (modal) {
+            modal.classList.remove('show');
+        }
+    }
+
+    function renderSepModalTableRows() {
+        const tableBody = document.getElementById('modalSepTableBody');
+        const summaryText = document.getElementById('modalSepSummaryText');
+        const searchInput = document.getElementById('modalSepSearchInput');
+        if (!tableBody) return;
+
+        let allFiles = getAllSeparatedFiles();
+        const simpleCount = sepVariantResults.simple.files.length;
+        const detailsCount = sepVariantResults.details.files.length;
+        const summaryCount = sepVariantResults.summary.files.length;
+        const taxCount = sepVariantResults.tax.files.length;
+
+        // Dynamic update of Header Badges & Filter Tabs on every render (including deletes)
+        const totalBadge = document.getElementById('modalSepTotalBadge');
+        if (totalBadge) totalBadge.innerHTML = `<i class="fa-solid fa-files"></i> Total: ${allFiles.length}`;
+
+        const simpleBadge = document.getElementById('modalSepSimpleBadge');
+        if (simpleBadge) simpleBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Simple: ${simpleCount}`;
+
+        const detailsBadge = document.getElementById('modalSepDetailsBadge');
+        if (detailsBadge) detailsBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Details: ${detailsCount}`;
+
+        const summaryBadge = document.getElementById('modalSepSummaryBadge');
+        if (summaryBadge) summaryBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Summary: ${summaryCount}`;
+
+        const taxBadge = document.getElementById('modalSepTaxBadge');
+        if (taxBadge) taxBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Tax: ${taxCount}`;
+
+        const filterAllBtn = document.getElementById('modalSepFilterAllBtn');
+        const filterSimpleBtn = document.getElementById('modalSepFilterSimpleBtn');
+        const filterDetailsBtn = document.getElementById('modalSepFilterDetailsBtn');
+        const filterSummaryBtn = document.getElementById('modalSepFilterSummaryBtn');
+        const filterTaxBtn = document.getElementById('modalSepFilterTaxBtn');
+
+        if (filterAllBtn) filterAllBtn.innerText = `All Files (${allFiles.length})`;
+        if (filterSimpleBtn) filterSimpleBtn.innerText = `1. Simple (${simpleCount})`;
+        if (filterDetailsBtn) filterDetailsBtn.innerText = `2. Details (${detailsCount})`;
+        if (filterSummaryBtn) filterSummaryBtn.innerText = `3. Summary (${summaryCount})`;
+        if (filterTaxBtn) filterTaxBtn.innerText = `4. Tax Split (${taxCount})`;
+
+        const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+        let filtered = allFiles.filter(file => {
+            if (sepModalCurrentFilter !== 'all' && file.variantKey !== sepModalCurrentFilter) {
+                return false;
+            }
+            if (!query) return true;
+            return file.name.toLowerCase().includes(query) || (file.variantLabel && file.variantLabel.toLowerCase().includes(query));
+        });
+
+        tableBody.innerHTML = '';
+
+        if (filtered.length === 0) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="7" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+                        <i class="fa-solid fa-filter-circle-xmark" style="font-size: 2rem; margin-bottom: 0.5rem; display: block; opacity: 0.5;"></i>
+                        No separated files found for current filter.
+                    </td>
+                </tr>
+            `;
+            if (summaryText) summaryText.innerText = `Showing 0 of ${allFiles.length} files`;
+            return;
+        }
+
+        filtered.forEach((file, index) => {
+            const tr = document.createElement('tr');
+            tr.className = 'rename-row-ok';
+
+            const lastDot = file.name.lastIndexOf('.');
+            const baseName = lastDot !== -1 ? file.name.substring(0, lastDot) : file.name;
+            const ext = lastDot !== -1 ? file.name.substring(lastDot) : '.xlsx';
+
+            const vBadgeColor = 
+                file.variantKey === 'simple' ? '#8b5cf6' :
+                file.variantKey === 'details' ? '#4f46e5' :
+                file.variantKey === 'summary' ? '#2563eb' : '#0d9488';
+
+            tr.innerHTML = `
+                <td style="text-align: center; font-weight: 700; color: var(--text-muted);">${index + 1}</td>
+                <td>
+                    <span style="background: ${file.color || '#f1f5f9'}; border: 1px solid rgba(0,0,0,0.1); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 0.75rem; color: #1e293b; display: inline-flex; align-items: center; gap: 4px;">
+                        <i class="fa-solid fa-layer-group" style="color: ${vBadgeColor};"></i> ${file.variantLabel}
+                    </span>
+                </td>
+                <td class="cell-rename-container">
+                    <div class="display-name-box" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                        <span class="file-name-text" style="font-weight: 700; color: var(--text-primary); font-size: 0.85rem; word-break: break-all; cursor: pointer;" title="Click to view Excel preview">
+                            ${file.name}
+                        </span>
+                        <button type="button" class="rename-edit-btn btn-inline-edit" title="Edit filename manually">
+                            <i class="fa-solid fa-pen-to-square"></i>
+                        </button>
+                    </div>
+                    <div class="edit-name-box" style="display: none; align-items: center; gap: 0.35rem; width: 100%;">
+                        <div style="display: flex; align-items: center; border: 1.5px solid #8b5cf6; border-radius: 6px; overflow: hidden; background: white; flex: 1;">
+                            <input type="text" class="rename-edit-input" value="${baseName}" style="border: none; padding: 0.3rem 0.5rem; font-size: 0.82rem; outline: none; width: 100%;">
+                            <span class="ext-locked-badge" style="background: #e2e8f0; color: #334155; font-weight: 700; font-size: 0.8rem; padding: 0.3rem 0.55rem; border-left: 1px solid #cbd5e1; user-select: none; white-space: nowrap;">${ext}</span>
+                        </div>
+                        <button type="button" class="btn btn-success btn-save-edit" style="font-size: 0.72rem; padding: 0.3rem 0.55rem; border-radius: 6px;" title="Save">
+                            <i class="fa-solid fa-check"></i> Save
+                        </button>
+                        <button type="button" class="btn btn-cancel-edit" style="font-size: 0.72rem; padding: 0.3rem 0.55rem; background:#e2e8f0; color:#475569; border-radius: 6px;" title="Cancel">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                </td>
+                <td style="text-align: center; font-weight: 600; color: #475569; font-size: 0.82rem;">
+                    ${file.rows.toLocaleString()}
+                </td>
+                <td style="text-align: center;">
+                    <button type="button" class="view-excel-btn row-preview-btn" title="Click to view first 50 rows of this Excel">
+                        <i class="fa-solid fa-table-cells"></i> View 50 Rows
+                    </button>
+                </td>
+                <td style="text-align: right; color: var(--text-muted); font-size: 0.8rem; white-space: nowrap;">
+                    ${formatBytes(file.size)}
+                </td>
+                <td style="text-align: center; white-space: nowrap;">
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 0.35rem;">
+                        <button type="button" class="btn btn-primary btn-action-edit" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed); font-size: 0.72rem; padding: 0.35rem 0.55rem; display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 6px; font-weight: 600;" title="Edit File Name">
+                            <i class="fa-solid fa-pen-to-square"></i>
+                        </button>
+                        <button type="button" class="btn btn-danger btn-action-delete" style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.72rem; padding: 0.35rem 0.55rem; display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 6px;" title="Delete this file from ZIP">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                        <button type="button" class="btn btn-success modal-download-single-btn" style="font-size: 0.72rem; padding: 0.35rem 0.55rem; display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 6px;" title="Download file">
+                            <i class="fa-solid fa-download"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            // Inline Rename Edit Triggers
+            const displayBox = tr.querySelector('.display-name-box');
+            const editBox = tr.querySelector('.edit-name-box');
+            const editBtn = tr.querySelector('.btn-inline-edit');
+            const actionEditBtn = tr.querySelector('.btn-action-edit');
+            const saveBtn = tr.querySelector('.btn-save-edit');
+            const cancelBtn = tr.querySelector('.btn-cancel-edit');
+            const inputEl = tr.querySelector('.rename-edit-input');
+
+            const activateEdit = (e) => {
+                if (e) e.stopPropagation();
+                displayBox.style.display = 'none';
+                editBox.style.display = 'flex';
+                if (inputEl) {
+                    inputEl.focus();
+                    inputEl.select();
                 }
-            });
+            };
+
+            if (editBtn) editBtn.addEventListener('click', activateEdit);
+            if (actionEditBtn) actionEditBtn.addEventListener('click', activateEdit);
+
+            if (cancelBtn && displayBox && editBox) {
+                cancelBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    editBox.style.display = 'none';
+                    displayBox.style.display = 'flex';
+                });
+            }
+
+            if (saveBtn && inputEl) {
+                const doSave = async (e) => {
+                    if (e) e.stopPropagation();
+                    await saveSepFileRename(file, inputEl.value);
+                };
+
+                saveBtn.addEventListener('click', doSave);
+                inputEl.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        doSave(e);
+                    } else if (e.key === 'Escape') {
+                        editBox.style.display = 'none';
+                        displayBox.style.display = 'flex';
+                    }
+                });
+            }
+
+            // Delete trigger
+            const delBtn = tr.querySelector('.btn-action-delete');
+            if (delBtn) {
+                delBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteSepFile(file);
+                });
+            }
+
+            // 50-row Excel Preview triggers
+            const nameText = tr.querySelector('.file-name-text');
+            if (nameText) {
+                nameText.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openExcelDataViewer({
+                        newName: file.name,
+                        originalName: file.originalName || file.name,
+                        aoa: file.aoa,
+                        blob: file.blob,
+                        hasSuffix: true,
+                        renameCode: file.variantLabel
+                    });
+                });
+            }
+
+            const previewBtn = tr.querySelector('.row-preview-btn');
+            if (previewBtn) {
+                previewBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openExcelDataViewer({
+                        newName: file.name,
+                        originalName: file.originalName || file.name,
+                        aoa: file.aoa,
+                        blob: file.blob,
+                        hasSuffix: true,
+                        renameCode: file.variantLabel
+                    });
+                });
+            }
+
+            // Download single file
+            const dlBtn = tr.querySelector('.modal-download-single-btn');
+            if (dlBtn) {
+                dlBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    triggerDownload(file.blob, file.name);
+                    separateLog(`Downloaded: ${file.name}`, 'info');
+                });
+            }
+
+            tableBody.appendChild(tr);
+        });
+
+        if (summaryText) {
+            summaryText.innerText = `Showing ${filtered.length} of ${allFiles.length} files`;
+        }
+    }
+
+    // Bind Separate Fullscreen Modal triggers
+    const closeSepModalBtn = document.getElementById('closeSepModalBtn');
+    if (closeSepModalBtn) closeSepModalBtn.addEventListener('click', closeSepFullscreenModal);
+
+    const modalSepFooterCloseBtn = document.getElementById('modalSepFooterCloseBtn');
+    if (modalSepFooterCloseBtn) modalSepFooterCloseBtn.addEventListener('click', closeSepFullscreenModal);
+
+    const sepFullscreenModal = document.getElementById('sepFullscreenModal');
+    if (sepFullscreenModal) {
+        sepFullscreenModal.addEventListener('click', (e) => {
+            if (e.target === sepFullscreenModal) {
+                closeSepFullscreenModal();
+            }
         });
     }
+
+    function moveToFolderCreateFromSeparate(variantKey = 'all') {
+        let filesToTransfer = [];
+        let label = "All Separated";
+        if (variantKey && variantKey !== 'all' && sepVariantResults[variantKey]) {
+            filesToTransfer = sepVariantResults[variantKey].files;
+            label = sepVariantResults[variantKey].label;
+        } else {
+            filesToTransfer = getAllSeparatedFiles();
+        }
+
+        if (!filesToTransfer || filesToTransfer.length === 0) {
+            alert(`No files available in [${label}] to transfer.`);
+            return;
+        }
+
+        let addedCount = 0;
+        filesToTransfer.forEach(fileObj => {
+            const blob = fileObj.blob;
+            const file = fileObj.file || new File([blob], fileObj.name, {
+                type: blob.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            });
+            if (!fcFiles.some(f => f.name === fileObj.name && f.size === blob.size)) {
+                fcFiles.push({
+                    id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                    name: fileObj.name,
+                    size: blob.size,
+                    file: file,
+                    blob: blob
+                });
+                addedCount++;
+            }
+        });
+
+        if (typeof updateFcUI === 'function') updateFcUI();
+        closeSepFullscreenModal();
+
+        const folderTabBtn = document.querySelector('.tab-btn[data-tab="tab-folder"]');
+        if (folderTabBtn) {
+            folderTabBtn.click();
+        }
+
+        if (typeof fcLog === 'function') {
+            fcLog(`Transferred ${addedCount} file(s) from [${label}] to Folder Create section.`, 'success');
+        }
+        showCustomNotification('Transferred to Folder Create', `Successfully transferred ${addedCount} file(s) from [${label}] to Folder Create!`, 'success');
+    }
+
+    const modalSepMoveToFolderBtn = document.getElementById('modalSepMoveToFolderBtn');
+    if (modalSepMoveToFolderBtn) {
+        modalSepMoveToFolderBtn.addEventListener('click', () => {
+            moveToFolderCreateFromSeparate(sepModalCurrentFilter);
+        });
+    }
+
+    const modalSepFooterMoveToFolderBtn = document.getElementById('modalSepFooterMoveToFolderBtn');
+    if (modalSepFooterMoveToFolderBtn) {
+        modalSepFooterMoveToFolderBtn.addEventListener('click', () => {
+            moveToFolderCreateFromSeparate(sepModalCurrentFilter);
+        });
+    }
+
+    const modalSepDownloadAllZipBtn = document.getElementById('modalSepDownloadAllZipBtn');
+    if (modalSepDownloadAllZipBtn) modalSepDownloadAllZipBtn.addEventListener('click', downloadAllSepZips);
+
+    const modalSepFooterDownloadAllBtn = document.getElementById('modalSepFooterDownloadAllBtn');
+    if (modalSepFooterDownloadAllBtn) modalSepFooterDownloadAllBtn.addEventListener('click', downloadAllSepZips);
+
+    const modalSepFooterDownloadVariantBtn = document.getElementById('modalSepFooterDownloadVariantBtn');
+    if (modalSepFooterDownloadVariantBtn) {
+        modalSepFooterDownloadVariantBtn.addEventListener('click', () => {
+            if (sepModalCurrentFilter !== 'all' && sepVariantResults[sepModalCurrentFilter]) {
+                const vData = sepVariantResults[sepModalCurrentFilter];
+                if (vData.zipBlob) {
+                    triggerDownload(vData.zipBlob, vData.zipName);
+                    separateLog(`Downloaded ZIP package: ${vData.zipName}`, 'info');
+                }
+            } else {
+                downloadAllSepZips();
+            }
+        });
+    }
+
+    const modalSepSearchInput = document.getElementById('modalSepSearchInput');
+    if (modalSepSearchInput) {
+        modalSepSearchInput.addEventListener('input', () => {
+            renderSepModalTableRows();
+        });
+    }
+
+    document.querySelectorAll('.sep-filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.sep-filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            sepModalCurrentFilter = btn.getAttribute('data-filter') || 'all';
+            renderSepModalTableRows();
+        });
+    });
+
+    async function restoreSeparateSession() {
+        try {
+            const saved = await loadTabSession('separate_tab');
+            if (saved && saved.results) {
+                let hasFiles = false;
+                ['simple', 'details', 'summary', 'tax'].forEach(k => {
+                    if (saved.results[k] && saved.results[k].files && saved.results[k].files.length > 0) {
+                        sepVariantResults[k].files = saved.results[k].files.map((f, idx) => ({
+                            ...f,
+                            id: f.id || (`${Date.now()}-${k}-${idx}-${Math.random().toString(36).substr(2, 6)}`),
+                            variantKey: f.variantKey || k,
+                            variantLabel: f.variantLabel || sepVariantResults[k].label,
+                            variantColor: f.variantColor || sepVariantResults[k].color
+                        }));
+                        sepVariantResults[k].zipBlob = saved.results[k].zipBlob;
+                        hasFiles = true;
+                    }
+                });
+                if (hasFiles) {
+                    renderSeparateDashboard();
+                    if (separateStatus) {
+                        separateStatus.className = 'status-indicator success';
+                        separateStatus.innerText = 'Restored';
+                    }
+                    separateLog(`Restored separated files from previous session (1-hour cache).`, 'info');
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to restore separate session:', e);
+        }
+    }
+    restoreSeparateSession();
 
     /* ==========================================================================
        RENAME FILE PROCESSING LOGIC
@@ -4685,11 +5680,25 @@ function doPost(e) {
     }
 
     if (clearRenFilesBtn) {
-        clearRenFilesBtn.addEventListener('click', () => {
+        clearRenFilesBtn.addEventListener('click', async () => {
+            const ok = await showCustomConfirm('Clear Files', 'Are you sure you want to clear all selected files and results?', 'danger', 'Clear All');
+            if (!ok) return;
+
             renFiles = [];
+            activeRenamedFiles = [];
+            renZipBlob = null;
             renFileInput.value = '';
             updateRenUI();
-            renLog('Cleared all selected files.', 'info');
+            if (renOutputContainer) {
+                renOutputContainer.innerHTML = `
+                    <div class="empty-output-state">
+                        <i class="fa-solid fa-file-export placeholder-icon"></i>
+                        <p>Upload files and click process to generate renamed files.</p>
+                    </div>
+                `;
+            }
+            clearTabSession('rename_tab');
+            renLog('Cleared all selected files and results.', 'info');
         });
     }
 
@@ -4725,8 +5734,10 @@ function doPost(e) {
                 const removeBtn = document.createElement('button');
                 removeBtn.className = 'file-action-btn';
                 removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
-                removeBtn.addEventListener('click', (e) => {
+                removeBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
+                    const ok = await showCustomConfirm('Remove File', `Are you sure you want to remove "${fileObj.name}"?`, 'danger', 'Remove');
+                    if (!ok) return;
                     renFiles = renFiles.filter(f => f.id !== fileObj.id);
                     renLog(`Removed file: ${fileObj.name}`, 'info');
                     updateRenUI();
@@ -4842,7 +5853,10 @@ function doPost(e) {
                         size: fileBlob.size,
                         blob: fileBlob,
                         success: success,
-                        renameCode: renameCode
+                        renameCode: renameCode,
+                        hasSuffix: success && Boolean(renameCode),
+                        aoa: aoa,
+                        file: fileObj.file
                     });
                 }
 
@@ -4853,6 +5867,10 @@ function doPost(e) {
                 renZipBlob = await zip.generateAsync({ type: 'blob' });
 
                 renderRenDashboard(renamedList);
+                saveTabSession('rename_tab', {
+                    activeRenamedFiles: activeRenamedFiles,
+                    renZipBlob: renZipBlob
+                });
 
                 if (renProgressBar) renProgressBar.style.width = '100%';
                 if (renProgressPercent) renProgressPercent.innerText = '100%';
@@ -4886,10 +5904,128 @@ function doPost(e) {
         });
     }
 
+    let activeRenamedFiles = [];
+    let modalCurrentFilter = 'all';
+
+    function sortFilesByErrorFirst(list) {
+        if (!list || !Array.isArray(list)) return [];
+        return list.slice().sort((a, b) => {
+            const aErr = !a.hasSuffix;
+            const bErr = !b.hasSuffix;
+            if (aErr && !bErr) return -1;
+            if (!aErr && bErr) return 1;
+            return 0;
+        });
+    }
+
+    async function rebuildRenZip() {
+        try {
+            const zip = new JSZip();
+            for (const file of activeRenamedFiles) {
+                const buffer = await file.blob.arrayBuffer();
+                zip.file(file.newName, buffer);
+            }
+            renZipBlob = await zip.generateAsync({ type: 'blob' });
+        } catch (e) {
+            console.error('Failed to rebuild zip:', e);
+        }
+    }
+
+    async function saveManualRename(fileObj, newBaseName) {
+        newBaseName = (newBaseName || '').trim();
+        if (!newBaseName) {
+            alert('Filename cannot be empty.');
+            return;
+        }
+
+        const lastDot = fileObj.originalName.lastIndexOf('.');
+        const origExt = lastDot !== -1 ? fileObj.originalName.substring(lastDot) : '.xlsx';
+
+        // Strip extension if user accidentally typed it in baseName
+        if (newBaseName.toLowerCase().endsWith(origExt.toLowerCase())) {
+            newBaseName = newBaseName.substring(0, newBaseName.length - origExt.length).trim();
+        }
+
+        const fullNewName = newBaseName + origExt;
+        fileObj.newName = fullNewName;
+
+        // Detect suffix pattern (e.g. -150 or -101 or -AJ2 at end of baseName)
+        const suffixMatch = newBaseName.match(/-([A-Za-z0-9]+)$/);
+        if (suffixMatch && suffixMatch[1]) {
+            fileObj.renameCode = suffixMatch[1];
+            fileObj.hasSuffix = true;
+            fileObj.success = true;
+        } else {
+            fileObj.renameCode = '';
+            fileObj.hasSuffix = false;
+        }
+
+        await rebuildRenZip();
+
+        // Sort so any remaining error files stay at top
+        activeRenamedFiles = sortFilesByErrorFirst(activeRenamedFiles);
+
+        // Refresh views
+        renderRenDashboard(activeRenamedFiles);
+        const modal = document.getElementById('renFullscreenModal');
+        if (modal && modal.classList.contains('show')) {
+            renderModalTableRows();
+        }
+        saveTabSession('rename_tab', {
+            activeRenamedFiles: activeRenamedFiles,
+            renZipBlob: renZipBlob
+        });
+        renLog(`Manually renamed file to: "${fileObj.newName}"`, 'success');
+    }
+
+    function moveToMerge() {
+        if (!activeRenamedFiles || activeRenamedFiles.length === 0) {
+            alert('No renamed files available to transfer.');
+            return;
+        }
+
+        // Convert activeRenamedFiles to gmFiles (Merge File list)
+        gmFiles = [];
+        activeRenamedFiles.forEach(fileObj => {
+            const blob = fileObj.blob;
+            const file = new File([blob], fileObj.newName, {
+                type: blob.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            });
+            gmFiles.push({
+                id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                name: fileObj.newName,
+                size: blob.size,
+                file: file
+            });
+        });
+
+        // Update Group Merge section UI
+        updateGmUI();
+
+        // Close rename modals
+        closeRenameModal();
+        closeExcelDataViewer();
+
+        // Switch active tab to 'tab-merge'
+        const mergeTabBtn = document.querySelector('.tab-btn[data-tab="tab-merge"]');
+        if (mergeTabBtn) {
+            mergeTabBtn.click();
+        }
+
+        gmLog(`Transferred ${gmFiles.length} file(s) from Rename section to Merge File section.`, 'success');
+        alert(`Successfully transferred ${gmFiles.length} file(s) to Merge section!`);
+    }
+
     function renderRenDashboard(files) {
         if (!renOutputContainer) return;
+        activeRenamedFiles = sortFilesByErrorFirst(files);
+        files = activeRenamedFiles;
         renOutputContainer.innerHTML = '';
         renOutputContainer.className = 'processed-container';
+
+        const totalCount = files.length;
+        const successCount = files.filter(f => f.hasSuffix).length;
+        const missingCount = totalCount - successCount;
 
         const header = document.createElement('div');
         header.className = 'processed-header';
@@ -4898,11 +6034,29 @@ function doPost(e) {
         header.style.alignItems = 'center';
         header.style.width = '100%';
         header.style.marginBottom = '1rem';
+        header.style.gap = '0.5rem';
+        header.style.flexWrap = 'wrap';
+
         header.innerHTML = `
-            <h3><i class="fa-solid fa-circle-check text-success"></i> Renamed Files (${files.length})</h3>
-            <button class="btn btn-primary btn-glow" id="downloadAllRenBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
-                <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
-            </button>
+            <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                <h3 style="margin: 0;"><i class="fa-solid fa-circle-check text-success"></i> Renamed Files (${totalCount})</h3>
+                ${missingCount > 0 ? `
+                    <span class="rename-badge-pill error" style="font-size: 0.72rem; padding: 2px 8px;">
+                        <i class="fa-solid fa-triangle-exclamation"></i> ${missingCount} Missing Suffix (Shown First)
+                    </span>
+                ` : ''}
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <button class="btn" id="dashMoveToMergeBtn" type="button" style="background: linear-gradient(135deg, #0ea5e9, #0284c7); color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; font-size: 0.78rem; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(14, 165, 233, 0.25);">
+                    <i class="fa-solid fa-code-merge"></i> Move to Merge
+                </button>
+                <button class="btn" id="openRenFullscreenBtn" type="button" style="background: linear-gradient(135deg, #4f46e5, #3730a3); color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; font-size: 0.78rem; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(79, 70, 229, 0.25);">
+                    <i class="fa-solid fa-expand"></i> Full View
+                </button>
+                <button class="btn btn-primary btn-glow" id="downloadAllRenBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); font-size: 0.78rem; padding: 0.45rem 0.85rem;">
+                    <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
+                </button>
+            </div>
         `;
         renOutputContainer.appendChild(header);
 
@@ -4912,36 +6066,138 @@ function doPost(e) {
         listContainer.style.flexDirection = 'column';
         listContainer.style.gap = '0.5rem';
         listContainer.style.width = '100%';
-        listContainer.style.maxHeight = '220px';
+        listContainer.style.maxHeight = '230px';
         listContainer.style.overflowY = 'auto';
 
         files.forEach((file, index) => {
             const item = document.createElement('div');
-            item.className = 'processed-item';
-            item.style.padding = '0.6rem 0.8rem';
+            const hasSuffix = Boolean(file.hasSuffix);
+            item.className = `processed-item ${hasSuffix ? 'rename-success-item' : 'rename-error-item'}`;
+            item.style.padding = '0.65rem 0.85rem';
             item.style.borderRadius = '8px';
             item.style.display = 'flex';
             item.style.justifyContent = 'space-between';
             item.style.alignItems = 'center';
-            item.style.border = '1px solid var(--border-color)';
-            item.style.background = file.success ? 'rgba(16, 185, 129, 0.03)' : 'rgba(0, 0, 0, 0.01)';
-            if (file.success) {
-                item.style.borderLeft = '4px solid var(--color-success)';
-            }
+            item.style.gap = '0.75rem';
+
+            const lastDot = file.newName.lastIndexOf('.');
+            const baseName = lastDot !== -1 ? file.newName.substring(0, lastDot) : file.newName;
+            const ext = lastDot !== -1 ? file.newName.substring(lastDot) : '.xlsx';
 
             item.innerHTML = `
-                <div class="file-details" style="display: flex; flex-direction: column; gap: 0.1rem; overflow: hidden; max-width: 70%;">
-                    <span class="file-name" style="font-weight: 600; color: var(--text-primary); font-size: 0.85rem; word-break: break-all;" title="${file.newName}">${file.newName}</span>
-                    <span style="font-size: 0.7rem; color: var(--text-muted); text-decoration: line-through; opacity: 0.6; word-break: break-all;">${file.originalName}</span>
+                <div class="file-details" style="display: flex; flex-direction: column; gap: 0.2rem; overflow: hidden; max-width: 62%;">
+                    <div class="dash-display-box" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                        <span class="file-name" style="font-size: 0.85rem; word-break: break-all; cursor: pointer;" title="Click to preview Excel data">${file.newName}</span>
+                        ${hasSuffix ? `
+                            <span style="background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.7rem; display: inline-flex; align-items: center; gap: 3px;">
+                                <i class="fa-solid fa-check"></i> -${file.renameCode}
+                            </span>
+                        ` : `
+                            <span style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.7rem; display: inline-flex; align-items: center; gap: 3px;">
+                                <i class="fa-solid fa-circle-xmark"></i> Suffix Missing (-150 / -101)
+                            </span>
+                        `}
+                    </div>
+                    <div class="dash-edit-box" style="display: none; align-items: center; gap: 0.3rem; margin-top: 0.2rem;">
+                        <div style="display: flex; align-items: center; border: 1.5px solid #8b5cf6; border-radius: 6px; overflow: hidden; background: white;">
+                            <input type="text" class="dash-rename-input" value="${baseName}" style="border: none; padding: 0.25rem 0.5rem; font-size: 0.8rem; outline: none; min-width: 180px;">
+                            <span style="background: #f1f5f9; color: #475569; font-weight: 700; font-size: 0.78rem; padding: 0.25rem 0.5rem; border-left: 1px solid #cbd5e1; user-select: none;">${ext}</span>
+                        </div>
+                        <button type="button" class="btn btn-success dash-save-btn" style="font-size: 0.7rem; padding: 0.25rem 0.5rem; border-radius: 6px;" title="Save">
+                            <i class="fa-solid fa-check"></i> Save
+                        </button>
+                        <button type="button" class="btn dash-cancel-btn" style="font-size: 0.7rem; padding: 0.25rem 0.45rem; background:#e2e8f0; color:#475569; border-radius: 6px;" title="Cancel">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                    <span style="font-size: 0.7rem; color: var(--text-muted); opacity: 0.7; word-break: break-all;">Original: ${file.originalName}</span>
                 </div>
-                <button class="btn btn-success download-single-ren-btn" data-index="${index}" style="font-size: 0.7rem; padding: 0.35rem 0.6rem; display: flex; align-items: center; gap: 0.25rem;">
-                    <i class="fa-solid fa-download"></i> Download
-                </button>
+                <div style="display: flex; align-items: center; gap: 0.35rem; flex-shrink: 0;">
+                    <button class="btn edit-dash-btn" data-index="${index}" style="background: #f3e8ff; color: #7c3aed; border: 1px solid #d8b4fe; font-size: 0.7rem; padding: 0.32rem 0.55rem; border-radius: 6px; font-weight: 600;" title="Edit filename manually">
+                        <i class="fa-solid fa-pen-to-square"></i> Edit
+                    </button>
+                    <button class="btn view-excel-btn preview-dash-btn" data-index="${index}" style="font-size: 0.7rem; padding: 0.32rem 0.55rem;" title="View first 50 rows of this Excel">
+                        <i class="fa-solid fa-table-cells"></i> 50 Rows
+                    </button>
+                    <button class="btn btn-success download-single-ren-btn" data-index="${index}" style="font-size: 0.72rem; padding: 0.35rem 0.65rem; display: flex; align-items: center; gap: 0.3rem; white-space: nowrap;">
+                        <i class="fa-solid fa-download"></i> Download
+                    </button>
+                </div>
             `;
+
+            // Dashboard Edit Triggers
+            const dashDisplay = item.querySelector('.dash-display-box');
+            const dashEdit = item.querySelector('.dash-edit-box');
+            const dashEditBtn = item.querySelector('.edit-dash-btn');
+            const dashSaveBtn = item.querySelector('.dash-save-btn');
+            const dashCancelBtn = item.querySelector('.dash-cancel-btn');
+            const dashInput = item.querySelector('.dash-rename-input');
+
+            if (dashEditBtn && dashDisplay && dashEdit) {
+                dashEditBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    dashDisplay.style.display = 'none';
+                    dashEdit.style.display = 'flex';
+                    if (dashInput) {
+                        dashInput.focus();
+                        dashInput.select();
+                    }
+                });
+            }
+
+            if (dashCancelBtn && dashDisplay && dashEdit) {
+                dashCancelBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    dashEdit.style.display = 'none';
+                    dashDisplay.style.display = 'flex';
+                });
+            }
+
+            if (dashSaveBtn && dashInput) {
+                const saveDash = async (e) => {
+                    if (e) e.stopPropagation();
+                    await saveManualRename(file, dashInput.value);
+                };
+
+                dashSaveBtn.addEventListener('click', saveDash);
+                dashInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        saveDash(e);
+                    } else if (e.key === 'Escape') {
+                        dashEdit.style.display = 'none';
+                        dashDisplay.style.display = 'flex';
+                    }
+                });
+            }
+
+            // Click on filename or preview button to view 50 rows
+            const nameSpan = item.querySelector('.file-name');
+            if (nameSpan) {
+                nameSpan.addEventListener('click', () => openExcelDataViewer(file));
+            }
+
+            const previewBtn = item.querySelector('.preview-dash-btn');
+            if (previewBtn) {
+                previewBtn.addEventListener('click', () => openExcelDataViewer(file));
+            }
+
             listContainer.appendChild(item);
         });
 
         renOutputContainer.appendChild(listContainer);
+
+        const openModalBtn = document.getElementById('openRenFullscreenBtn');
+        if (openModalBtn) {
+            openModalBtn.addEventListener('click', () => {
+                openRenameModal(files);
+            });
+        }
+
+        const dashMoveBtn = document.getElementById('dashMoveToMergeBtn');
+        if (dashMoveBtn) {
+            dashMoveBtn.addEventListener('click', moveToMerge);
+        }
 
         const dlZipBtn = document.getElementById('downloadAllRenBtn');
         if (dlZipBtn) {
@@ -4956,7 +6212,7 @@ function doPost(e) {
         const singleBtns = listContainer.querySelectorAll('.download-single-ren-btn');
         singleBtns.forEach(btn => {
             btn.addEventListener('click', () => {
-                const idx = parseInt(btn.getAttribute('data-index'));
+                const idx = parseInt(btn.getAttribute('data-index'), 10);
                 const file = files[idx];
                 if (file) {
                     triggerDownload(file.blob, file.newName);
@@ -4966,11 +6222,560 @@ function doPost(e) {
         });
     }
 
+    function openRenameModal(files) {
+        const modal = document.getElementById('renFullscreenModal');
+        if (!modal) return;
+
+        activeRenamedFiles = sortFilesByErrorFirst(files);
+        modalCurrentFilter = 'all';
+
+        const totalCount = files.length;
+        const successCount = files.filter(f => f.hasSuffix).length;
+        const missingCount = totalCount - successCount;
+
+        const totalBadge = document.getElementById('modalRenTotalBadge');
+        if (totalBadge) totalBadge.innerHTML = `<i class="fa-solid fa-files"></i> Total: ${totalCount}`;
+
+        const successBadge = document.getElementById('modalRenSuccessBadge');
+        if (successBadge) successBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Suffix Added: ${successCount}`;
+
+        const errorBadge = document.getElementById('modalRenErrorBadge');
+        if (errorBadge) {
+            if (missingCount > 0) {
+                errorBadge.style.display = 'inline-flex';
+                errorBadge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Missing Suffix: ${missingCount}`;
+            } else {
+                errorBadge.style.display = 'none';
+            }
+        }
+
+        const filterAllBtn = document.getElementById('modalFilterAllBtn');
+        const filterSuccessBtn = document.getElementById('modalFilterSuccessBtn');
+        const filterErrorBtn = document.getElementById('modalFilterErrorBtn');
+
+        if (filterAllBtn) filterAllBtn.innerText = `All Files (${totalCount})`;
+        if (filterErrorBtn) filterErrorBtn.innerText = `✖ Missing Suffix (${missingCount})`;
+        if (filterSuccessBtn) filterSuccessBtn.innerText = `✔ Valid Suffix (${successCount})`;
+
+        const searchInput = document.getElementById('modalRenSearchInput');
+        if (searchInput) searchInput.value = '';
+
+        // Reset filter tabs active state
+        document.querySelectorAll('.rename-filter-btn').forEach(btn => btn.classList.remove('active'));
+        if (filterAllBtn) filterAllBtn.classList.add('active');
+
+        renderModalTableRows();
+
+        modal.classList.add('show');
+    }
+
+    function closeRenameModal() {
+        const modal = document.getElementById('renFullscreenModal');
+        if (modal) {
+            modal.classList.remove('show');
+        }
+    }
+
+    function renderModalTableRows() {
+        const tableBody = document.getElementById('modalRenTableBody');
+        const summaryText = document.getElementById('modalRenSummaryText');
+        const searchInput = document.getElementById('modalRenSearchInput');
+        if (!tableBody) return;
+
+        const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+        let filtered = activeRenamedFiles.filter(file => {
+            const matchesFilter = 
+                modalCurrentFilter === 'all' ? true :
+                modalCurrentFilter === 'success' ? file.hasSuffix :
+                !file.hasSuffix;
+
+            if (!matchesFilter) return false;
+
+            if (!query) return true;
+            return file.newName.toLowerCase().includes(query) ||
+                   file.originalName.toLowerCase().includes(query) ||
+                   (file.renameCode && file.renameCode.toLowerCase().includes(query));
+        });
+
+        // Always sort error files to top
+        filtered = sortFilesByErrorFirst(filtered);
+
+        tableBody.innerHTML = '';
+
+        if (filtered.length === 0) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="8" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+                        <i class="fa-solid fa-filter-circle-xmark" style="font-size: 2rem; margin-bottom: 0.5rem; display: block; opacity: 0.5;"></i>
+                        No files matching current criteria.
+                    </td>
+                </tr>
+            `;
+            if (summaryText) summaryText.innerText = `Showing 0 of ${activeRenamedFiles.length} files`;
+            return;
+        }
+
+        filtered.forEach((file, index) => {
+            const tr = document.createElement('tr');
+            const hasSuffix = Boolean(file.hasSuffix);
+            tr.className = hasSuffix ? 'rename-row-ok' : 'rename-row-error';
+
+            const lastDot = file.newName.lastIndexOf('.');
+            const baseName = lastDot !== -1 ? file.newName.substring(0, lastDot) : file.newName;
+            const ext = lastDot !== -1 ? file.newName.substring(lastDot) : '.xlsx';
+
+            tr.innerHTML = `
+                <td style="text-align: center; font-weight: 700; color: var(--text-muted);">${index + 1}</td>
+                <td>
+                    ${hasSuffix ? `
+                        <span class="rename-badge-pill success">
+                            <i class="fa-solid fa-circle-check"></i> Suffix Added
+                        </span>
+                    ` : `
+                        <span class="rename-badge-pill error">
+                            <i class="fa-solid fa-triangle-exclamation"></i> Missing Suffix
+                        </span>
+                    `}
+                </td>
+                <td>
+                    ${hasSuffix ? `
+                        <span style="font-family: monospace; font-weight: 700; background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">
+                            -${file.renameCode}
+                        </span>
+                    ` : `
+                        <span style="font-family: monospace; font-weight: 700; background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">
+                            NONE
+                        </span>
+                    `}
+                </td>
+                <td class="cell-rename-container">
+                    <div class="display-name-box" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                        <span class="file-name-text" style="font-weight: 700; color: ${hasSuffix ? 'var(--text-primary)' : '#b91c1c'}; font-size: 0.85rem; word-break: break-all; cursor: pointer;" title="Click to view Excel preview">
+                            ${file.newName}
+                        </span>
+                        <button type="button" class="rename-edit-btn btn-inline-edit" title="Edit filename manually">
+                            <i class="fa-solid fa-pen-to-square"></i>
+                        </button>
+                    </div>
+                    <div class="edit-name-box" style="display: none; align-items: center; gap: 0.35rem; width: 100%;">
+                        <div style="display: flex; align-items: center; border: 1.5px solid #8b5cf6; border-radius: 6px; overflow: hidden; background: white; flex: 1;">
+                            <input type="text" class="rename-edit-input" value="${baseName}" style="border: none; padding: 0.3rem 0.5rem; font-size: 0.82rem; outline: none; width: 100%;">
+                            <span class="ext-locked-badge" style="background: #e2e8f0; color: #334155; font-weight: 700; font-size: 0.8rem; padding: 0.3rem 0.55rem; border-left: 1px solid #cbd5e1; user-select: none; white-space: nowrap;">${ext}</span>
+                        </div>
+                        <button type="button" class="btn btn-success btn-save-edit" style="font-size: 0.72rem; padding: 0.3rem 0.55rem; border-radius: 6px;" title="Save">
+                            <i class="fa-solid fa-check"></i> Save
+                        </button>
+                        <button type="button" class="btn btn-cancel-edit" style="font-size: 0.72rem; padding: 0.3rem 0.55rem; background:#e2e8f0; color:#475569; border-radius: 6px;" title="Cancel">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                </td>
+                <td>
+                    <div style="color: var(--text-muted); font-size: 0.8rem; word-break: break-all;">
+                        ${file.originalName}
+                    </div>
+                </td>
+                <td style="text-align: center;">
+                    <button type="button" class="view-excel-btn row-preview-btn" title="Click to view first 50 rows of this Excel">
+                        <i class="fa-solid fa-table-cells"></i> View 50 Rows
+                    </button>
+                </td>
+                <td style="text-align: right; color: var(--text-muted); font-size: 0.8rem; white-space: nowrap;">
+                    ${formatBytes(file.size)}
+                </td>
+                <td style="text-align: center; white-space: nowrap;">
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 0.35rem;">
+                        <button type="button" class="btn btn-primary btn-action-edit" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed); font-size: 0.72rem; padding: 0.35rem 0.65rem; display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 6px; font-weight: 600;" title="Edit File Name">
+                            <i class="fa-solid fa-pen-to-square"></i> Edit
+                        </button>
+                        <button type="button" class="btn btn-success modal-download-single-btn" data-name="${encodeURIComponent(file.newName)}" style="font-size: 0.72rem; padding: 0.35rem 0.65rem; display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 6px;" title="Download file">
+                            <i class="fa-solid fa-download"></i> Download
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            // Inline Rename Edit Triggers
+            const displayBox = tr.querySelector('.display-name-box');
+            const editBox = tr.querySelector('.edit-name-box');
+            const editBtn = tr.querySelector('.btn-inline-edit');
+            const actionEditBtn = tr.querySelector('.btn-action-edit');
+            const saveBtn = tr.querySelector('.btn-save-edit');
+            const cancelBtn = tr.querySelector('.btn-cancel-edit');
+            const inputEl = tr.querySelector('.rename-edit-input');
+
+            const activateEdit = (e) => {
+                if (e) e.stopPropagation();
+                displayBox.style.display = 'none';
+                editBox.style.display = 'flex';
+                if (inputEl) {
+                    inputEl.focus();
+                    inputEl.select();
+                }
+            };
+
+            if (editBtn) editBtn.addEventListener('click', activateEdit);
+            if (actionEditBtn) actionEditBtn.addEventListener('click', activateEdit);
+
+            if (cancelBtn && displayBox && editBox) {
+                cancelBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    editBox.style.display = 'none';
+                    displayBox.style.display = 'flex';
+                });
+            }
+
+            if (saveBtn && inputEl) {
+                const doSave = async (e) => {
+                    if (e) e.stopPropagation();
+                    const newBase = inputEl.value;
+                    await saveManualRename(file, newBase);
+                };
+
+                saveBtn.addEventListener('click', doSave);
+                inputEl.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        doSave(e);
+                    } else if (e.key === 'Escape') {
+                        editBox.style.display = 'none';
+                        displayBox.style.display = 'flex';
+                    }
+                });
+            }
+
+            // Preview 50 rows triggers
+            const nameText = tr.querySelector('.file-name-text');
+            if (nameText) {
+                nameText.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openExcelDataViewer(file);
+                });
+            }
+
+            const previewBtn = tr.querySelector('.row-preview-btn');
+            if (previewBtn) {
+                previewBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openExcelDataViewer(file);
+                });
+            }
+
+            const dlBtn = tr.querySelector('.modal-download-single-btn');
+            if (dlBtn) {
+                dlBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    triggerDownload(file.blob, file.newName);
+                    renLog(`Downloaded renamed file: ${file.newName}`, 'info');
+                });
+            }
+
+            tableBody.appendChild(tr);
+        });
+
+        if (summaryText) {
+            summaryText.innerText = `Showing ${filtered.length} of ${activeRenamedFiles.length} files`;
+        }
+    }
+
+    /* ==========================================================================
+       EXCEL 50-ROW DATA VIEWER LOGIC
+       ========================================================================== */
+    async function openExcelDataViewer(fileObj) {
+        const modal = document.getElementById('excelDataViewerModal');
+        const fileNameEl = document.getElementById('viewerFileName');
+        const totalRowsEl = document.getElementById('viewerTotalRows');
+        const codeBadgeEl = document.getElementById('viewerDetectedCodeBadge');
+        const renameInput = document.getElementById('viewerRenameInput');
+        const extLabel = document.getElementById('viewerExtensionLabel');
+        const saveRenameBtn = document.getElementById('viewerSaveRenameBtn');
+        const gridTable = document.getElementById('excelGridTable');
+        if (!modal) return;
+
+        const lastDot = fileObj.newName.lastIndexOf('.');
+        const baseName = lastDot !== -1 ? fileObj.newName.substring(0, lastDot) : fileObj.newName;
+        const ext = lastDot !== -1 ? fileObj.newName.substring(lastDot) : '.xlsx';
+
+        if (fileNameEl) fileNameEl.innerText = fileObj.newName;
+        if (renameInput) renameInput.value = baseName;
+        if (extLabel) extLabel.innerText = ext;
+
+        function updateViewerBadge() {
+            if (!codeBadgeEl) return;
+            if (fileObj.hasSuffix && fileObj.renameCode) {
+                codeBadgeEl.style.background = '#dcfce7';
+                codeBadgeEl.style.color = '#15803d';
+                codeBadgeEl.style.border = '1px solid #86efac';
+                codeBadgeEl.innerHTML = `<i class="fa-solid fa-circle-check"></i> Column F Code: -${fileObj.renameCode}`;
+            } else {
+                codeBadgeEl.style.background = '#fee2e2';
+                codeBadgeEl.style.color = '#b91c1c';
+                codeBadgeEl.style.border = '1px solid #fca5a5';
+                codeBadgeEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Suffix Missing`;
+            }
+        }
+        updateViewerBadge();
+
+        let aoa = fileObj.aoa;
+        if (!aoa) {
+            if (gridTable) {
+                gridTable.innerHTML = `
+                    <tr><td colspan="10" style="text-align: center; padding: 3rem;">
+                        <i class="fa-solid fa-spinner fa-spin" style="font-size: 2rem; color: #8b5cf6;"></i>
+                        <p style="margin-top: 0.75rem; color: var(--text-muted); font-weight: 600;">Reading Excel data...</p>
+                    </td></tr>
+                `;
+            }
+            try {
+                aoa = await parseFileToAoa(fileObj.file || fileObj.blob, fileObj.originalName);
+                fileObj.aoa = aoa;
+            } catch (err) {
+                if (gridTable) {
+                    gridTable.innerHTML = `<tr><td style="color: #ef4444; padding: 2rem; text-align: center;">Failed to load Excel file: ${err.message}</td></tr>`;
+                }
+                modal.classList.add('show');
+                return;
+            }
+        }
+
+        const totalRows = aoa ? aoa.length : 0;
+        if (totalRowsEl) {
+            totalRowsEl.innerText = `Total ${totalRows.toLocaleString()} rows`;
+        }
+
+        if (gridTable && aoa && aoa.length > 0) {
+            gridTable.innerHTML = '';
+
+            let maxCols = 0;
+            const previewRows = aoa.slice(0, 51);
+            previewRows.forEach(r => {
+                if (r && r.length > maxCols) maxCols = r.length;
+            });
+            if (maxCols < 7) maxCols = 7;
+
+            function colIndexToLetter(idx) {
+                let letter = '';
+                let temp = idx;
+                while (temp >= 0) {
+                    letter = String.fromCharCode((temp % 26) + 65) + letter;
+                    temp = Math.floor(temp / 26) - 1;
+                }
+                return letter;
+            }
+
+            const thead = document.createElement('thead');
+            
+            // Header Row 1: Col Letters (A, B, C, D, E, F, ...)
+            const trLetters = document.createElement('tr');
+            const thCorner = document.createElement('th');
+            thCorner.innerText = '#';
+            thCorner.style.width = '45px';
+            thCorner.style.textAlign = 'center';
+            trLetters.appendChild(thCorner);
+
+            for (let c = 0; c < maxCols; c++) {
+                const th = document.createElement('th');
+                const letter = colIndexToLetter(c);
+                if (c === 5) {
+                    th.className = 'col-highlight-f';
+                    th.innerHTML = `Col ${letter} <span style="font-size:0.65rem; font-weight:800; background:#7c3aed; color:white; padding:1px 5px; border-radius:3px; margin-left:4px;">AJIO CODE</span>`;
+                } else {
+                    th.innerText = `Col ${letter}`;
+                }
+                trLetters.appendChild(th);
+            }
+            thead.appendChild(trLetters);
+
+            // Header Row 2: Sheet Headers
+            const headerRow = aoa[0] || [];
+            const trHeaders = document.createElement('tr');
+            const thHeaderRowIndex = document.createElement('th');
+            thHeaderRowIndex.innerText = '1';
+            thHeaderRowIndex.style.textAlign = 'center';
+            thHeaderRowIndex.style.color = '#64748b';
+            trHeaders.appendChild(thHeaderRowIndex);
+
+            for (let c = 0; c < maxCols; c++) {
+                const thVal = document.createElement('th');
+                if (c === 5) thVal.className = 'col-highlight-f';
+                const val = headerRow[c] !== undefined ? String(headerRow[c]) : '';
+                thVal.innerText = val;
+                thVal.title = val;
+                trHeaders.appendChild(thVal);
+            }
+            thead.appendChild(trHeaders);
+            gridTable.appendChild(thead);
+
+            // Tbody: First 50 rows of data (Rows 2 to 51)
+            const tbody = document.createElement('tbody');
+            const dataRows = aoa.slice(1, 51);
+
+            dataRows.forEach((row, rIdx) => {
+                const tr = document.createElement('tr');
+                const tdNum = document.createElement('td');
+                tdNum.className = 'row-num';
+                tdNum.innerText = rIdx + 2;
+                tr.appendChild(tdNum);
+
+                for (let c = 0; c < maxCols; c++) {
+                    const td = document.createElement('td');
+                    if (c === 5) td.className = 'col-highlight-f';
+                    const cellVal = row && row[c] !== undefined ? String(row[c]) : '';
+                    td.innerText = cellVal;
+                    td.title = cellVal;
+                    tr.appendChild(td);
+                }
+                tbody.appendChild(tr);
+            });
+            gridTable.appendChild(tbody);
+        }
+
+        // Quick Rename in Viewer Header
+        if (saveRenameBtn && renameInput) {
+            const newSaveBtn = saveRenameBtn.cloneNode(true);
+            saveRenameBtn.parentNode.replaceChild(newSaveBtn, saveRenameBtn);
+
+            const handleSave = async () => {
+                const newBase = renameInput.value;
+                await saveManualRename(fileObj, newBase);
+                if (fileNameEl) fileNameEl.innerText = fileObj.newName;
+                const newLastDot = fileObj.newName.lastIndexOf('.');
+                renameInput.value = newLastDot !== -1 ? fileObj.newName.substring(0, newLastDot) : fileObj.newName;
+                if (extLabel) extLabel.innerText = newLastDot !== -1 ? fileObj.newName.substring(newLastDot) : '.xlsx';
+                updateViewerBadge();
+                alert(`File successfully renamed to: ${fileObj.newName}`);
+            };
+
+            newSaveBtn.addEventListener('click', handleSave);
+            renameInput.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSave();
+                }
+            };
+        }
+
+        modal.classList.add('show');
+    }
+
+    function closeExcelDataViewer() {
+        const modal = document.getElementById('excelDataViewerModal');
+        if (modal) {
+            modal.classList.remove('show');
+        }
+    }
+
+    // Bind Excel Viewer Close triggers
+    const closeExcelViewerBtn = document.getElementById('closeExcelViewerBtn');
+    if (closeExcelViewerBtn) closeExcelViewerBtn.addEventListener('click', closeExcelDataViewer);
+
+    const viewerFooterCloseBtn = document.getElementById('viewerFooterCloseBtn');
+    if (viewerFooterCloseBtn) viewerFooterCloseBtn.addEventListener('click', closeExcelDataViewer);
+
+    const excelDataViewerModal = document.getElementById('excelDataViewerModal');
+    if (excelDataViewerModal) {
+        excelDataViewerModal.addEventListener('click', (e) => {
+            if (e.target === excelDataViewerModal) {
+                closeExcelDataViewer();
+            }
+        });
+    }
+
+    // Bind Modal event listeners
+    const closeRenModalBtn = document.getElementById('closeRenModalBtn');
+    if (closeRenModalBtn) closeRenModalBtn.addEventListener('click', closeRenameModal);
+
+    const modalFooterCloseBtn = document.getElementById('modalFooterCloseBtn');
+    if (modalFooterCloseBtn) modalFooterCloseBtn.addEventListener('click', closeRenameModal);
+
+    const modalHeaderMoveToMergeBtn = document.getElementById('modalHeaderMoveToMergeBtn');
+    if (modalHeaderMoveToMergeBtn) modalHeaderMoveToMergeBtn.addEventListener('click', moveToMerge);
+
+    const modalFooterMoveToMergeBtn = document.getElementById('modalFooterMoveToMergeBtn');
+    if (modalFooterMoveToMergeBtn) modalFooterMoveToMergeBtn.addEventListener('click', moveToMerge);
+
+    const renFullscreenModal = document.getElementById('renFullscreenModal');
+    if (renFullscreenModal) {
+        renFullscreenModal.addEventListener('click', (e) => {
+            if (e.target === renFullscreenModal) {
+                closeRenameModal();
+            }
+        });
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const viewerModal = document.getElementById('excelDataViewerModal');
+            if (viewerModal && viewerModal.classList.contains('show')) {
+                closeExcelDataViewer();
+            } else {
+                closeRenameModal();
+            }
+        }
+    });
+
+    const modalDownloadAllZipBtn = document.getElementById('modalDownloadAllZipBtn');
+    if (modalDownloadAllZipBtn) {
+        modalDownloadAllZipBtn.addEventListener('click', () => {
+            if (renZipBlob) {
+                triggerDownload(renZipBlob, 'ajio_rename_file.zip');
+                renLog('Downloaded complete ZIP package from Full View: ajio_rename_file.zip', 'info');
+            }
+        });
+    }
+
+    const modalFooterDownloadBtn = document.getElementById('modalFooterDownloadBtn');
+    if (modalFooterDownloadBtn) {
+        modalFooterDownloadBtn.addEventListener('click', () => {
+            if (renZipBlob) {
+                triggerDownload(renZipBlob, 'ajio_rename_file.zip');
+                renLog('Downloaded complete ZIP package from Full View: ajio_rename_file.zip', 'info');
+            }
+        });
+    }
+
+    const modalRenSearchInput = document.getElementById('modalRenSearchInput');
+    if (modalRenSearchInput) {
+        modalRenSearchInput.addEventListener('input', () => {
+            renderModalTableRows();
+        });
+    }
+
+    document.querySelectorAll('.rename-filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.rename-filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            modalCurrentFilter = btn.getAttribute('data-filter') || 'all';
+            renderModalTableRows();
+        });
+    });
+
+    async function restoreRenameSession() {
+        try {
+            const saved = await loadTabSession('rename_tab');
+            if (saved && saved.activeRenamedFiles && saved.activeRenamedFiles.length > 0) {
+                activeRenamedFiles = sortFilesByErrorFirst(saved.activeRenamedFiles);
+                renZipBlob = saved.renZipBlob;
+                renderRenDashboard(activeRenamedFiles);
+                if (renStatus) {
+                    renStatus.className = 'status-indicator success';
+                    renStatus.innerText = 'Restored';
+                }
+                renLog(`Restored ${activeRenamedFiles.length} renamed file(s) from previous session (1-hour cache).`, 'info');
+            }
+        } catch (e) {
+            console.warn('Failed to restore rename session:', e);
+        }
+    }
+    restoreRenameSession();
+
     /* ==========================================================================
        MERGE FILE (MERGE BY LASTNAME) LOGIC
        ========================================================================== */
     let gmFiles = [];
     let gmZipBlob = null;
+    let gmMergedList = [];
 
     const gmDropzone = document.getElementById('gmDropzone');
     const gmFileInput = document.getElementById('gmFileInput');
@@ -5023,15 +6828,34 @@ function doPost(e) {
                 gmLog(`Added ${added} file(s) to merge list.`, 'success');
             }
             updateGmUI();
+            saveTabSession('merge_tab', {
+                gmFiles: gmFiles,
+                mergedList: gmMergedList,
+                gmZipBlob: gmZipBlob
+            });
         });
     }
 
     if (clearGmFilesBtn) {
-        clearGmFilesBtn.addEventListener('click', () => {
+        clearGmFilesBtn.addEventListener('click', async () => {
+            const ok = await showCustomConfirm('Clear Files', 'Are you sure you want to clear all selected files and merge results?', 'danger', 'Clear All');
+            if (!ok) return;
+
             gmFiles = [];
+            gmMergedList = [];
+            gmZipBlob = null;
             gmFileInput.value = '';
             updateGmUI();
-            gmLog('Cleared all selected files.', 'info');
+            if (gmOutputContainer) {
+                gmOutputContainer.innerHTML = `
+                    <div class="empty-output-state">
+                        <i class="fa-solid fa-file-export placeholder-icon"></i>
+                        <p>Upload files and click process to generate merged groups.</p>
+                    </div>
+                `;
+            }
+            clearTabSession('merge_tab');
+            gmLog('Cleared all selected files and merge results.', 'info');
         });
     }
 
@@ -5067,11 +6891,18 @@ function doPost(e) {
                 const removeBtn = document.createElement('button');
                 removeBtn.className = 'file-action-btn';
                 removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
-                removeBtn.addEventListener('click', (e) => {
+                removeBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
+                    const ok = await showCustomConfirm('Remove File', `Are you sure you want to remove "${fileObj.name}"?`, 'danger', 'Remove');
+                    if (!ok) return;
                     gmFiles = gmFiles.filter(f => f.id !== fileObj.id);
                     gmLog(`Removed file: ${fileObj.name}`, 'info');
                     updateGmUI();
+                    saveTabSession('merge_tab', {
+                        gmFiles: gmFiles,
+                        mergedList: gmMergedList,
+                        gmZipBlob: gmZipBlob
+                    });
                 });
                 
                 item.appendChild(info);
@@ -5182,8 +7013,14 @@ function doPost(e) {
                 if (gmProgressStepText) gmProgressStepText.innerText = 'Packaging final ZIP file...';
 
                 gmZipBlob = await zip.generateAsync({ type: 'blob' });
+                gmMergedList = mergedList;
 
                 renderGmDashboard(mergedList);
+                saveTabSession('merge_tab', {
+                    gmFiles: gmFiles,
+                    mergedList: gmMergedList,
+                    gmZipBlob: gmZipBlob
+                });
 
                 if (gmProgressBar) gmProgressBar.style.width = '100%';
                 if (gmProgressPercent) gmProgressPercent.innerText = '100%';
@@ -5224,6 +7061,43 @@ function doPost(e) {
         return parts[parts.length - 1].trim();
     }
 
+    function moveToFolderCreateFromMerge() {
+        if (!gmMergedList || gmMergedList.length === 0) {
+            alert('No merged files available to transfer.');
+            return;
+        }
+
+        let addedCount = 0;
+        gmMergedList.forEach(fileObj => {
+            const blob = fileObj.blob;
+            const file = fileObj.file || new File([blob], fileObj.name, {
+                type: blob.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            });
+            if (!fcFiles.some(f => f.name === fileObj.name && f.size === blob.size)) {
+                fcFiles.push({
+                    id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                    name: fileObj.name,
+                    size: blob.size,
+                    file: file,
+                    blob: blob
+                });
+                addedCount++;
+            }
+        });
+
+        if (typeof updateFcUI === 'function') updateFcUI();
+
+        const folderTabBtn = document.querySelector('.tab-btn[data-tab="tab-folder"]');
+        if (folderTabBtn) {
+            folderTabBtn.click();
+        }
+
+        if (typeof fcLog === 'function') {
+            fcLog(`Transferred ${addedCount} file(s) from Merge section to Folder Create section.`, 'success');
+        }
+        alert(`Successfully transferred ${addedCount} file(s) to Folder Create!`);
+    }
+
     function renderGmDashboard(files) {
         if (!gmOutputContainer) return;
         gmOutputContainer.innerHTML = '';
@@ -5236,13 +7110,23 @@ function doPost(e) {
         header.style.alignItems = 'center';
         header.style.width = '100%';
         header.style.marginBottom = '1rem';
+        header.style.flexWrap = 'wrap';
+        header.style.gap = '0.5rem';
         header.innerHTML = `
             <h3><i class="fa-solid fa-circle-check text-success"></i> Merged Files (${files.length})</h3>
-            <button class="btn btn-primary btn-glow" id="downloadAllGmBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
-                <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
-            </button>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button class="btn btn-success" id="gmMoveToFolderBtn" style="background: linear-gradient(135deg, #059669, #10b981); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.45rem 1rem; border-radius: 8px; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; box-shadow: 0 2px 4px rgba(5, 150, 105, 0.25);">
+                    <i class="fa-solid fa-folder-plus"></i> Move to Folder Create
+                </button>
+                <button class="btn btn-primary btn-glow" id="downloadAllGmBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
+                    <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
+                </button>
+            </div>
         `;
         gmOutputContainer.appendChild(header);
+
+        const gmMoveBtn = document.getElementById('gmMoveToFolderBtn');
+        if (gmMoveBtn) gmMoveBtn.addEventListener('click', moveToFolderCreateFromMerge);
 
         const listContainer = document.createElement('div');
         listContainer.className = 'processed-list';
@@ -5304,6 +7188,31 @@ function doPost(e) {
             });
         });
     }
+
+    async function restoreMergeSession() {
+        try {
+            const saved = await loadTabSession('merge_tab');
+            if (saved) {
+                if (saved.gmFiles && saved.gmFiles.length > 0) {
+                    gmFiles = saved.gmFiles;
+                    updateGmUI();
+                }
+                if (saved.mergedList && saved.mergedList.length > 0) {
+                    gmMergedList = saved.mergedList;
+                    gmZipBlob = saved.gmZipBlob;
+                    renderGmDashboard(gmMergedList);
+                    if (gmStatus) {
+                        gmStatus.className = 'status-indicator success';
+                        gmStatus.innerText = 'Restored';
+                    }
+                    gmLog(`Restored ${gmMergedList.length} merged file(s) from previous session (1-hour cache).`, 'info');
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to restore merge session:', e);
+        }
+    }
+    restoreMergeSession();
 
     /* ==========================================================================
        MULTI DROPZONE HELPER
@@ -5621,20 +7530,40 @@ function doPost(e) {
                 // Date parsing helper
                 function parseExcelDate(val) {
                     if (val === undefined || val === null || val === "") return null;
-                    if (val instanceof Date) return val;
-                    if (typeof val === 'number' || (!isNaN(val) && !isNaN(parseFloat(val)))) {
+                    if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+                    if (typeof val === 'number' || (!isNaN(val) && !isNaN(parseFloat(val)) && typeof val !== 'string')) {
                         const num = parseFloat(val);
                         return new Date(Math.round((num - 25569) * 86400 * 1000));
                     }
                     const str = String(val).trim();
                     if (str === "") return null;
-                    const ddmmyyyyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+
+                    // Check if numeric string serial date (e.g. "45450")
+                    if (/^\d{4,5}(\.\d+)?$/.test(str)) {
+                        const num = parseFloat(str);
+                        return new Date(Math.round((num - 25569) * 86400 * 1000));
+                    }
+
+                    // DD/MM/YYYY or DD-MM-YYYY (with optional time)
+                    const ddmmyyyyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
                     if (ddmmyyyyMatch) {
                         const day = parseInt(ddmmyyyyMatch[1], 10);
                         const month = parseInt(ddmmyyyyMatch[2], 10) - 1;
                         const year = parseInt(ddmmyyyyMatch[3], 10);
-                        return new Date(year, month, day);
+                        const d = new Date(year, month, day);
+                        if (!isNaN(d.getTime())) return d;
                     }
+
+                    // YYYY-MM-DD or YYYY/MM/DD (with optional time)
+                    const yyyymmddMatch = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+                    if (yyyymmddMatch) {
+                        const year = parseInt(yyyymmddMatch[1], 10);
+                        const month = parseInt(yyyymmddMatch[2], 10) - 1;
+                        const day = parseInt(yyyymmddMatch[3], 10);
+                        const d = new Date(year, month, day);
+                        if (!isNaN(d.getTime())) return d;
+                    }
+
                     const parsed = new Date(str);
                     if (!isNaN(parsed.getTime())) {
                         return parsed;
@@ -5650,29 +7579,39 @@ function doPost(e) {
 
                 for (let i = detailsHeaderRowIndex + 1; i < detailsAoa.length; i++) {
                     const row = detailsAoa[i];
-                    if (!row) continue;
+                    if (!row || row.length === 0) continue;
 
-                    // 1. Row filter condition: check Column V
+                    // Check if entire row is empty or blank
+                    const isBlank = row.every(cell => cell === undefined || cell === null || String(cell).trim() === "");
+                    if (isBlank) continue;
+
+                    // 1. Invoice validation (must have non-empty invoice and not total/summary)
+                    const invoiceVal = row[invoiceColDetails] !== undefined ? String(row[invoiceColDetails]).trim() : "";
+                    const invoiceKey = invoiceVal.toUpperCase();
+                    if (invoiceVal === "" || invoiceKey === "TOTAL" || invoiceKey === "GRAND TOTAL") {
+                        continue;
+                    }
+
+                    // 2. Row filter condition: check Column V (Reason)
                     const reasonVal = row[reasonColDetails] !== undefined ? String(row[reasonColDetails]) : "";
                     const reasonNormalized = reasonVal.trim().toLowerCase().replace(/\s+/g, '');
+                    const disputeMatch = String(reasonVal).match(/Price\s+Dispute\s*:\s*(-?\d+(?:\.\d+)?)/i);
+                    const disputeVal = disputeMatch ? parseFloat(disputeMatch[1]) : (reasonNormalized === "0" ? 0 : NaN);
 
-                    if (reasonNormalized === "0" || reasonNormalized === "pricedispute:0") {
+                    if (disputeVal === 0 || reasonNormalized === "0" || reasonNormalized === "pricedispute:0" || reasonNormalized === "pricedispute:0.0" || reasonNormalized === "pricedispute:0.00") {
                         deletedCount++;
                         continue; // Skip/delete this row
                     }
 
-                    // 2. Perform Lookup
-                    const invoiceVal = row[invoiceColDetails] !== undefined ? String(row[invoiceColDetails]) : "";
-                    const invoiceKey = invoiceVal.trim().toUpperCase();
-
+                    // 3. Perform Lookup
                     let lookupVal = "";
                     let isMatched = false;
-                    if (invoiceKey !== "" && dataMap.has(invoiceKey)) {
+                    if (dataMap.has(invoiceKey)) {
                         lookupVal = dataMap.get(invoiceKey);
                         isMatched = true;
                     }
 
-                    // 3. Date Range Filter against Column W (lookupVal)
+                    // 4. Date Range Filter against Column W (lookupVal)
                     let shouldDeleteByDate = false;
                     if (fromDate || toDate) {
                         const parsedDate = parseExcelDate(lookupVal);
@@ -5712,6 +7651,19 @@ function doPost(e) {
                 aeLog(`Processed: Deleted ${deletedCount} rows (Reason filter: ${deletedCount - deletedByDateCount}, Date filter: ${deletedByDateCount}). Retained ${retainedCount} rows.`, 'success');
                 aeLog(`Lookup Results (for retained rows): ${lookupMatchCount} successful matches, ${lookupMissCount} unmatched invoice(s).`, lookupMissCount > 0 ? 'warning' : 'success');
 
+                if (retainedCount === 0) {
+                    aeLog("No one dispute this time, all clear", "success");
+                    if (aeProgressBar) aeProgressBar.style.width = '100%';
+                    if (aeProgressPercent) aeProgressPercent.innerText = '100%';
+                    if (aeProgressStepText) aeProgressStepText.innerText = 'Completed. No disputes found.';
+
+                    aeProcessedBlob = null;
+                    aeProcessedFilename = null;
+
+                    renderAeResults(deletedCount, deletedByDateCount, retainedCount, lookupMatchCount, lookupMissCount, []);
+                    return;
+                }
+
                 if (aeProgressBar) aeProgressBar.style.width = '90%';
                 if (aeProgressPercent) aeProgressPercent.innerText = '90%';
                 if (aeProgressStepText) aeProgressStepText.innerText = 'Grouping rows and generating ZIP package...';
@@ -5726,8 +7678,10 @@ function doPost(e) {
                 const warehouseGroups = new Map();
                 for (let i = detailsHeaderRowIndex + 1; i < processedDetailsAoa.length; i++) {
                     const row = processedDetailsAoa[i];
-                    const whName = String(row[warehouseNameColDetails]).trim();
-                    if (whName === "") continue;
+                    let whName = String(row[warehouseNameColDetails] || "").trim();
+                    if (whName === "") {
+                        whName = "Unassigned-Warehouse";
+                    }
 
                     if (!warehouseGroups.has(whName)) {
                         warehouseGroups.set(whName, []);
@@ -5736,6 +7690,19 @@ function doPost(e) {
                 }
 
                 aeLog(`Grouped into ${warehouseGroups.size} warehouse(s).`, 'info');
+
+                if (warehouseGroups.size === 0) {
+                    aeLog("No one dispute this time, all clear", "success");
+                    if (aeProgressBar) aeProgressBar.style.width = '100%';
+                    if (aeProgressPercent) aeProgressPercent.innerText = '100%';
+                    if (aeProgressStepText) aeProgressStepText.innerText = 'Completed. No disputes found.';
+
+                    aeProcessedBlob = null;
+                    aeProcessedFilename = null;
+
+                    renderAeResults(deletedCount, deletedByDateCount, 0, lookupMatchCount, lookupMissCount, []);
+                    return;
+                }
 
                 // Create the merged workbook
                 const mergedWb = XLSX.utils.book_new();
@@ -5903,19 +7870,21 @@ function doPost(e) {
                     registerTrackedError('ajio', groupFilename, whName, 'Account Center Dispute', groupRows.length);
                 }
 
-                // Write and add the merged workbook to ZIP
-                const mergedBuffer = XLSX.write(mergedWb, { bookType: 'xlsx', type: 'array' });
-                const mergedFilename = "ajio price dispute.xlsx";
-                zip.file(mergedFilename, mergedBuffer);
-                const mergedBlob = new Blob([mergedBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-                
-                filesList.push({
-                    name: mergedFilename,
-                    size: mergedBlob.size,
-                    rows: retainedCount,
-                    blob: mergedBlob
-                });
-                aeLog(`Generated merged file: "${mergedFilename}" with all ${warehouseGroups.size} sheet(s).`, 'success');
+                if (warehouseGroups.size > 0) {
+                    // Write and add the merged workbook to ZIP
+                    const mergedBuffer = XLSX.write(mergedWb, { bookType: 'xlsx', type: 'array' });
+                    const mergedFilename = "ajio price dispute.xlsx";
+                    zip.file(mergedFilename, mergedBuffer);
+                    const mergedBlob = new Blob([mergedBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                    
+                    filesList.push({
+                        name: mergedFilename,
+                        size: mergedBlob.size,
+                        rows: retainedCount,
+                        blob: mergedBlob
+                    });
+                    aeLog(`Generated merged file: "${mergedFilename}" with all ${warehouseGroups.size} sheet(s).`, 'success');
+                }
 
                 // 3. Generate Cleaned Details File (with Column W cleared)
                 const cleanedDetailsAoa = [];
@@ -6025,22 +7994,52 @@ function doPost(e) {
         header.style.alignItems = 'center';
         header.style.width = '100%';
         header.style.marginBottom = '1rem';
-        header.innerHTML = `
-            <h3><i class="fa-solid fa-circle-check text-success"></i> Ajio Error Outputs</h3>
-            <button class="btn btn-success btn-glow" id="downloadAeZipBtn">
-                <i class="fa-solid fa-file-zipper"></i> Download Package (ZIP)
-            </button>
-        `;
-        aeOutputContainer.appendChild(header);
+        
+        if (retained > 0) {
+            header.innerHTML = `
+                <h3><i class="fa-solid fa-circle-check text-success"></i> Ajio Error Outputs</h3>
+                <button class="btn btn-success btn-glow" id="downloadAeZipBtn">
+                    <i class="fa-solid fa-file-zipper"></i> Download Package (ZIP)
+                </button>
+            `;
+            aeOutputContainer.appendChild(header);
 
-        const dlBtn = header.querySelector('#downloadAeZipBtn');
-        if (dlBtn) {
-            dlBtn.addEventListener('click', () => {
-                if (aeProcessedBlob && aeProcessedFilename) {
-                    triggerDownload(aeProcessedBlob, aeProcessedFilename);
-                    aeLog(`Downloaded ZIP package: ${aeProcessedFilename}`, 'info');
-                }
-            });
+            const dlBtn = header.querySelector('#downloadAeZipBtn');
+            if (dlBtn) {
+                dlBtn.addEventListener('click', () => {
+                    if (aeProcessedBlob && aeProcessedFilename) {
+                        triggerDownload(aeProcessedBlob, aeProcessedFilename);
+                        aeLog(`Downloaded ZIP package: ${aeProcessedFilename}`, 'info');
+                    }
+                });
+            }
+        } else {
+            header.innerHTML = `
+                <h3><i class="fa-solid fa-circle-check text-success"></i> Ajio Error Outputs</h3>
+            `;
+            aeOutputContainer.appendChild(header);
+
+            const emptyBanner = document.createElement('div');
+            emptyBanner.style.background = 'rgba(16, 185, 129, 0.05)';
+            emptyBanner.style.border = '1px solid rgba(16, 185, 129, 0.2)';
+            emptyBanner.style.borderRadius = '12px';
+            emptyBanner.style.padding = '1.5rem';
+            emptyBanner.style.display = 'flex';
+            emptyBanner.style.flexDirection = 'column';
+            emptyBanner.style.alignItems = 'center';
+            emptyBanner.style.justifyContent = 'center';
+            emptyBanner.style.gap = '0.75rem';
+            emptyBanner.style.textAlign = 'center';
+            emptyBanner.style.marginBottom = '1.5rem';
+            emptyBanner.style.width = '100%';
+            emptyBanner.innerHTML = `
+                <i class="fa-solid fa-circle-check text-success" style="font-size: 2.5rem; animation: float 4s ease-in-out infinite;"></i>
+                <div style="font-size: 1.1rem; font-weight: 600; color: #10b981; font-family: 'Space Grotesk', sans-serif;">No one dispute this time, all clear</div>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0; max-width: 400px;">
+                    All price dispute rows have been filtered out (either because the dispute amount was 0 or because they matched the date range filter).
+                </p>
+            `;
+            aeOutputContainer.appendChild(emptyBanner);
         }
 
         // Metrics Grid
@@ -6074,69 +8073,78 @@ function doPost(e) {
         `;
         aeOutputContainer.appendChild(metricsGrid);
 
-        // List of generated files inside package
-        const listHeader = document.createElement('h4');
-        listHeader.style.fontFamily = "'Space Grotesk', sans-serif";
-        listHeader.style.marginBottom = '0.5rem';
-        listHeader.style.color = 'var(--text-primary)';
-        listHeader.style.fontSize = '0.9rem';
-        listHeader.innerHTML = `<i class="fa-solid fa-folder-open text-purple"></i> Packaged Files (${files.length})`;
-        aeOutputContainer.appendChild(listHeader);
+        if (retained > 0) {
+            // List of generated files inside package
+            const listHeader = document.createElement('h4');
+            listHeader.style.fontFamily = "'Space Grotesk', sans-serif";
+            listHeader.style.marginBottom = '0.5rem';
+            listHeader.style.color = 'var(--text-primary)';
+            listHeader.style.fontSize = '0.9rem';
+            listHeader.innerHTML = `<i class="fa-solid fa-folder-open text-purple"></i> Packaged Files (${files.length})`;
+            aeOutputContainer.appendChild(listHeader);
 
-        const listContainer = document.createElement('div');
-        listContainer.className = 'processed-list';
-        listContainer.style.display = 'flex';
-        listContainer.style.flexDirection = 'column';
-        listContainer.style.gap = '0.5rem';
-        listContainer.style.width = '100%';
-        listContainer.style.maxHeight = '250px';
-        listContainer.style.overflowY = 'auto';
+            const listContainer = document.createElement('div');
+            listContainer.className = 'processed-list';
+            listContainer.style.display = 'flex';
+            listContainer.style.flexDirection = 'column';
+            listContainer.style.gap = '0.5rem';
+            listContainer.style.width = '100%';
+            listContainer.style.maxHeight = '250px';
+            listContainer.style.overflowY = 'auto';
 
-        files.forEach((file) => {
-            const item = document.createElement('div');
-            item.className = 'processed-item';
-            item.style.padding = '0.65rem 0.85rem';
-            item.style.borderRadius = '8px';
-            item.style.display = 'flex';
-            item.style.justifyContent = 'space-between';
-            item.style.alignItems = 'center';
-            item.style.border = '1px solid var(--border-color)';
-            item.style.background = 'rgba(255, 255, 255, 0.8)';
-            item.style.borderLeft = '4px solid var(--color-success)';
+            files.forEach((file) => {
+                const item = document.createElement('div');
+                item.className = 'processed-item';
+                item.style.padding = '0.65rem 0.85rem';
+                item.style.borderRadius = '8px';
+                item.style.display = 'flex';
+                item.style.justifyContent = 'space-between';
+                item.style.alignItems = 'center';
+                item.style.border = '1px solid var(--border-color)';
+                item.style.background = 'rgba(255, 255, 255, 0.8)';
+                item.style.borderLeft = '4px solid var(--color-success)';
 
-            const fileInfo = document.createElement('div');
-            fileInfo.className = 'file-info';
-            fileInfo.innerHTML = `
-                <i class="fa-solid fa-file-excel text-success" style="margin-right: 0.5rem;"></i>
-                <span class="file-name" style="font-weight: 600; font-size: 0.85rem; color: var(--text-primary);">${file.name}</span>
-                <span class="file-size" style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.5rem;">(${formatBytes(file.size)} | ${file.rows} rows)</span>
-            `;
+                const fileInfo = document.createElement('div');
+                fileInfo.className = 'file-info';
+                fileInfo.innerHTML = `
+                    <i class="fa-solid fa-file-excel text-success" style="margin-right: 0.5rem;"></i>
+                    <span class="file-name" style="font-weight: 600; font-size: 0.85rem; color: var(--text-primary);">${file.name}</span>
+                    <span class="file-size" style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.5rem;">(${formatBytes(file.size)} | ${file.rows} rows)</span>
+                `;
 
-            const downloadBtn = document.createElement('button');
-            downloadBtn.className = 'btn btn-primary';
-            downloadBtn.style.padding = '0.3rem 0.6rem';
-            downloadBtn.style.fontSize = '0.75rem';
-            downloadBtn.style.borderRadius = '6px';
-            downloadBtn.innerHTML = '<i class="fa-solid fa-download"></i>';
-            downloadBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                triggerDownload(file.blob, file.name);
-                aeLog(`Downloaded individual file: ${file.name}`, 'info');
+                const downloadBtn = document.createElement('button');
+                downloadBtn.className = 'btn btn-primary';
+                downloadBtn.style.padding = '0.3rem 0.6rem';
+                downloadBtn.style.fontSize = '0.75rem';
+                downloadBtn.style.borderRadius = '6px';
+                downloadBtn.innerHTML = '<i class="fa-solid fa-download"></i>';
+                downloadBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    triggerDownload(file.blob, file.name);
+                    aeLog(`Downloaded individual file: ${file.name}`, 'info');
+                });
+
+                item.appendChild(fileInfo);
+                item.appendChild(downloadBtn);
+                listContainer.appendChild(item);
             });
 
-            item.appendChild(fileInfo);
-            item.appendChild(downloadBtn);
-            listContainer.appendChild(item);
-        });
-
-        aeOutputContainer.appendChild(listContainer);
+            aeOutputContainer.appendChild(listContainer);
+        }
     }
 
     /* ==========================================================================
        FOLDER CREATE LOGIC
        ========================================================================== */
     let fcFiles = [];
+    let fcFolderGroups = [];
     let fcZipBlob = null;
+    let fcZipFilename = "";
+    let fcMissingReportBlob = null;
+    let fcModalCurrentFilter = 'all'; // 'all', 'incomplete', 'ready'
+    let fcSourceCopyFile = null;
+    let fcSourceCopyPrefix = "";
+    let fcSelectedTargetPrefix = null;
     let fcMode = 'files'; // 'files' or 'folders'
 
     const fcDropzone = document.getElementById('fcDropzone');
@@ -6467,12 +8475,34 @@ function doPost(e) {
     }
 
     if (clearFcFilesBtn) {
-        clearFcFilesBtn.addEventListener('click', () => {
+        clearFcFilesBtn.addEventListener('click', async () => {
+            const ok = await showCustomConfirm('Clear Files', 'Are you sure you want to clear all selected files and grouped folders?', 'danger', 'Clear All');
+            if (!ok) return;
+
             fcFiles = [];
+            fcFolderGroups = [];
+            fcZipBlob = null;
+            fcZipFilename = "";
+            fcMissingReportBlob = null;
             if (fcFileInput) fcFileInput.value = '';
             if (fcFolderInput) fcFolderInput.value = '';
             updateFcUI();
-            fcLog('Cleared all selected files.', 'info');
+            if (fcOutputContainer) {
+                fcOutputContainer.innerHTML = `
+                    <div class="empty-output-state">
+                        <i class="fa-solid fa-folder-plus placeholder-icon"></i>
+                        <p>Upload files and click process to group into folders and zip.</p>
+                    </div>
+                `;
+                fcOutputContainer.className = 'processed-container empty';
+            }
+            if (fcStatus) {
+                fcStatus.className = 'status-indicator idle';
+                fcStatus.innerText = 'Idle';
+            }
+            if (fcProgressCard) fcProgressCard.classList.add('hidden');
+            await clearTabSession('folder_create_tab');
+            fcLog('Cleared all selected files and session cache.', 'info');
         });
     }
 
@@ -6508,8 +8538,10 @@ function doPost(e) {
                 const removeBtn = document.createElement('button');
                 removeBtn.className = 'file-action-btn';
                 removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
-                removeBtn.addEventListener('click', (e) => {
+                removeBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
+                    const ok = await showCustomConfirm('Remove File', `Are you sure you want to remove "${fileObj.name}"?`, 'danger', 'Remove');
+                    if (!ok) return;
                     fcFiles = fcFiles.filter(f => f.id !== fileObj.id);
                     fcLog(`Removed file: ${fileObj.name}`, 'info');
                     updateFcUI();
@@ -6525,10 +8557,102 @@ function doPost(e) {
         }
     }
 
+    function sortFolderGroups(groups) {
+        return groups.sort((a, b) => {
+            if (a.isError && !b.isError) return -1;
+            if (!a.isError && b.isError) return 1;
+            return a.prefix.localeCompare(b.prefix, undefined, { numeric: true, sensitivity: 'base' });
+        });
+    }
+
+    async function rebuildFcPackage(silent = false) {
+        if (!fcFolderGroups || fcFolderGroups.length === 0) {
+            fcZipBlob = null;
+            fcMissingReportBlob = null;
+            return;
+        }
+
+        const zip = new JSZip();
+        const foldersWithIssues = [];
+        let hasMissing = false;
+
+        fcFolderGroups.forEach(grp => {
+            grp.isError = (grp.files.length !== 2);
+            if (grp.isError) {
+                foldersWithIssues.push(grp);
+                hasMissing = true;
+            }
+
+            const folder = zip.folder(grp.prefix);
+            grp.files.forEach(fObj => {
+                folder.file(fObj.name, fObj.blob || fObj.file);
+            });
+        });
+
+        // Re-sort error folders to top
+        sortFolderGroups(fcFolderGroups);
+
+        if (hasMissing) {
+            const reportData = [
+                ["Folder Name (Prefix)", "Files Found", "Current Files", "Status"]
+            ];
+            foldersWithIssues.forEach(item => {
+                const fileNamesStr = item.files.map(f => f.name).join(", ");
+                const statusStr = item.files.length < 2 ? `File Missing (Found ${item.files.length}, Expected 2)` : `Extra Files Present (Found ${item.files.length}, Expected 2)`;
+                reportData.push([
+                    item.prefix,
+                    item.files.length,
+                    fileNamesStr,
+                    statusStr
+                ]);
+            });
+
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet(reportData);
+            XLSX.utils.book_append_sheet(wb, ws, "Missing Files Log");
+            const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+            fcMissingReportBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            zip.file("Missing_Files_Report.xlsx", excelBuffer);
+        } else {
+            fcMissingReportBlob = null;
+        }
+
+        let zipFilename = "";
+        if (fcFolderGroups.length === 1) {
+            zipFilename = `${fcFolderGroups[0].prefix}.zip`;
+        } else {
+            zipFilename = `${fcFolderGroups[0].prefix}-${fcFolderGroups[fcFolderGroups.length - 1].prefix}.zip`;
+        }
+        fcZipFilename = zipFilename;
+        fcZipBlob = await zip.generateAsync({ type: 'blob' });
+
+        saveTabSession('folder_create_tab', {
+            fcFiles,
+            fcFolderGroups,
+            fcZipBlob,
+            fcZipFilename,
+            fcMissingReportBlob,
+            hasMissing
+        });
+
+        renderFcDashboard(fcFolderGroups, hasMissing, zipFilename);
+        if (fcFullscreenModal && fcFullscreenModal.classList.contains('active')) {
+            renderFcAccordion();
+        }
+
+        if (!silent) {
+            fcLog(`Updated folder structure. Ready: ${fcFolderGroups.filter(g => !g.isError).length}, Incomplete: ${foldersWithIssues.length}`, 'info');
+        }
+    }
+
     function renderFcDashboard(folders, hasMissing, zipFilename) {
         if (!fcOutputContainer) return;
         fcOutputContainer.innerHTML = '';
         fcOutputContainer.className = 'processed-container';
+
+        const totalFolders = folders.length;
+        const incompleteCount = folders.filter(f => f.isError).length;
+        const readyCount = totalFolders - incompleteCount;
 
         const header = document.createElement('div');
         header.className = 'processed-header';
@@ -6537,26 +8661,49 @@ function doPost(e) {
         header.style.alignItems = 'center';
         header.style.width = '100%';
         header.style.marginBottom = '1rem';
+        header.style.flexWrap = 'wrap';
+        header.style.gap = '0.5rem';
+
         header.innerHTML = `
-            <h3><i class="fa-solid fa-circle-check text-success"></i> Grouped Folders (${folders.length})</h3>
-            <button class="btn btn-primary btn-glow" id="downloadFcZipBtn" style="background: linear-gradient(135deg, #059669, #10b981);">
-                <i class="fa-solid fa-file-zipper"></i> Download ZIP
-            </button>
+            <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                <h3 style="margin: 0;"><i class="fa-solid fa-folder-tree text-success"></i> Grouped Folders (${totalFolders})</h3>
+                <span class="badge" style="background:${incompleteCount > 0 ? '#fee2e2' : '#ecfdf5'}; color:${incompleteCount > 0 ? '#dc2626' : '#059669'}; font-size:0.75rem; font-weight:700; border: 1px solid ${incompleteCount > 0 ? '#fca5a5' : '#a7f3d0'};">
+                    ${incompleteCount > 0 ? `⚠️ ${incompleteCount} Incomplete (<2)` : '✅ All Ready (2 Files)'}
+                </span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <button class="btn" id="openFcFullscreenBtn" type="button" style="background: linear-gradient(135deg, #059669, #10b981); color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; font-size: 0.78rem; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(5, 150, 105, 0.25);">
+                    <i class="fa-solid fa-expand"></i> Full View (Folders)
+                </button>
+                ${fcMissingReportBlob ? `
+                <button class="btn btn-secondary" id="fcDownloadReportBtn" type="button" style="background: #f8fafc; color: #1e293b; border: 1px solid #cbd5e1; font-size: 0.78rem; padding: 0.45rem 0.85rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 8px; font-weight: 600;">
+                    <i class="fa-solid fa-file-excel text-success"></i> Report (Excel)
+                </button>
+                ` : ''}
+                <button class="btn btn-primary" id="fcMoveToConverterBtn" type="button" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; font-size: 0.78rem; font-weight: 600; border-radius: 8px; border: none; cursor: pointer;">
+                    <i class="fa-solid fa-arrow-right"></i> Move to Converter
+                </button>
+                <button class="btn btn-primary btn-glow" id="downloadFcZipBtn" style="background: linear-gradient(135deg, #059669, #10b981); font-size: 0.78rem; padding: 0.45rem 0.85rem;">
+                    <i class="fa-solid fa-file-zipper"></i> Download ZIP
+                </button>
+            </div>
         `;
         fcOutputContainer.appendChild(header);
 
         if (hasMissing) {
             const warningAlert = document.createElement('div');
             warningAlert.className = 'settings-card';
-            warningAlert.style.border = '1px solid #f59e0b';
-            warningAlert.style.background = 'rgba(245, 158, 11, 0.05)';
+            warningAlert.style.border = '1px solid #f87171';
+            warningAlert.style.background = '#fff5f5';
             warningAlert.style.marginBottom = '1rem';
             warningAlert.style.padding = '0.75rem 1rem';
             warningAlert.style.borderRadius = '10px';
             warningAlert.innerHTML = `
-                <div style="display: flex; align-items: center; gap: 0.6rem; color: #d97706; font-weight: 600; font-size: 0.9rem;">
-                    <i class="fa-solid fa-circle-exclamation" style="font-size: 1.1rem;"></i>
-                    <span>Some folders do not contain exactly 2 files! A report file "Missing_Files_Report.xlsx" has been included in the ZIP.</span>
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                    <div style="display: flex; align-items: center; gap: 0.6rem; color: #dc2626; font-weight: 600; font-size: 0.85rem;">
+                        <i class="fa-solid fa-triangle-exclamation" style="font-size: 1.1rem;"></i>
+                        <span>${incompleteCount} folder(s) do NOT have exactly 2 files (shown first in RED). Click <strong>"Full View"</strong> to copy files or upload missing slots!</span>
+                    </div>
                 </div>
             `;
             fcOutputContainer.appendChild(warningAlert);
@@ -6580,66 +8727,510 @@ function doPost(e) {
             item.style.justifyContent = 'space-between';
             item.style.alignItems = 'center';
             item.style.border = '1px solid var(--border-color)';
-            item.style.background = 'rgba(255, 255, 255, 0.8)';
-            
-            const isOk = folder.files.length === 2;
-            item.style.borderLeft = isOk ? '5px solid #10b981' : '5px solid #ef4444';
+            item.style.background = folder.isError ? '#fff8f8' : 'rgba(255, 255, 255, 0.8)';
+            item.style.borderLeft = folder.isError ? '5px solid #ef4444' : '5px solid #10b981';
 
             const fileNamesList = folder.files.map(f => f.name).join(', ');
-            const badgeColor = isOk ? '#10b981' : '#ef4444';
-            const badgeBg = isOk ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)';
-            const badgeText = isOk ? '2 Files (OK)' : `${folder.files.length} File(s) (Missing)`;
+            const badgeColor = folder.isError ? '#ef4444' : '#10b981';
+            const badgeBg = folder.isError ? '#fee2e2' : 'rgba(16, 185, 129, 0.1)';
+            const badgeText = folder.isError ? `⚠️ ${folder.files.length} File(s) (Incomplete)` : `✅ 2 Files (Ready)`;
 
             item.innerHTML = `
                 <div class="file-details" style="display: flex; flex-direction: column; gap: 0.2rem; max-width: 70%;">
-                    <span class="file-name" style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
-                        <i class="fa-solid fa-folder" style="color: #f59e0b;"></i> ${folder.prefix}
+                    <span class="file-name" style="font-weight: 600; color: ${folder.isError ? '#b91c1c' : 'var(--text-primary)'}; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+                        <i class="fa-solid fa-folder" style="color: ${folder.isError ? '#ef4444' : '#f59e0b'};"></i> ${folder.prefix}
                     </span>
                     <span style="font-size: 0.75rem; color: var(--text-muted); word-break: break-all;">${fileNamesList}</span>
                 </div>
-                <span style="padding: 0.25rem 0.5rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; color: ${badgeColor}; background: ${badgeBg}; text-align: center;">
-                    ${badgeText}
-                </span>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="padding: 0.25rem 0.5rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; color: ${badgeColor}; background: ${badgeBg}; text-align: center;">
+                        ${badgeText}
+                    </span>
+                </div>
             `;
             listContainer.appendChild(item);
         });
 
-        if (hasMissing) {
-            const item = document.createElement('div');
-            item.className = 'processed-item';
-            item.style.padding = '0.75rem 1rem';
-            item.style.borderRadius = '8px';
-            item.style.display = 'flex';
-            item.style.justifyContent = 'space-between';
-            item.style.alignItems = 'center';
-            item.style.border = '1px solid var(--border-color)';
-            item.style.background = 'rgba(255, 255, 255, 0.8)';
-            item.style.borderLeft = '5px solid #d97706';
-            item.innerHTML = `
-                <div class="file-details" style="display: flex; flex-direction: column; gap: 0.2rem;">
-                    <span class="file-name" style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem;">
-                        <i class="fa-solid fa-file-excel" style="color: #10b981;"></i> Missing_Files_Report.xlsx
-                    </span>
-                    <span style="font-size: 0.75rem; color: var(--text-muted);">Report file listing folders with missing files</span>
-                </div>
-                <span style="padding: 0.25rem 0.5rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; color: #d97706; background: rgba(217, 119, 6, 0.1);">
-                    Report Created
-                </span>
-            `;
-            listContainer.appendChild(item);
-        }
-
         fcOutputContainer.appendChild(listContainer);
 
-        const downloadBtn = document.getElementById('downloadFcZipBtn');
-        if (downloadBtn) {
-            downloadBtn.addEventListener('click', () => {
+        // Bind dashboard buttons
+        const openModalBtn = document.getElementById('openFcFullscreenBtn');
+        if (openModalBtn) openModalBtn.addEventListener('click', openFcFullscreenModal);
+
+        const repBtn = document.getElementById('fcDownloadReportBtn');
+        if (repBtn) repBtn.addEventListener('click', downloadFcMissingReport);
+
+        const convBtn = document.getElementById('fcMoveToConverterBtn');
+        if (convBtn) convBtn.addEventListener('click', moveToFileConverterFromFolderCreate);
+
+        const dlBtn = document.getElementById('downloadFcZipBtn');
+        if (dlBtn) {
+            dlBtn.addEventListener('click', () => {
                 if (fcZipBlob) {
-                    triggerDownload(fcZipBlob, zipFilename);
+                    triggerDownload(fcZipBlob, zipFilename || 'grouped_folders.zip');
                     fcLog(`Downloaded ZIP: ${zipFilename}`, 'info');
                 }
             });
         }
+    }
+
+    function downloadFcMissingReport() {
+        if (!fcMissingReportBlob) {
+            alert('No missing files report available. All folders are complete!');
+            return;
+        }
+        triggerDownload(fcMissingReportBlob, 'Missing_Files_Report.xlsx');
+        fcLog('Downloaded Missing_Files_Report.xlsx', 'info');
+    }
+
+    function moveToFileConverterFromFolderCreate() {
+        if (!fcZipBlob) {
+            alert('No folder ZIP package available. Please process files first.');
+            return;
+        }
+
+        const zipFilename = fcZipFilename || 'folder_package.zip';
+        const file = new File([fcZipBlob], zipFilename, { type: 'application/zip' });
+        
+        if (typeof handleFiles === 'function') {
+            handleFiles([file]);
+        }
+        closeFcFullscreenModal();
+
+        const convertTabBtn = document.querySelector('.tab-btn[data-tab="tab-convert"]');
+        if (convertTabBtn) {
+            convertTabBtn.click();
+        }
+
+        if (typeof log === 'function') {
+            log(`Loaded folder package [${zipFilename}] into File Converter.`, 'success');
+        }
+        showCustomNotification('Transferred to Converter', `Successfully transferred ZIP package [${zipFilename}] to File Converter! Ready to convert.`, 'success');
+    }
+
+    /* ==========================================================================
+       FOLDER CREATE FULLSCREEN MODAL & ACCORDION MANAGEMENT
+       ========================================================================== */
+    const fcFullscreenModal = document.getElementById('fcFullscreenModal');
+    const closeFcModalBtn = document.getElementById('closeFcModalBtn');
+    const modalFcFooterCloseBtn = document.getElementById('modalFcFooterCloseBtn');
+    const modalFcSearchInput = document.getElementById('modalFcSearchInput');
+    const modalFcAccordionContainer = document.getElementById('modalFcAccordionContainer');
+    const modalFcTotalBadge = document.getElementById('modalFcTotalBadge');
+    const modalFcReadyBadge = document.getElementById('modalFcReadyBadge');
+    const modalFcErrorBadge = document.getElementById('modalFcErrorBadge');
+    const modalFcSummaryText = document.getElementById('modalFcSummaryText');
+    const modalFcDownloadZipBtn = document.getElementById('modalFcDownloadZipBtn');
+    const modalFcFooterDownloadZipBtn = document.getElementById('modalFcFooterDownloadZipBtn');
+    const modalFcDownloadReportBtn = document.getElementById('modalFcDownloadReportBtn');
+    const modalFcFooterDownloadReportBtn = document.getElementById('modalFcFooterDownloadReportBtn');
+    const modalFcFooterMoveToConverterBtn = document.getElementById('modalFcFooterMoveToConverterBtn');
+
+    function openFcFullscreenModal() {
+        if (!fcFullscreenModal) return;
+        fcFullscreenModal.classList.add('show');
+        fcFullscreenModal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        renderFcAccordion();
+    }
+
+    function closeFcFullscreenModal() {
+        if (!fcFullscreenModal) return;
+        fcFullscreenModal.classList.remove('show');
+        fcFullscreenModal.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+
+    // Global event delegation for openFcFullscreenBtn
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('#openFcFullscreenBtn');
+        if (btn) {
+            e.preventDefault();
+            openFcFullscreenModal();
+        }
+    });
+
+    if (closeFcModalBtn) closeFcModalBtn.addEventListener('click', closeFcFullscreenModal);
+    if (modalFcFooterCloseBtn) modalFcFooterCloseBtn.addEventListener('click', closeFcFullscreenModal);
+    if (fcFullscreenModal) {
+        fcFullscreenModal.addEventListener('click', (e) => {
+            if (e.target === fcFullscreenModal) closeFcFullscreenModal();
+        });
+    }
+
+    if (modalFcDownloadReportBtn) modalFcDownloadReportBtn.addEventListener('click', downloadFcMissingReport);
+    if (modalFcFooterDownloadReportBtn) modalFcFooterDownloadReportBtn.addEventListener('click', downloadFcMissingReport);
+    if (modalFcFooterMoveToConverterBtn) modalFcFooterMoveToConverterBtn.addEventListener('click', moveToFileConverterFromFolderCreate);
+
+    if (modalFcDownloadZipBtn) {
+        modalFcDownloadZipBtn.addEventListener('click', () => {
+            if (fcZipBlob) triggerDownload(fcZipBlob, fcZipFilename || 'grouped_folders.zip');
+        });
+    }
+    if (modalFcFooterDownloadZipBtn) {
+        modalFcFooterDownloadZipBtn.addEventListener('click', () => {
+            if (fcZipBlob) triggerDownload(fcZipBlob, fcZipFilename || 'grouped_folders.zip');
+        });
+    }
+
+    if (modalFcSearchInput) {
+        modalFcSearchInput.addEventListener('input', () => {
+            renderFcAccordion();
+        });
+    }
+
+    document.querySelectorAll('.fc-filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.fc-filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            fcModalCurrentFilter = btn.getAttribute('data-filter') || 'all';
+            renderFcAccordion();
+        });
+    });
+
+    function renderFcAccordion() {
+        if (!modalFcAccordionContainer) return;
+        modalFcAccordionContainer.innerHTML = '';
+
+        const totalFolders = fcFolderGroups.length;
+        const incompleteCount = fcFolderGroups.filter(f => f.isError).length;
+        const readyCount = totalFolders - incompleteCount;
+
+        // Update badges
+        if (modalFcTotalBadge) modalFcTotalBadge.innerHTML = `<i class="fa-solid fa-folder"></i> Total: ${totalFolders} Folders`;
+        if (modalFcReadyBadge) modalFcReadyBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Ready (2 Files): ${readyCount}`;
+        if (modalFcErrorBadge) modalFcErrorBadge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Incomplete (< 2): ${incompleteCount} (Shown First)`;
+
+        const filterAllBtn = document.getElementById('modalFcFilterAllBtn');
+        const filterIncBtn = document.getElementById('modalFcFilterIncompleteBtn');
+        const filterRdyBtn = document.getElementById('modalFcFilterReadyBtn');
+        if (filterAllBtn) filterAllBtn.innerText = `All Folders (${totalFolders})`;
+        if (filterIncBtn) filterIncBtn.innerText = `⚠️ Incomplete / Errors (${incompleteCount})`;
+        if (filterRdyBtn) filterRdyBtn.innerText = `✅ Ready (2 Files) (${readyCount})`;
+
+        const query = (modalFcSearchInput ? modalFcSearchInput.value : '').trim().toLowerCase();
+
+        const filtered = fcFolderGroups.filter(grp => {
+            if (fcModalCurrentFilter === 'incomplete' && !grp.isError) return false;
+            if (fcModalCurrentFilter === 'ready' && grp.isError) return false;
+
+            if (query !== '') {
+                const prefixMatch = grp.prefix.toLowerCase().includes(query);
+                const fileMatch = grp.files.some(f => f.name.toLowerCase().includes(query));
+                if (!prefixMatch && !fileMatch) return false;
+            }
+            return true;
+        });
+
+        if (modalFcSummaryText) {
+            modalFcSummaryText.innerText = `Showing ${filtered.length} of ${totalFolders} folder(s)`;
+        }
+
+        if (filtered.length === 0) {
+            modalFcAccordionContainer.innerHTML = `
+                <div style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+                    <i class="fa-solid fa-folder-open" style="font-size: 2.5rem; color: #cbd5e1; margin-bottom: 0.75rem;"></i>
+                    <p style="font-weight: 500;">No folders matching the current filter/search.</p>
+                </div>
+            `;
+            return;
+        }
+
+        filtered.forEach((grp, idx) => {
+            const card = document.createElement('div');
+            card.className = `fc-folder-card ${grp.isError ? 'error-card open' : 'success-card'}`;
+            // Open incomplete folders by default for quick user interaction
+
+            const isOk = grp.files.length === 2;
+            const badgeColor = isOk ? '#059669' : '#dc2626';
+            const badgeBg = isOk ? '#ecfdf5' : '#fee2e2';
+            const badgeBorder = isOk ? '#a7f3d0' : '#fca5a5';
+            const badgeText = isOk ? `✅ 2 Files (Complete)` : `⚠️ ${grp.files.length} / 2 Files (Missing ${2 - grp.files.length > 0 ? 2 - grp.files.length : 0})`;
+
+            // Header
+            const header = document.createElement('div');
+            header.className = 'fc-folder-header';
+            header.innerHTML = `
+                <div class="fc-folder-title-left">
+                    <div class="fc-folder-icon">
+                        <i class="fa-solid fa-folder${grp.isError ? '-open' : ''}"></i>
+                    </div>
+                    <div>
+                        <div class="fc-folder-name">Folder [${grp.prefix}]</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">${grp.files.length} file(s) attached</div>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <span style="background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-size: 0.78rem; font-weight: 700; padding: 0.25rem 0.65rem; border-radius: 6px;">
+                        ${badgeText}
+                    </span>
+                    <i class="fa-solid fa-chevron-down fc-chevron"></i>
+                </div>
+            `;
+            header.addEventListener('click', () => {
+                card.classList.toggle('open');
+            });
+            card.appendChild(header);
+
+            // Body
+            const body = document.createElement('div');
+            body.className = 'fc-folder-body';
+
+            // Files list
+            grp.files.forEach((fileObj, fIdx) => {
+                const fileRow = document.createElement('div');
+                fileRow.className = 'fc-file-row';
+
+                fileRow.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 250px; flex: 1;">
+                        <i class="fa-solid fa-file-excel text-success" style="font-size: 1.1rem;"></i>
+                        <div>
+                            <div style="font-weight: 600; font-size: 0.85rem; color: #1e293b; word-break: break-all;">${fileObj.name}</div>
+                            <div style="font-size: 0.72rem; color: #64748b;">${formatBytes(fileObj.size || 0)}</div>
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                        <button type="button" class="btn btn-secondary fc-copy-file-btn" data-prefix="${grp.prefix}" data-id="${fileObj.id}" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; border-radius: 6px; background: #ede9fe; color: #6d28d9; border: 1px solid #d8b4fe; font-weight: 600;">
+                            <i class="fa-solid fa-copy"></i> Copy to Folder
+                        </button>
+                        <button type="button" class="btn fc-rename-file-btn" data-prefix="${grp.prefix}" data-id="${fileObj.id}" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; border-radius: 6px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;">
+                            <i class="fa-solid fa-pen-to-square"></i> Rename
+                        </button>
+                        <button type="button" class="btn fc-delete-file-btn" data-prefix="${grp.prefix}" data-id="${fileObj.id}" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; border-radius: 6px; background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5;">
+                            <i class="fa-solid fa-trash-can"></i> Delete
+                        </button>
+                        <button type="button" class="btn fc-download-file-btn" data-prefix="${grp.prefix}" data-id="${fileObj.id}" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; border-radius: 6px; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0;">
+                            <i class="fa-solid fa-download"></i>
+                        </button>
+                    </div>
+                `;
+
+                // Wire Copy to Folder
+                const copyBtn = fileRow.querySelector('.fc-copy-file-btn');
+                if (copyBtn) {
+                    copyBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        openFcCopyFileModal(fileObj, grp.prefix);
+                    });
+                }
+
+                // Wire Rename
+                const renBtn = fileRow.querySelector('.fc-rename-file-btn');
+                if (renBtn) {
+                    renBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const currentName = fileObj.name;
+                        const ext = currentName.endsWith('.xlsx') ? '.xlsx' : (currentName.endsWith('.xls') ? '.xls' : '.csv');
+                        const base = currentName.slice(0, -ext.length);
+                        const newBase = prompt(`Edit file name for folder [${grp.prefix}]:`, base);
+                        if (newBase && newBase.trim() !== "" && newBase.trim() !== base) {
+                            const newFullName = newBase.trim() + ext;
+                            fileObj.name = newFullName;
+                            rebuildFcPackage();
+                            fcLog(`Renamed file in folder [${grp.prefix}] to: ${newFullName}`, 'success');
+                        }
+                    });
+                }
+
+                // Wire Delete
+                const delBtn = fileRow.querySelector('.fc-delete-file-btn');
+                if (delBtn) {
+                    delBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const confirmed = await showCustomConfirm(
+                            'Delete File',
+                            `Are you sure you want to delete "${fileObj.name}" from Folder [${grp.prefix}]?`,
+                            'danger',
+                            'Delete'
+                        );
+                        if (confirmed) {
+                            grp.files = grp.files.filter(f => f.id !== fileObj.id);
+                            fcFiles = fcFiles.filter(f => f.id !== fileObj.id);
+                            await rebuildFcPackage();
+                            fcLog(`Deleted file "${fileObj.name}" from folder [${grp.prefix}]`, 'warning');
+                        }
+                    });
+                }
+
+                // Wire Download
+                const dlBtn = fileRow.querySelector('.fc-download-file-btn');
+                if (dlBtn) {
+                    dlBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        triggerDownload(fileObj.blob || fileObj.file, fileObj.name);
+                    });
+                }
+
+                body.appendChild(fileRow);
+            });
+
+            // If folder has only 1 file, render empty slot upload
+            if (grp.files.length < 2) {
+                const missingSlot = document.createElement('div');
+                missingSlot.className = 'fc-missing-slot';
+                missingSlot.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 0.6rem;">
+                        <i class="fa-solid fa-cloud-arrow-up" style="color: #dc2626; font-size: 1.2rem;"></i>
+                        <div>
+                            <strong style="color: #b91c1c; font-size: 0.85rem;">Slot 2 Missing:</strong>
+                            <span style="font-size: 0.8rem; color: #475569; margin-left: 0.3rem;">Click here to upload missing file for Folder [${grp.prefix}]</span>
+                        </div>
+                    </div>
+                    <button type="button" class="btn" style="background: #fee2e2; color: #b91c1c; font-size: 0.78rem; padding: 0.35rem 0.85rem; border: 1px solid #fca5a5; font-weight: 700; border-radius: 6px; cursor: pointer;">
+                        <i class="fa-solid fa-upload"></i> Upload File
+                    </button>
+                    <input type="file" accept=".xlsx,.xls,.csv" class="fc-slot-file-input" style="display: none;">
+                `;
+
+                const slotInput = missingSlot.querySelector('.fc-slot-file-input');
+                missingSlot.addEventListener('click', () => {
+                    if (slotInput) slotInput.click();
+                });
+
+                if (slotInput) {
+                    slotInput.addEventListener('click', (e) => e.stopPropagation());
+                    slotInput.addEventListener('change', async (e) => {
+                        if (e.target.files && e.target.files.length > 0) {
+                            const file = e.target.files[0];
+                            const fileObj = {
+                                id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                                name: file.name,
+                                size: file.size,
+                                blob: file,
+                                file: file,
+                                rows: 0
+                            };
+                            grp.files.push(fileObj);
+                            fcFiles.push(fileObj);
+                            await rebuildFcPackage();
+                            fcLog(`Uploaded missing file "${file.name}" to folder [${grp.prefix}]. Folder is now complete!`, 'success');
+                            showCustomNotification('Success', `Uploaded "${file.name}" to Folder [${grp.prefix}]. Folder is now complete (2 Files)!`, 'success');
+                        }
+                    });
+                }
+
+                body.appendChild(missingSlot);
+            }
+
+            card.appendChild(body);
+            modalFcAccordionContainer.appendChild(card);
+        });
+    }
+
+    /* ==========================================================================
+       COPY FILE TO INCOMPLETE FOLDER MODAL
+       ========================================================================== */
+    const fcMoveFileModal = document.getElementById('fcMoveFileModal');
+    const fcMoveSourceFileName = document.getElementById('fcMoveSourceFileName');
+    const fcMoveTargetFoldersList = document.getElementById('fcMoveTargetFoldersList');
+    const fcMoveCancelBtn = document.getElementById('fcMoveCancelBtn');
+    const fcMoveConfirmBtn = document.getElementById('fcMoveConfirmBtn');
+
+    function openFcCopyFileModal(sourceFile, sourcePrefix) {
+        if (!fcMoveFileModal) return;
+        fcSourceCopyFile = sourceFile;
+        fcSourceCopyPrefix = sourcePrefix;
+        fcSelectedTargetPrefix = null;
+
+        if (fcMoveSourceFileName) fcMoveSourceFileName.innerText = sourceFile.name;
+
+        const incompleteFolders = fcFolderGroups.filter(g => g.files.length < 2 && g.prefix !== sourcePrefix);
+
+        if (incompleteFolders.length === 0) {
+            showCustomNotification('Information', 'No other incomplete folders (< 2 files) are available to copy into!', 'info');
+            return;
+        }
+
+        if (fcMoveTargetFoldersList) {
+            fcMoveTargetFoldersList.innerHTML = '';
+            incompleteFolders.forEach((g, idx) => {
+                const opt = document.createElement('div');
+                opt.className = `target-folder-option ${idx === 0 ? 'selected' : ''}`;
+                if (idx === 0) fcSelectedTargetPrefix = g.prefix;
+
+                opt.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="fa-solid fa-folder text-danger"></i>
+                        <span style="font-size: 0.85rem; color: #1e293b;">Folder <strong>[${g.prefix}]</strong></span>
+                    </div>
+                    <span style="background: #fee2e2; color: #dc2626; font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px;">
+                        ${g.files.length} / 2 Files
+                    </span>
+                `;
+
+                opt.addEventListener('click', () => {
+                    document.querySelectorAll('.target-folder-option').forEach(o => o.classList.remove('selected'));
+                    opt.classList.add('selected');
+                    fcSelectedTargetPrefix = g.prefix;
+                });
+
+                fcMoveTargetFoldersList.appendChild(opt);
+            });
+        }
+
+        fcMoveFileModal.classList.add('show');
+        fcMoveFileModal.classList.add('active');
+    }
+
+    function closeFcCopyFileModal() {
+        if (!fcMoveFileModal) return;
+        fcMoveFileModal.classList.remove('show');
+        fcMoveFileModal.classList.remove('active');
+        fcSourceCopyFile = null;
+        fcSourceCopyPrefix = "";
+        fcSelectedTargetPrefix = null;
+    }
+
+    if (fcMoveCancelBtn) fcMoveCancelBtn.addEventListener('click', closeFcCopyFileModal);
+    if (fcMoveFileModal) {
+        fcMoveFileModal.addEventListener('click', (e) => {
+            if (e.target === fcMoveFileModal) closeFcCopyFileModal();
+        });
+    }
+
+    if (fcMoveConfirmBtn) {
+        fcMoveConfirmBtn.addEventListener('click', async () => {
+            if (!fcSourceCopyFile || !fcSelectedTargetPrefix) {
+                alert('Please select a destination incomplete folder.');
+                return;
+            }
+
+            const targetGroup = fcFolderGroups.find(g => g.prefix === fcSelectedTargetPrefix);
+            if (!targetGroup) {
+                alert('Target folder not found.');
+                return;
+            }
+
+            // Derive new name for the copied file
+            let newCopiedName = fcSourceCopyFile.name;
+            if (newCopiedName.startsWith(fcSourceCopyPrefix + '-')) {
+                newCopiedName = fcSelectedTargetPrefix + '-' + newCopiedName.substring((fcSourceCopyPrefix + '-').length);
+            } else if (newCopiedName.includes('-')) {
+                const rest = newCopiedName.substring(newCopiedName.indexOf('-') + 1);
+                newCopiedName = `${fcSelectedTargetPrefix}-${rest}`;
+            } else {
+                newCopiedName = `${fcSelectedTargetPrefix}-${newCopiedName}`;
+            }
+
+            const copyBlob = fcSourceCopyFile.blob || fcSourceCopyFile.file;
+            const copyFileObj = {
+                id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                name: newCopiedName,
+                size: fcSourceCopyFile.size,
+                blob: copyBlob,
+                file: fcSourceCopyFile.file || new File([copyBlob], newCopiedName, { type: copyBlob.type }),
+                rows: fcSourceCopyFile.rows || 0
+            };
+
+            targetGroup.files.push(copyFileObj);
+            fcFiles.push(copyFileObj);
+
+            closeFcCopyFileModal();
+            await rebuildFcPackage();
+
+            fcLog(`Copied file "${fcSourceCopyFile.name}" to folder [${fcSelectedTargetPrefix}] as "${newCopiedName}".`, 'success');
+            showCustomNotification('Success', `Successfully copied file into Folder [${fcSelectedTargetPrefix}]. Folder is now complete (2 Files)!`, 'success');
+        });
     }
 
     if (fcBtn) {
@@ -6713,98 +9304,20 @@ function doPost(e) {
                         "No valid folders found!");
                 }
 
-                prefixes.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-                const groupType = fcMode === 'files' ? 'folder group(s)' : 'uploaded folder(s)';
-                fcLog(`Found ${prefixes.length} ${groupType} to process: [${prefixes.join(', ')}]`, 'info');
-
-                const zip = new JSZip();
-                const foldersWithIssues = [];
-                let hasMissing = false;
-
-                if (fcProgressBar) fcProgressBar.style.width = '30%';
-                if (fcProgressPercent) fcProgressPercent.innerText = '30%';
-                if (fcProgressStepText) fcProgressStepText.innerText = 'Sorting and checking folder files...';
-
-                for (let k = 0; k < prefixes.length; k++) {
-                    const prefix = prefixes[k];
-                    const filesInGroup = groups[prefix];
-                    fcLog(`Processing folder [${prefix}] with ${filesInGroup.length} file(s)`, 'process');
-
-                    if (filesInGroup.length !== 2) {
-                        fcLog(`Folder [${prefix}] has ${filesInGroup.length} file(s). Expected exactly 2!`, 'warning');
-                        foldersWithIssues.push({
-                            prefix: prefix,
-                            files: filesInGroup
-                        });
-                        hasMissing = true;
-                    }
-
-                    if (fcMode === 'files') {
-                        const folder = zip.folder(prefix);
-                        for (let f = 0; f < filesInGroup.length; f++) {
-                            const fileObj = filesInGroup[f];
-                            folder.file(fileObj.name, fileObj.file);
-                            fcLog(`Added file to zip: ${prefix}/${fileObj.name}`, 'info');
-                        }
-                    } else {
-                        for (let f = 0; f < filesInGroup.length; f++) {
-                            const fileObj = filesInGroup[f];
-                            zip.file(fileObj.relativePath, fileObj.file);
-                            fcLog(`Added file to zip: ${fileObj.relativePath}`, 'info');
-                        }
-                    }
-                }
-
-                if (hasMissing) {
-                    fcLog(`Some folders did not have exactly 2 files. Generating Missing_Files_Report.xlsx...`, 'warning');
-                    
-                    if (fcProgressBar) fcProgressBar.style.width = '60%';
-                    if (fcProgressPercent) fcProgressPercent.innerText = '60%';
-                    if (fcProgressStepText) fcProgressStepText.innerText = 'Generating missing files report...';
-
-                    const reportData = [
-                        ["Folder Name (Prefix)", "Files Found", "Current Files", "Status"]
-                    ];
-                    
-                    foldersWithIssues.forEach(item => {
-                        const fileNamesStr = item.files.map(f => f.name).join(", ");
-                        const statusStr = item.files.length < 2 ? "File Missing" : "Extra Files Present";
-                        reportData.push([
-                            item.prefix,
-                            item.files.length,
-                            fileNamesStr,
-                            statusStr
-                        ]);
-                    });
-
-                    const wb = XLSX.utils.book_new();
-                    const ws = XLSX.utils.aoa_to_sheet(reportData);
-                    XLSX.utils.book_append_sheet(wb, ws, "Missing Files Log");
-                    
-                    const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-                    zip.file("Missing_Files_Report.xlsx", excelBuffer);
-                    fcLog(`Added "Missing_Files_Report.xlsx" to zip root.`, 'success');
-                }
-
-                if (fcProgressBar) fcProgressBar.style.width = '85%';
-                if (fcProgressPercent) fcProgressPercent.innerText = '85%';
-                if (fcProgressStepText) fcProgressStepText.innerText = 'Packaging final ZIP file...';
-
-                let zipFilename = "";
-                if (prefixes.length === 1) {
-                    zipFilename = `${prefixes[0]}.zip`;
-                } else {
-                    zipFilename = `${prefixes[0]}-${prefixes[prefixes.length - 1]}.zip`;
-                }
-
-                fcZipBlob = await zip.generateAsync({ type: 'blob' });
-
-                const folderList = prefixes.map(p => ({
+                fcFolderGroups = prefixes.map(p => ({
                     prefix: p,
-                    files: groups[p]
+                    files: groups[p],
+                    isError: groups[p].length !== 2
                 }));
 
-                renderFcDashboard(folderList, hasMissing, zipFilename);
+                // Sort error groups first
+                sortFolderGroups(fcFolderGroups);
+
+                if (fcProgressBar) fcProgressBar.style.width = '50%';
+                if (fcProgressPercent) fcProgressPercent.innerText = '50%';
+                if (fcProgressStepText) fcProgressStepText.innerText = 'Packaging folders and checking 2-file rule...';
+
+                await rebuildFcPackage(true);
 
                 if (fcProgressBar) fcProgressBar.style.width = '100%';
                 if (fcProgressPercent) fcProgressPercent.innerText = '100%';
@@ -6815,8 +9328,14 @@ function doPost(e) {
                     fcStatus.innerText = 'Completed';
                 }
                 
-                alert("FOLDERS ZIPPED SUCCESSFULLY");
-                fcLog(`Done! Zip file created: ${zipFilename}`, 'success');
+                const incCount = fcFolderGroups.filter(g => g.isError).length;
+                if (incCount > 0) {
+                    showCustomNotification('Folder Create Complete', `Processed ${fcFolderGroups.length} folders. Found ${incCount} incomplete folder(s) with != 2 files (shown first in RED).`, 'warning');
+                } else {
+                    showCustomNotification('Success', `All ${fcFolderGroups.length} folders successfully verified with exactly 2 files each!`, 'success');
+                }
+
+                fcLog(`Done! Package ready: ${fcZipFilename}. Ready: ${fcFolderGroups.length - incCount}, Incomplete: ${incCount}`, 'success');
 
             } catch (err) {
                 fcLog(`Folder creation failed: ${err.message}`, 'error');
@@ -6838,6 +9357,33 @@ function doPost(e) {
             }
         });
     }
+
+    async function restoreFolderCreateSession() {
+        try {
+            const saved = await loadTabSession('folder_create_tab');
+            if (saved) {
+                if (saved.fcFiles && saved.fcFiles.length > 0) {
+                    fcFiles = saved.fcFiles;
+                    updateFcUI();
+                }
+                if (saved.fcFolderGroups && saved.fcFolderGroups.length > 0) {
+                    fcFolderGroups = saved.fcFolderGroups;
+                    fcZipBlob = saved.fcZipBlob;
+                    fcZipFilename = saved.fcZipFilename || 'grouped_folders.zip';
+                    fcMissingReportBlob = saved.fcMissingReportBlob;
+                    renderFcDashboard(fcFolderGroups, saved.hasMissing, fcZipFilename);
+                    if (fcStatus) {
+                        fcStatus.className = 'status-indicator success';
+                        fcStatus.innerText = 'Restored';
+                    }
+                    fcLog(`Restored ${fcFolderGroups.length} folder group(s) from previous session (1-hour cache).`, 'info');
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to restore folder create session:', e);
+        }
+    }
+    restoreFolderCreateSession();
 
     // Global test function for Folder Create
     window.runFolderCreateTest = function() {
@@ -6941,7 +9487,10 @@ function doPost(e) {
     }
 
     if (clearIeFilesBtn) {
-        clearIeFilesBtn.addEventListener('click', () => {
+        clearIeFilesBtn.addEventListener('click', async () => {
+            const ok = await showCustomConfirm('Clear Files', 'Are you sure you want to clear all selected error files?', 'danger', 'Clear All');
+            if (!ok) return;
+
             ieFiles = [];
             ieFileInput.value = '';
             updateIeUI();
@@ -6981,8 +9530,10 @@ function doPost(e) {
                 const removeBtn = document.createElement('button');
                 removeBtn.className = 'file-action-btn';
                 removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
-                removeBtn.addEventListener('click', (e) => {
+                removeBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
+                    const ok = await showCustomConfirm('Remove File', `Are you sure you want to remove "${fileObj.name}"?`, 'danger', 'Remove');
+                    if (!ok) return;
                     ieFiles = ieFiles.filter(f => f.id !== fileObj.id);
                     ieLog(`Removed file: ${fileObj.name}`, 'info');
                     updateIeUI();
@@ -7607,83 +10158,222 @@ function doPost(e) {
             resetBtn.style.transform = 'translateY(0)';
         });
         
-        resetBtn.addEventListener('click', () => {
-            window.location.reload();
+        resetBtn.addEventListener('click', async () => {
+            const confirmed = await showCustomConfirm(
+                'Reset Tab Confirmation',
+                'Are you sure you want to clear all data and reset this tab? This will clear all uploaded files, results, and cached data for this section.',
+                'danger',
+                'Yes, Reset'
+            );
+            if (!confirmed) return;
+
+            const pane = header.closest('.tab-pane');
+            const paneId = pane ? pane.id : '';
+
+            // 1. File Converter Tab
+            if (paneId === 'tab-converter' || paneId === 'tab-convert') {
+                selectedFiles = [];
+                processedFiles = [];
+                processedZipBlob = null;
+                isBatchZipMode = false;
+                batchZipFile = null;
+                batchUploadedZipName = "";
+                batchProcessedZipBlob = null;
+                batchResults = [];
+                if (fileInput) fileInput.value = '';
+                if (zipInput) zipInput.value = '';
+                if (folderInput) folderInput.value = '';
+                if (processStatus) {
+                    processStatus.className = 'status-indicator idle';
+                    processStatus.innerText = 'Idle';
+                }
+                if (progressCard) progressCard.classList.add('hidden');
+                if (overallProgressBar) overallProgressBar.style.width = '0%';
+                if (progressPercent) progressPercent.innerText = '0% Completed';
+                if (processedContainer) {
+                    processedContainer.className = 'processed-container empty';
+                    processedContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-gears-gear placeholder-icon"></i>
+                            <p>Upload files and click convert to see results here.</p>
+                        </div>
+                    `;
+                }
+                updateUI();
+                log('Cleared all files and reset File Converter.', 'info');
+                return;
+            }
+
+            // 2. Folder Create Tab
+            if (paneId === 'tab-folder-create' || paneId === 'tab-folder') {
+                fcFiles = [];
+                fcFolderGroups = [];
+                fcZipBlob = null;
+                fcZipFilename = "";
+                fcMissingReportBlob = null;
+                if (fcFileInput) fcFileInput.value = '';
+                if (fcFolderInput) fcFolderInput.value = '';
+                updateFcUI();
+                if (fcOutputContainer) {
+                    fcOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-folder-plus placeholder-icon"></i>
+                            <p>Upload files and click process to group into folders and zip.</p>
+                        </div>
+                    `;
+                    fcOutputContainer.className = 'processed-container empty';
+                }
+                if (fcStatus) {
+                    fcStatus.className = 'status-indicator idle';
+                    fcStatus.innerText = 'Idle';
+                }
+                if (fcProgressCard) fcProgressCard.classList.add('hidden');
+                await clearTabSession('folder_create_tab');
+                fcLog('Cleared all files and reset Folder Create.', 'info');
+                return;
+            }
+
+            // 3. Separate File Tab
+            if (paneId === 'tab-separate') {
+                ['simple', 'details', 'summary', 'tax'].forEach(k => {
+                    sepUploadedFiles[k] = null;
+                    sepVariantResults[k] = { label: sepVariantResults[k]?.label || '', color: sepVariantResults[k]?.color || '', files: [], zipBlob: null, zipName: '' };
+                    const input = document.getElementById(`sepFileInput${k.charAt(0).toUpperCase() + k.slice(1)}`);
+                    const display = document.getElementById(`sepFileDisplay${k.charAt(0).toUpperCase() + k.slice(1)}`);
+                    const dropzone = document.getElementById(`sepDropzone${k.charAt(0).toUpperCase() + k.slice(1)}`);
+                    const clearBtn = document.getElementById(`clearSep${k.charAt(0).toUpperCase() + k.slice(1)}Btn`);
+                    if (input) input.value = '';
+                    if (display) display.innerText = `Click or drag ${k.toUpperCase()} file`;
+                    if (dropzone) dropzone.classList.remove('file-selected');
+                    if (clearBtn) clearBtn.style.display = 'none';
+                });
+                updateSepUploadState();
+                if (separateOutputContainer) {
+                    separateOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-file-export placeholder-icon"></i>
+                            <p>Upload files and click process to separate into bundles.</p>
+                        </div>
+                    `;
+                    separateOutputContainer.className = 'processed-container empty';
+                }
+                if (separateStatus) {
+                    separateStatus.className = 'status-indicator idle';
+                    separateStatus.innerText = 'Idle';
+                }
+                if (separateProgressCard) separateProgressCard.classList.add('hidden');
+                await clearTabSession('separate_tab');
+                separateLog('Cleared all files and reset Separate File tab.', 'info');
+                return;
+            }
+
+            // 4. Merge File Tab (General Merger)
+            if (paneId === 'tab-merge') {
+                gmFiles = [];
+                gmMergedList = [];
+                gmZipBlob = null;
+                if (gmFileInput) gmFileInput.value = '';
+                updateGmUI();
+                if (gmOutputContainer) {
+                    gmOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-code-merge placeholder-icon"></i>
+                            <p>Upload files and click process to merge by filename suffix.</p>
+                        </div>
+                    `;
+                    gmOutputContainer.className = 'processed-container empty';
+                }
+                if (gmStatus) {
+                    gmStatus.className = 'status-indicator idle';
+                    gmStatus.innerText = 'Idle';
+                }
+                if (gmProgressCard) gmProgressCard.classList.add('hidden');
+                await clearTabSession('merge_tab');
+                gmLog('Cleared all files and reset Merge tab.', 'info');
+                return;
+            }
+
+            // 5. Rename Tab
+            if (paneId === 'tab-rename') {
+                renFiles = [];
+                activeRenamedFiles = [];
+                renZipBlob = null;
+                if (renFileInput) renFileInput.value = '';
+                updateRenUI();
+                if (renOutputContainer) {
+                    renOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-file-signature placeholder-icon"></i>
+                            <p>Upload files and click process to batch rename.</p>
+                        </div>
+                    `;
+                    renOutputContainer.className = 'processed-container empty';
+                }
+                if (renStatus) {
+                    renStatus.className = 'status-indicator idle';
+                    renStatus.innerText = 'Idle';
+                }
+                if (renProgressCard) renProgressCard.classList.add('hidden');
+                await clearTabSession('rename_tab');
+                renLog('Cleared all files and reset Rename tab.', 'info');
+                return;
+            }
+
+            // 6. OD & Account Details Merger Tab
+            if (paneId === 'tab-merger') {
+                odFile = null;
+                accFile = null;
+                if (odFileInput) odFileInput.value = '';
+                if (accFileInput) accFileInput.value = '';
+                if (odFileDisplay) odFileDisplay.innerText = 'Click or drag OD file here';
+                if (accFileDisplay) accFileDisplay.innerText = 'Click or drag Account Details file here';
+                if (odDropzone) odDropzone.classList.remove('file-selected');
+                if (accDropzone) accDropzone.classList.remove('file-selected');
+                checkMergerInputs();
+                if (mergerOutputContainer) {
+                    mergerOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-code-merge placeholder-icon"></i>
+                            <p>Upload OD and Account Details files, then click process.</p>
+                        </div>
+                    `;
+                    mergerOutputContainer.className = 'processed-container empty';
+                }
+                mergerLog('Cleared merger files and reset tab.', 'info');
+                return;
+            }
+
+            // 7. Error Tabs (Ajio Error & Invoice Error)
+            if (paneId === 'tab-ajio-error' || paneId === 'tab-invoice-error') {
+                ieFiles = [];
+                if (ieFileInput) ieFileInput.value = '';
+                updateIeUI();
+                if (ieOutputContainer) {
+                    ieOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-file-circle-exclamation placeholder-icon"></i>
+                            <p>Upload files and click process to separate errors.</p>
+                        </div>
+                    `;
+                    ieOutputContainer.className = 'processed-container empty';
+                }
+                if (ieStatus) {
+                    ieStatus.className = 'status-indicator idle';
+                    ieStatus.innerText = 'Idle';
+                }
+                if (ieProgressCard) ieProgressCard.classList.add('hidden');
+                ieLog('Cleared error files and reset tab.', 'info');
+                return;
+            }
         });
-        
+
         header.appendChild(resetBtn);
     });
-
-    // Call toggleSubOptions initially to set correct sub-options display
-    toggleSubOptions();
-
-    // Auto-fetch vendors on startup
-    fetchVendors();
 
     /* ==========================================================================
        ERROR TRACKING DATABASE & DASHBOARD LOGIC (SHARED CLOUD / LOCAL FALLBACK)
        ========================================================================== */
     let trackerSyncStatus = 'offline'; // 'online' (Google Sheets) or 'offline' (LocalStorage)
-
-    // Custom Confirmation Modal System
-    function showCustomConfirm(title, message, callback) {
-        let backdrop = document.getElementById('customConfirmBackdrop');
-        if (!backdrop) {
-            backdrop = document.createElement('div');
-            backdrop.id = 'customConfirmBackdrop';
-            backdrop.className = 'custom-modal-backdrop';
-            backdrop.innerHTML = `
-                <div class="custom-modal-card" style="border: 1px solid rgba(220, 38, 38, 0.15); box-shadow: 0 20px 25px -5px rgba(220, 38, 38, 0.05);">
-                    <div class="custom-modal-header">
-                        <span class="custom-modal-icon error" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 50%; font-size: 1.25rem;"><i class="fa-solid fa-triangle-exclamation"></i></span>
-                        <h3 class="custom-modal-title" id="customConfirmTitle" style="font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.25rem; color: #1f2937; margin: 0;">Confirm Delete</h3>
-                    </div>
-                    <div class="custom-modal-body" id="customConfirmBody" style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.95rem; color: #4b5563; line-height: 1.6; margin-bottom: 1.5rem; white-space: pre-line;"></div>
-                    <div class="custom-modal-footer" style="display: flex; gap: 0.5rem; justify-content: flex-end;">
-                        <button class="custom-modal-close-btn" id="customConfirmCancelBtn" style="background: #e5e7eb; color: #374151; box-shadow: none; border: 1px solid #d1d5db; min-width: 90px; height: 38px; border-radius: 8px; font-weight: 600; font-size: 0.85rem; cursor: pointer; transition: all 0.2s ease;">Cancel</button>
-                        <button class="custom-modal-close-btn" id="customConfirmOkBtn" style="background: linear-gradient(135deg, #ef4444, #dc2626); color: white; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.2); min-width: 90px; height: 38px; border-radius: 8px; font-weight: 600; font-size: 0.85rem; cursor: pointer; border: none; transition: all 0.2s ease;">Delete</button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(backdrop);
-        }
-
-        const titleEl = document.getElementById('customConfirmTitle');
-        const bodyEl = document.getElementById('customConfirmBody');
-        const okBtn = document.getElementById('customConfirmOkBtn');
-        const cancelBtn = document.getElementById('customConfirmCancelBtn');
-
-        titleEl.innerText = title;
-        bodyEl.innerText = message;
-
-        // Reset event listeners by cloning buttons
-        const newOkBtn = okBtn.cloneNode(true);
-        const newCancelBtn = cancelBtn.cloneNode(true);
-        okBtn.parentNode.replaceChild(newOkBtn, okBtn);
-        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
-
-        newOkBtn.addEventListener('click', () => {
-            backdrop.classList.remove('show');
-            callback(true);
-        });
-
-        const closeConfirm = () => {
-            backdrop.classList.remove('show');
-            callback(false);
-        };
-
-        newCancelBtn.addEventListener('click', closeConfirm);
-        backdrop.addEventListener('click', (e) => {
-            if (e.target === backdrop) {
-                closeConfirm();
-            }
-        });
-
-        // Show modal
-        setTimeout(() => {
-            backdrop.classList.add('show');
-        }, 50);
-    }
 
     // Helper: format sync status badge
     function updateTrackerSyncBadge() {
@@ -7706,18 +10396,20 @@ function doPost(e) {
     async function fetchTrackedErrors() {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 6000); // 6 sec timeout
+            const timeoutId = setTimeout(() => controller.abort(), 4000); // 4 sec timeout
             
             const response = await fetch(`${GOOGLE_SHEETS_SCRIPT_URL}?action=getTrackedErrors`, { signal: controller.signal });
             clearTimeout(timeoutId);
-            const result = await response.json();
-            if (result && result.status === 'success') {
-                trackerSyncStatus = 'online';
-                updateTrackerSyncBadge();
-                return result.errors || [];
+            if (response.ok) {
+                const result = await response.json();
+                if (result && result.status === 'success') {
+                    trackerSyncStatus = 'online';
+                    updateTrackerSyncBadge();
+                    return result.errors || [];
+                }
             }
         } catch (e) {
-            console.warn("Google Sheets Error Tracker connection failed, using local storage:", e);
+            // Quietly fall back to local storage when Google Sheets is unreachable
         }
         
         trackerSyncStatus = 'offline';
@@ -8211,8 +10903,5 @@ function doPost(e) {
 
     // Initial load sync status trigger (non-blocking)
     fetchTrackedErrors();
-
-    // Auto-fetch vendors on startup
-    fetchVendors();
 }
 );

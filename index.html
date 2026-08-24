@@ -90,13 +90,13 @@
                             <h3>Drag & drop your files or folder here</h3>
                             <p>Upload ZIP, folder, or files to convert, merge, update Google Sheets & package reports automatically!</p>
                             <div class="dropzone-actions" style="display: flex; gap: 0.5rem; justify-content: center; pointer-events: auto; flex-wrap: wrap;">
-                                <button type="button" class="btn btn-primary" id="browseBtn">
+                                <button type="button" class="btn btn-secondary" id="browseBtn">
                                     <i class="fa-solid fa-file-lines"></i> Browse Files
                                 </button>
-                                <button type="button" class="btn btn-primary" id="browseZipBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
+                                <button type="button" class="btn btn-primary" id="browseZipBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: white !important;">
                                     <i class="fa-solid fa-file-zipper"></i> Browse ZIP
                                 </button>
-                                <button type="button" class="btn btn-primary" id="browseFolderBtn">
+                                <button type="button" class="btn btn-secondary" id="browseFolderBtn">
                                     <i class="fa-solid fa-folder-open"></i> Browse Folder
                                 </button>
                             </div>
@@ -384,53 +384,87 @@
                 <!-- Left Panel: Upload & Options -->
                 <section class="panel upload-panel">
                     <div class="panel-header">
-                        <h2><i class="fa-solid fa-file-excel"></i> Upload Source File</h2>
-                        <span class="badge">Local Only</span>
+                        <h2><i class="fa-solid fa-file-excel text-purple"></i> Upload Source Files (By Variant)</h2>
+                        <button class="btn-clear text-btn" id="clearAllSepFilesBtn" style="font-size: 0.78rem;"><i class="fa-solid fa-trash-can"></i> Clear All</button>
                     </div>
 
-                    <!-- Input: Source File -->
-                    <div class="merger-upload-card">
-                        <h3><i class="fa-solid fa-file-arrow-up text-purple"></i> Select Source Excel File (.xlsx, .xls)</h3>
-                        <div class="mini-dropzone" id="separateDropzone">
-                            <input type="file" id="separateFileInput" accept=".xlsx,.xls" class="file-input-hidden">
-                            <div class="mini-dropzone-content">
-                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
-                                <span class="filename-display" id="separateFileDisplay">Drag & drop or Click to choose</span>
+                    <div class="separate-variants-grid" style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">
+                        <!-- Variant 1: SIMPLE -->
+                        <div class="separate-variant-card" id="cardVariantSimple" style="background: white; border: 1.5px solid var(--border-color); border-radius: 10px; padding: 0.75rem 1rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span class="badge" style="background: #ede9fe; color: #6d28d9; font-weight: 700; font-size: 0.75rem; border: 1px solid #d8b4fe;">1. SIMPLE</span>
+                                    <span style="font-size: 0.75rem; color: var(--text-muted);">(Column D • Suffix: -AJIO)</span>
+                                </div>
+                                <button type="button" class="btn-clear text-btn clear-var-btn" data-variant="simple" id="clearSepSimpleBtn" style="display: none; font-size: 0.72rem;"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                            <div class="mini-dropzone" id="sepDropzoneSimple" style="min-height: 48px; padding: 0.45rem 0.75rem; border-radius: 8px;">
+                                <input type="file" id="sepFileInputSimple" accept=".xlsx,.xls" class="file-input-hidden">
+                                <div class="mini-dropzone-content" style="gap: 0.4rem;">
+                                    <i class="fa-solid fa-cloud-arrow-up upload-icon" style="font-size: 1rem; color: #8b5cf6;"></i>
+                                    <span class="filename-display" id="sepFileDisplaySimple" style="font-size: 0.8rem;">Click or drag SIMPLE file</span>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Options: Separation Variant -->
-                    <div class="settings-card" style="margin-top: 1rem;">
-                        <h3><i class="fa-solid fa-sliders"></i> Separation Variant</h3>
-                        
-                        <!-- Radio buttons for choices -->
-                        <div class="options-group" style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">
-                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                                <input type="radio" name="separateVariant" value="1" checked style="accent-color: #8b5cf6;">
-                                <span style="font-weight: 600; color: var(--text-primary);">1. SIMPLE (Column D)</span>
-                            </label>
+                        <!-- Variant 2: DETAILS -->
+                        <div class="separate-variant-card" id="cardVariantDetails" style="background: white; border: 1.5px solid var(--border-color); border-radius: 10px; padding: 0.75rem 1rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span class="badge" style="background: #e0e7ff; color: #3730a3; font-weight: 700; font-size: 0.75rem; border: 1px solid #c7d2fe;">2. DETAILS</span>
+                                    <span style="font-size: 0.75rem; color: var(--text-muted);">(Column D • Suffix: DETAILS SHEET AJIO)</span>
+                                </div>
+                                <button type="button" class="btn-clear text-btn clear-var-btn" data-variant="details" id="clearSepDetailsBtn" style="display: none; font-size: 0.72rem;"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                            <div class="mini-dropzone" id="sepDropzoneDetails" style="min-height: 48px; padding: 0.45rem 0.75rem; border-radius: 8px;">
+                                <input type="file" id="sepFileInputDetails" accept=".xlsx,.xls" class="file-input-hidden">
+                                <div class="mini-dropzone-content" style="gap: 0.4rem;">
+                                    <i class="fa-solid fa-cloud-arrow-up upload-icon" style="font-size: 1rem; color: #4f46e5;"></i>
+                                    <span class="filename-display" id="sepFileDisplayDetails" style="font-size: 0.8rem;">Click or drag DETAILS file</span>
+                                </div>
+                            </div>
+                        </div>
 
-                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                                <input type="radio" name="separateVariant" value="2" style="accent-color: #8b5cf6;">
-                                <span style="font-weight: 600; color: var(--text-primary);">2. DETAILS (Column D)</span>
-                            </label>
+                        <!-- Variant 3: SUMMARY -->
+                        <div class="separate-variant-card" id="cardVariantSummary" style="background: white; border: 1.5px solid var(--border-color); border-radius: 10px; padding: 0.75rem 1rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span class="badge" style="background: #dbeafe; color: #1e40af; font-weight: 700; font-size: 0.75rem; border: 1px solid #bfdbfe;">3. SUMMARY</span>
+                                    <span style="font-size: 0.75rem; color: var(--text-muted);">(Column G • Suffix: SUMMARY SHEET AJIO)</span>
+                                </div>
+                                <button type="button" class="btn-clear text-btn clear-var-btn" data-variant="summary" id="clearSepSummaryBtn" style="display: none; font-size: 0.72rem;"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                            <div class="mini-dropzone" id="sepDropzoneSummary" style="min-height: 48px; padding: 0.45rem 0.75rem; border-radius: 8px;">
+                                <input type="file" id="sepFileInputSummary" accept=".xlsx,.xls" class="file-input-hidden">
+                                <div class="mini-dropzone-content" style="gap: 0.4rem;">
+                                    <i class="fa-solid fa-cloud-arrow-up upload-icon" style="font-size: 1rem; color: #2563eb;"></i>
+                                    <span class="filename-display" id="sepFileDisplaySummary" style="font-size: 0.8rem;">Click or drag SUMMARY file</span>
+                                </div>
+                            </div>
+                        </div>
 
-                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                                <input type="radio" name="separateVariant" value="3" style="accent-color: #8b5cf6;">
-                                <span style="font-weight: 600; color: var(--text-primary);">3. SUMMARY (Column G)</span>
-                            </label>
-
-                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                                <input type="radio" name="separateVariant" value="4" style="accent-color: #8b5cf6;">
-                                <span style="font-weight: 600; color: var(--text-primary);">4. TAX SPLIT (Column A)</span>
-                            </label>
+                        <!-- Variant 4: TAX SPLIT -->
+                        <div class="separate-variant-card" id="cardVariantTax" style="background: white; border: 1.5px solid var(--border-color); border-radius: 10px; padding: 0.75rem 1rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span class="badge" style="background: #ccfbf1; color: #0f766e; font-weight: 700; font-size: 0.75rem; border: 1px solid #99f6e4;">4. TAX SPLIT</span>
+                                    <span style="font-size: 0.75rem; color: var(--text-muted);">(Column A • FirstNum-Tax-Key-AJIO)</span>
+                                </div>
+                                <button type="button" class="btn-clear text-btn clear-var-btn" data-variant="tax" id="clearSepTaxBtn" style="display: none; font-size: 0.72rem;"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                            <div class="mini-dropzone" id="sepDropzoneTax" style="min-height: 48px; padding: 0.45rem 0.75rem; border-radius: 8px;">
+                                <input type="file" id="sepFileInputTax" accept=".xlsx,.xls" class="file-input-hidden">
+                                <div class="mini-dropzone-content" style="gap: 0.4rem;">
+                                    <i class="fa-solid fa-cloud-arrow-up upload-icon" style="font-size: 1rem; color: #0d9488;"></i>
+                                    <span class="filename-display" id="sepFileDisplayTax" style="font-size: 0.8rem;">Click or drag TAX SPLIT file</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
                     <!-- Run separation CTA -->
                     <button class="btn btn-large btn-success btn-glow" id="separateBtn" disabled style="margin-top: 1rem; width: 100%; background: linear-gradient(135deg, #059669, #10b981);">
-                        <i class="fa-solid fa-bolt"></i> START SEPARATE PROCESS
+                        <i class="fa-solid fa-bolt"></i> START SEPARATE PROCESS (<span id="sepSelectedCount">0</span> UPLOADED)
                     </button>
                 </section>
 
@@ -965,6 +999,369 @@
         </div>
 
         <!-- Footer removed -->
+    </div>
+
+    <!-- Full Window Modal for Renamed Files -->
+    <div id="renFullscreenModal" class="rename-fullscreen-modal-backdrop">
+        <div class="rename-fullscreen-modal-card">
+            <!-- Modal Header -->
+            <div class="rename-modal-header">
+                <div class="rename-modal-header-left">
+                    <h3 class="rename-modal-title">
+                        <i class="fa-solid fa-file-signature text-purple"></i> All Renamed Files Preview
+                    </h3>
+                    <div class="rename-modal-badges">
+                        <span class="rename-badge-pill total" id="modalRenTotalBadge"><i class="fa-solid fa-files"></i> Total: 0</span>
+                        <span class="rename-badge-pill success" id="modalRenSuccessBadge"><i class="fa-solid fa-circle-check"></i> Suffix Added: 0</span>
+                        <span class="rename-badge-pill error" id="modalRenErrorBadge" style="display: none;"><i class="fa-solid fa-triangle-exclamation"></i> Missing Suffix: 0</span>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                    <button class="btn" id="modalHeaderMoveToMergeBtn" type="button" style="background: linear-gradient(135deg, #0ea5e9, #0284c7); color: white; font-size: 0.82rem; padding: 0.45rem 0.9rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; box-shadow: 0 2px 4px rgba(14, 165, 233, 0.25);">
+                        <i class="fa-solid fa-code-merge"></i> Move to Merge
+                    </button>
+                    <button class="btn btn-primary" id="modalDownloadAllZipBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); font-size: 0.82rem; padding: 0.45rem 0.9rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 8px;">
+                        <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
+                    </button>
+                    <button type="button" class="rename-modal-close-icon-btn" id="closeRenModalBtn" title="Close Window (Esc)">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Modal Search & Filters -->
+            <div class="rename-modal-controls">
+                <div class="rename-modal-search">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="modalRenSearchInput" placeholder="Search file by name or suffix code...">
+                </div>
+                <div class="rename-filter-tabs">
+                    <button type="button" class="rename-filter-btn active" data-filter="all" id="modalFilterAllBtn">All Files</button>
+                    <button type="button" class="rename-filter-btn" data-filter="error" id="modalFilterErrorBtn" style="color: #b91c1c; font-weight: 700;">✖ Missing Suffix (Red)</button>
+                    <button type="button" class="rename-filter-btn" data-filter="success" id="modalFilterSuccessBtn">✔ Valid Suffix</button>
+                </div>
+            </div>
+
+            <!-- Modal Table Body -->
+            <div class="rename-modal-body">
+                <div class="rename-table-wrapper">
+                    <table class="rename-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 45px; text-align: center;">#</th>
+                                <th style="width: 135px;">Status</th>
+                                <th style="width: 105px;">Suffix Code</th>
+                                <th style="min-width: 280px;">New File Name (Renamed)</th>
+                                <th style="min-width: 220px;">Original File Name</th>
+                                <th style="width: 130px; text-align: center;">Data Preview</th>
+                                <th style="width: 85px; text-align: right;">Size</th>
+                                <th style="width: 100px; text-align: center;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modalRenTableBody">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="rename-modal-footer">
+                <div id="modalRenSummaryText" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">
+                    Showing 0 files
+                </div>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button type="button" class="btn" id="modalFooterMoveToMergeBtn" style="background: linear-gradient(135deg, #0ea5e9, #0284c7); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 0.45rem; box-shadow: 0 2px 6px rgba(14, 165, 233, 0.3);">
+                        <i class="fa-solid fa-code-merge"></i> Move to Merge
+                    </button>
+                    <button type="button" class="btn" id="modalFooterCloseBtn" style="background: #f1f5f9; color: #475569; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer;">
+                        Close Window
+                    </button>
+                    <button type="button" class="btn btn-primary" id="modalFooterDownloadBtn" style="background: linear-gradient(135deg, #059669, #10b981); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; cursor: pointer;">
+                        <i class="fa-solid fa-download"></i> Download All (ZIP)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fullscreen All Separated Files Modal Window -->
+    <div id="sepFullscreenModal" class="rename-fullscreen-modal-backdrop">
+        <div class="rename-fullscreen-modal-card">
+            <!-- Modal Header -->
+            <div class="rename-modal-header">
+                <div class="rename-modal-header-left">
+                    <div class="rename-modal-icon">
+                        <i class="fa-solid fa-layer-group"></i>
+                    </div>
+                    <div>
+                        <h2 class="rename-modal-title" id="modalSepTitle">All Separated Files Preview</h2>
+                        <div class="rename-modal-subtitle" id="modalSepSubtitle">
+                            <span class="rename-badge-pill total" id="modalSepTotalBadge"><i class="fa-solid fa-files"></i> Total: 0</span>
+                            <span class="rename-badge-pill" id="modalSepSimpleBadge" style="background:#ede9fe; color:#6d28d9; border:1px solid #d8b4fe;"><i class="fa-solid fa-circle-check"></i> Simple: 0</span>
+                            <span class="rename-badge-pill" id="modalSepDetailsBadge" style="background:#e0e7ff; color:#3730a3; border:1px solid #c7d2fe;"><i class="fa-solid fa-circle-check"></i> Details: 0</span>
+                            <span class="rename-badge-pill" id="modalSepSummaryBadge" style="background:#dbeafe; color:#1e40af; border:1px solid #bfdbfe;"><i class="fa-solid fa-circle-check"></i> Summary: 0</span>
+                            <span class="rename-badge-pill" id="modalSepTaxBadge" style="background:#ccfbf1; color:#0f766e; border:1px solid #99f6e4;"><i class="fa-solid fa-circle-check"></i> Tax: 0</span>
+                        </div>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                    <button class="btn btn-success" id="modalSepMoveToFolderBtn" style="background: linear-gradient(135deg, #059669, #10b981); font-size: 0.82rem; padding: 0.45rem 0.9rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 8px; color: white; border: none; cursor: pointer;">
+                        <i class="fa-solid fa-folder-plus"></i> Move to Folder Create
+                    </button>
+                    <button class="btn btn-primary" id="modalSepDownloadAllZipBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); font-size: 0.82rem; padding: 0.45rem 0.9rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 8px;">
+                        <i class="fa-solid fa-file-zipper"></i> Download All (4 ZIPs)
+                    </button>
+                    <button type="button" class="rename-modal-close-icon-btn" id="closeSepModalBtn" title="Close Window (Esc)">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Modal Search & Filters -->
+            <div class="rename-modal-controls">
+                <div class="rename-modal-search">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="modalSepSearchInput" placeholder="Search separated file by name...">
+                </div>
+                <div class="rename-filter-tabs">
+                    <button type="button" class="rename-filter-btn active sep-filter-btn" data-filter="all" id="modalSepFilterAllBtn">All Files (0)</button>
+                    <button type="button" class="rename-filter-btn sep-filter-btn" data-filter="simple" id="modalSepFilterSimpleBtn">1. Simple (0)</button>
+                    <button type="button" class="rename-filter-btn sep-filter-btn" data-filter="details" id="modalSepFilterDetailsBtn">2. Details (0)</button>
+                    <button type="button" class="rename-filter-btn sep-filter-btn" data-filter="summary" id="modalSepFilterSummaryBtn">3. Summary (0)</button>
+                    <button type="button" class="rename-filter-btn sep-filter-btn" data-filter="tax" id="modalSepFilterTaxBtn">4. Tax Split (0)</button>
+                </div>
+            </div>
+
+            <!-- Modal Table Body -->
+            <div class="rename-modal-body">
+                <div class="rename-table-wrapper">
+                    <table class="rename-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 45px; text-align: center;">#</th>
+                                <th style="width: 120px;">Variant</th>
+                                <th style="min-width: 280px;">File Name (Separated)</th>
+                                <th style="width: 100px; text-align: center;">Data Rows</th>
+                                <th style="width: 130px; text-align: center;">Data Preview</th>
+                                <th style="width: 85px; text-align: right;">Size</th>
+                                <th style="width: 160px; text-align: center;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modalSepTableBody">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="rename-modal-footer">
+                <div id="modalSepSummaryText" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">
+                    Showing 0 files
+                </div>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button type="button" class="btn" id="modalSepFooterCloseBtn" style="background: #f1f5f9; color: #475569; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer;">
+                        Close Window
+                    </button>
+                    <button type="button" class="btn btn-success" id="modalSepFooterMoveToFolderBtn" style="background: linear-gradient(135deg, #059669, #10b981); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; cursor: pointer; border: none;">
+                        <i class="fa-solid fa-folder-plus"></i> Move to Folder Create
+                    </button>
+                    <button type="button" class="btn btn-primary" id="modalSepFooterDownloadVariantBtn" style="background: linear-gradient(135deg, #4f46e5, #3730a3); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; cursor: pointer;">
+                        <i class="fa-solid fa-download"></i> Download Variant ZIP
+                    </button>
+                    <button type="button" class="btn btn-primary" id="modalSepFooterDownloadAllBtn" style="background: linear-gradient(135deg, #059669, #10b981); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; cursor: pointer;">
+                        <i class="fa-solid fa-file-zipper"></i> Download All (4 ZIPs)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fullscreen Folder Management & 2-File Validation Modal Window -->
+    <div id="fcFullscreenModal" class="rename-fullscreen-modal-backdrop">
+        <div class="rename-fullscreen-modal-card">
+            <!-- Modal Header -->
+            <div class="rename-modal-header">
+                <div class="rename-modal-header-left">
+                    <div class="rename-modal-icon" style="background: linear-gradient(135deg, #059669, #10b981);">
+                        <i class="fa-solid fa-folder-tree"></i>
+                    </div>
+                    <div>
+                        <h2 class="rename-modal-title" id="modalFcTitle">Folder Manager & 2-File Validation</h2>
+                        <div class="rename-modal-subtitle" id="modalFcSubtitle">
+                            <span class="rename-badge-pill total" id="modalFcTotalBadge"><i class="fa-solid fa-folder"></i> Total: 0 Folders</span>
+                            <span class="rename-badge-pill" id="modalFcReadyBadge" style="background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0;"><i class="fa-solid fa-circle-check"></i> Ready (2 Files): 0</span>
+                            <span class="rename-badge-pill error" id="modalFcErrorBadge"><i class="fa-solid fa-triangle-exclamation"></i> Incomplete (&lt; 2): 0 (Shown First)</span>
+                        </div>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" id="modalFcDownloadReportBtn" style="background: #f1f5f9; color: #1e293b; border: 1px solid #cbd5e1; font-size: 0.82rem; padding: 0.45rem 0.9rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 8px; font-weight: 600;">
+                        <i class="fa-solid fa-file-excel text-success"></i> Download Report (Excel)
+                    </button>
+                    <button class="btn btn-primary" id="modalFcDownloadZipBtn" style="background: linear-gradient(135deg, #059669, #10b981); font-size: 0.82rem; padding: 0.45rem 0.9rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 8px;">
+                        <i class="fa-solid fa-file-zipper"></i> Download Folder ZIP
+                    </button>
+                    <button type="button" class="rename-modal-close-icon-btn" id="closeFcModalBtn" title="Close Window (Esc)">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Modal Search & Filters -->
+            <div class="rename-modal-controls">
+                <div class="rename-modal-search">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="modalFcSearchInput" placeholder="Search folder prefix or file name...">
+                </div>
+                <div class="rename-filter-tabs">
+                    <button type="button" class="rename-filter-btn active fc-filter-btn" data-filter="all" id="modalFcFilterAllBtn">All Folders (0)</button>
+                    <button type="button" class="rename-filter-btn fc-filter-btn" data-filter="incomplete" id="modalFcFilterIncompleteBtn" style="color: #dc2626;">⚠️ Incomplete / Errors (0)</button>
+                    <button type="button" class="rename-filter-btn fc-filter-btn" data-filter="ready" id="modalFcFilterReadyBtn" style="color: #059669;">✅ Ready (2 Files) (0)</button>
+                </div>
+            </div>
+
+            <!-- Modal Accordion Folders Body -->
+            <div class="rename-modal-body" style="padding: 1.25rem; overflow-y: auto; background: #f8fafc;">
+                <div id="modalFcAccordionContainer" style="display: flex; flex-direction: column; gap: 0.85rem;">
+                    <!-- Populated dynamically via JS -->
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="rename-modal-footer">
+                <div id="modalFcSummaryText" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">
+                    Showing 0 folders
+                </div>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button type="button" class="btn" id="modalFcFooterCloseBtn" style="background: #f1f5f9; color: #475569; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer;">
+                        Close Window
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="modalFcFooterDownloadReportBtn" style="background: #f8fafc; color: #1e293b; border: 1px solid #cbd5e1; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; cursor: pointer;">
+                        <i class="fa-solid fa-file-excel text-success"></i> Download Report (Excel)
+                    </button>
+                    <button type="button" class="btn btn-primary" id="modalFcFooterMoveToConverterBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; cursor: pointer; border: none;">
+                        <i class="fa-solid fa-arrow-right"></i> Move to File Converter
+                    </button>
+                    <button type="button" class="btn btn-primary" id="modalFcFooterDownloadZipBtn" style="background: linear-gradient(135deg, #059669, #10b981); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; cursor: pointer;">
+                        <i class="fa-solid fa-file-zipper"></i> Download Folder ZIP
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Copy / Move File to Target Incomplete Folder Dialog Modal -->
+    <div id="fcMoveFileModal" class="custom-dialog-backdrop">
+        <div class="custom-dialog-card" style="max-width: 520px;">
+            <div class="custom-dialog-header">
+                <div class="custom-dialog-icon-wrapper" style="background: #ede9fe; color: #6d28d9; border: 1px solid #d8b4fe;">
+                    <i class="fa-solid fa-copy"></i>
+                </div>
+                <div class="custom-dialog-title-group">
+                    <h3 class="custom-dialog-title">Copy File to Incomplete Folder</h3>
+                    <div class="custom-dialog-time">Select destination error folder</div>
+                </div>
+            </div>
+            <div class="custom-dialog-body" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <div style="background: #f1f5f9; padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.82rem; color: #334155;">
+                    <strong>Selected File:</strong> <span id="fcMoveSourceFileName" style="word-break: break-all; color: #6d28d9; font-weight: 600;">file.xlsx</span>
+                </div>
+                <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0;">
+                    Choose an incomplete folder (&lt; 2 files) to copy this file into:
+                </p>
+                <div id="fcMoveTargetFoldersList" style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.4rem; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.5rem; background: #fff;">
+                    <!-- Populated dynamically via JS -->
+                </div>
+            </div>
+            <div class="custom-dialog-footer">
+                <button type="button" class="btn custom-dialog-btn btn-dialog-cancel" id="fcMoveCancelBtn">Cancel</button>
+                <button type="button" class="btn custom-dialog-btn" id="fcMoveConfirmBtn" style="background: linear-gradient(135deg, #059669, #10b981); color: white; border: none; font-weight: 600;">
+                    <i class="fa-solid fa-copy"></i> Copy to Selected Folder
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Excel 50-Row Data Viewer Modal -->
+    <div id="excelDataViewerModal" class="excel-viewer-modal-backdrop">
+        <div class="excel-viewer-modal-card">
+            <!-- Header -->
+            <div class="excel-viewer-header">
+                <div class="excel-viewer-header-left">
+                    <div class="excel-viewer-icon">
+                        <i class="fa-solid fa-file-excel"></i>
+                    </div>
+                    <div>
+                        <h3 class="excel-viewer-title" id="viewerFileName">file.xlsx</h3>
+                        <div class="excel-viewer-subtitle" id="viewerFileMeta">
+                            <span><i class="fa-solid fa-list-ol"></i> Showing first 50 rows</span> • 
+                            <span id="viewerTotalRows">Total 0 rows</span> •
+                            <span id="viewerDetectedCodeBadge" class="badge" style="background: #ede9fe; color: #6d28d9; font-weight: 700; border: 1px solid #d8b4fe;">Column F: -150</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="excel-viewer-header-right">
+                    <!-- Quick Manual Rename inside Viewer -->
+                    <div class="viewer-quick-rename">
+                        <label><i class="fa-solid fa-pen-to-square"></i> Rename:</label>
+                        <div style="display: flex; align-items: center; border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; background: white;">
+                            <input type="text" id="viewerRenameInput" placeholder="Enter base name..." style="border: none; padding: 0.2rem 0.5rem; font-size: 0.8rem; outline: none; min-width: 260px;">
+                            <span id="viewerExtensionLabel" style="background: #f1f5f9; color: #475569; font-weight: 700; font-size: 0.78rem; padding: 0.25rem 0.55rem; border-left: 1px solid #cbd5e1; user-select: none;">.xlsx</span>
+                        </div>
+                        <button type="button" class="btn btn-success" id="viewerSaveRenameBtn" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; height: 30px; border-radius: 6px;">
+                            <i class="fa-solid fa-check"></i> Save
+                        </button>
+                    </div>
+                    <button type="button" class="rename-modal-close-icon-btn" id="closeExcelViewerBtn" title="Close Preview (Esc)">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Spreadsheet Grid Body -->
+            <div class="excel-viewer-body">
+                <div class="excel-sheet-container" id="excelSheetContainer">
+                    <table class="excel-grid-table" id="excelGridTable">
+                        <!-- Populated via JS -->
+                    </table>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="excel-viewer-footer">
+                <div style="font-size: 0.8rem; color: #64748b; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fa-solid fa-circle-info text-purple"></i> 
+                    <span>Performance Mode: Displaying first <strong>50 rows</strong> only. <strong>Column F</strong> is highlighted in purple as rename reference.</span>
+                </div>
+                <button type="button" class="btn" id="viewerFooterCloseBtn" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-weight: 600; font-size: 0.85rem; padding: 0.4rem 1rem; border-radius: 8px; cursor: pointer;">
+                    Close Preview
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Modern Alert / Confirm Dialog Modal -->
+    <div id="customDialogModal" class="custom-dialog-backdrop">
+        <div class="custom-dialog-card" id="customDialogCard">
+            <div class="custom-dialog-header">
+                <div class="custom-dialog-icon-wrapper" id="customDialogIconWrapper">
+                    <i class="fa-solid fa-triangle-exclamation" id="customDialogIcon"></i>
+                </div>
+                <div class="custom-dialog-title-group">
+                    <h3 class="custom-dialog-title" id="customDialogTitle">Notification</h3>
+                    <div class="custom-dialog-time" id="customDialogTime">AJIO Data Arrange</div>
+                </div>
+            </div>
+            <div class="custom-dialog-body">
+                <p class="custom-dialog-message" id="customDialogMessage">Message text goes here.</p>
+            </div>
+            <div class="custom-dialog-footer" id="customDialogFooter">
+                <button type="button" class="btn custom-dialog-btn btn-dialog-cancel" id="customDialogCancelBtn">Cancel</button>
+                <button type="button" class="btn custom-dialog-btn btn-dialog-confirm" id="customDialogConfirmBtn">OK</button>
+            </div>
+        </div>
     </div>
 
     <!-- Main JS Application -->
