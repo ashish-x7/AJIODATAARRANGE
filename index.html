@@ -1055,7 +1055,7 @@
                                 <th style="min-width: 220px;">Original File Name</th>
                                 <th style="width: 130px; text-align: center;">Data Preview</th>
                                 <th style="width: 85px; text-align: right;">Size</th>
-                                <th style="width: 100px; text-align: center;">Action</th>
+                                <th style="width: 165px; text-align: center;">Action</th>
                             </tr>
                         </thead>
                         <tbody id="modalRenTableBody">
@@ -1078,6 +1078,89 @@
                         Close Window
                     </button>
                     <button type="button" class="btn btn-primary" id="modalFooterDownloadBtn" style="background: linear-gradient(135deg, #059669, #10b981); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; cursor: pointer;">
+                        <i class="fa-solid fa-download"></i> Download All (ZIP)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    
+    <!-- Full Window Modal for Merged Files -->
+    <div id="gmFullscreenModal" class="rename-fullscreen-modal-backdrop">
+        <div class="rename-fullscreen-modal-card">
+            <!-- Modal Header -->
+            <div class="rename-modal-header">
+                <div class="rename-modal-header-left">
+                    <div class="rename-modal-icon" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: white; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+                        <i class="fa-solid fa-code-merge"></i>
+                    </div>
+                    <div>
+                        <h3 class="rename-modal-title">
+                            All Merged Files Preview
+                        </h3>
+                        <div class="rename-modal-badges">
+                            <span class="rename-badge-pill total" id="modalGmTotalBadge"><i class="fa-solid fa-files"></i> Total: 0</span>
+                            <span class="rename-badge-pill success" id="modalGmRowsBadge"><i class="fa-solid fa-database"></i> Total Rows: 0</span>
+                        </div>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                    <button class="btn btn-success" id="modalGmHeaderMoveToFolderBtn" type="button" style="background: linear-gradient(135deg, #059669, #10b981); color: white; font-size: 0.82rem; padding: 0.45rem 0.9rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; box-shadow: 0 2px 4px rgba(5, 150, 105, 0.25);">
+                        <i class="fa-solid fa-folder-plus"></i> Move to Folder Create
+                    </button>
+                    <button class="btn btn-primary" id="modalGmDownloadAllZipBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); font-size: 0.82rem; padding: 0.45rem 0.9rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 8px;">
+                        <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
+                    </button>
+                    <button type="button" class="rename-modal-close-icon-btn" id="closeGmModalBtn" title="Close Window (Esc)">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Modal Search & Filters -->
+            <div class="rename-modal-controls">
+                <div class="rename-modal-search" style="max-width: 450px;">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="modalGmSearchInput" placeholder="Search merged file by name or group code...">
+                </div>
+            </div>
+
+            <!-- Modal Table Body -->
+            <div class="rename-modal-body">
+                <div class="rename-table-wrapper">
+                    <table class="rename-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 45px; text-align: center;">#</th>
+                                <th style="width: 130px; text-align: center;">Group Code</th>
+                                <th style="min-width: 320px;">Merged File Name</th>
+                                <th style="width: 120px; text-align: center;">Data Rows</th>
+                                <th style="width: 140px; text-align: center;">Data Preview</th>
+                                <th style="width: 95px; text-align: right;">Size</th>
+                                <th style="width: 175px; text-align: center;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modalGmTableBody">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="rename-modal-footer">
+                <div id="modalGmSummaryText" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">
+                    Showing 0 files
+                </div>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button type="button" class="btn" id="modalGmFooterMoveToFolderBtn" style="background: linear-gradient(135deg, #059669, #10b981); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 0.45rem; box-shadow: 0 2px 6px rgba(5, 150, 105, 0.3);">
+                        <i class="fa-solid fa-folder-plus"></i> Move to Folder Create
+                    </button>
+                    <button type="button" class="btn" id="modalGmFooterCloseBtn" style="background: #f1f5f9; color: #475569; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer;">
+                        Close Window
+                    </button>
+                    <button type="button" class="btn btn-primary" id="modalGmFooterDownloadBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; cursor: pointer;">
                         <i class="fa-solid fa-download"></i> Download All (ZIP)
                     </button>
                 </div>

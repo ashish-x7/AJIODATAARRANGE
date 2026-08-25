@@ -1,3 +1,19 @@
+
+function getFormattedDateTime(date = new Date()) {
+    const pad = (n) => String(n).padStart(2, '0');
+    const day = pad(date.getDate());
+    const month = pad(date.getMonth() + 1);
+    const year = date.getFullYear();
+    let hours = date.getHours();
+    const minutes = pad(date.getMinutes());
+    const seconds = pad(date.getSeconds());
+    return `${day}-${month}-${year}_${pad(hours)}-${minutes}-${seconds}`;
+}
+
+function getAjioSummaryFilename(base = 'AJIO_Summary_Report', ext = 'xlsx') {
+    return `${base}_${getFormattedDateTime()}.${ext}`;
+}
+
 /* ==========================================================================
    AJIO DATA ARRANGE - Core Application Logic (JS)
    ========================================================================== */
@@ -830,8 +846,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const summaryOut = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
                 const summaryBlob = new Blob([summaryOut], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-                triggerDownload(summaryBlob, 'Summary_Report.xlsx');
-                log('Downloaded Summary Report spreadsheet.', 'info');
+                const summaryFilename = getAjioSummaryFilename('AJIO_Summary_Report');
+                triggerDownload(summaryBlob, summaryFilename);
+                log(`Downloaded Summary Report spreadsheet: ${summaryFilename}`, 'info');
             });
         }
     }
@@ -3147,8 +3164,9 @@ function jsonResponse(data) {
 
                 const summaryOut = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
                 const summaryBlob = new Blob([summaryOut], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-                triggerDownload(summaryBlob, 'Summary_Report.xlsx');
-                mergerLog('Downloaded Summary Report spreadsheet.', 'info');
+                const summaryFilename = getAjioSummaryFilename('AJIO_Summary_Report');
+                triggerDownload(summaryBlob, summaryFilename);
+                mergerLog(`Downloaded Summary Report spreadsheet: ${summaryFilename}`, 'info');
             });
         }
     }
@@ -6003,7 +6021,7 @@ function doPost(e) {
         updateGmUI();
 
         // Close rename modals
-        closeRenameModal();
+        closeRenameModal(); closeGmModal();
         closeExcelDataViewer();
 
         // Switch active tab to 'tab-merge'
@@ -6014,6 +6032,75 @@ function doPost(e) {
 
         gmLog(`Transferred ${gmFiles.length} file(s) from Rename section to Merge File section.`, 'success');
         alert(`Successfully transferred ${gmFiles.length} file(s) to Merge section!`);
+    }
+
+    
+    async function deleteRenamedFile(fileObj) {
+        const displayName = fileObj.newName || fileObj.name || 'this file';
+        const ok = await showCustomConfirm('Delete File', `Are you sure you want to delete "${displayName}"?`, 'danger', 'Delete');
+        if (!ok) return;
+
+        activeRenamedFiles = activeRenamedFiles.filter(f => f !== fileObj && f.newName !== fileObj.newName);
+        await rebuildRenZip();
+
+        if (activeRenamedFiles.length === 0) {
+            renZipBlob = null;
+            closeRenameModal(); closeGmModal();
+            closeExcelDataViewer();
+            if (renOutputContainer) {
+                renOutputContainer.innerHTML = `
+                    <div class="empty-output-state">
+                        <i class="fa-solid fa-file-signature placeholder-icon"></i>
+                        <p>Upload files and click process to run renaming logic.</p>
+                    </div>
+                `;
+                renOutputContainer.className = 'processed-container empty';
+            }
+            if (renStatus) {
+                renStatus.className = 'status-indicator idle';
+                renStatus.innerText = 'Idle';
+            }
+        } else {
+            renderRenDashboard(activeRenamedFiles);
+            const modal = document.getElementById('renFullscreenModal');
+            if (modal && modal.classList.contains('show')) {
+                const totalCount = activeRenamedFiles.length;
+                const successCount = activeRenamedFiles.filter(f => f.hasSuffix).length;
+                const missingCount = totalCount - successCount;
+
+                const totalBadge = document.getElementById('modalRenTotalBadge');
+                if (totalBadge) totalBadge.innerHTML = `<i class="fa-solid fa-files"></i> Total: ${totalCount}`;
+
+                const successBadge = document.getElementById('modalRenSuccessBadge');
+                if (successBadge) successBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Suffix Added: ${successCount}`;
+
+                const errorBadge = document.getElementById('modalRenErrorBadge');
+                if (errorBadge) {
+                    if (missingCount > 0) {
+                        errorBadge.style.display = 'inline-flex';
+                        errorBadge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Missing Suffix: ${missingCount}`;
+                    } else {
+                        errorBadge.style.display = 'none';
+                    }
+                }
+
+                const filterAllBtn = document.getElementById('modalFilterAllBtn');
+                const filterSuccessBtn = document.getElementById('modalFilterSuccessBtn');
+                const filterErrorBtn = document.getElementById('modalFilterErrorBtn');
+
+                if (filterAllBtn) filterAllBtn.innerText = `All Files (${totalCount})`;
+                if (filterErrorBtn) filterErrorBtn.innerText = `✖ Missing Suffix (${missingCount})`;
+                if (filterSuccessBtn) filterSuccessBtn.innerText = `✔ Valid Suffix (${successCount})`;
+
+                renderModalTableRows();
+            }
+        }
+
+        saveTabSession('rename_tab', {
+            activeRenamedFiles: activeRenamedFiles,
+            renZipBlob: renZipBlob
+        });
+        renLog(`Deleted file: "${displayName}"`, 'warning');
     }
 
     function renderRenDashboard(files) {
@@ -6122,6 +6209,9 @@ function doPost(e) {
                     <button class="btn btn-success download-single-ren-btn" data-index="${index}" style="font-size: 0.72rem; padding: 0.35rem 0.65rem; display: flex; align-items: center; gap: 0.3rem; white-space: nowrap;">
                         <i class="fa-solid fa-download"></i> Download
                     </button>
+                    <button class="btn btn-danger delete-dash-btn" data-index="${index}" style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.7rem; padding: 0.35rem 0.55rem; border-radius: 6px; font-weight: 600; cursor: pointer;" title="Delete this file">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
                 </div>
             `;
 
@@ -6180,6 +6270,14 @@ function doPost(e) {
             const previewBtn = item.querySelector('.preview-dash-btn');
             if (previewBtn) {
                 previewBtn.addEventListener('click', () => openExcelDataViewer(file));
+            }
+
+            const dashDelBtn = item.querySelector('.delete-dash-btn');
+            if (dashDelBtn) {
+                dashDelBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await deleteRenamedFile(file);
+                });
             }
 
             listContainer.appendChild(item);
@@ -6392,6 +6490,9 @@ function doPost(e) {
                         <button type="button" class="btn btn-success modal-download-single-btn" data-name="${encodeURIComponent(file.newName)}" style="font-size: 0.72rem; padding: 0.35rem 0.65rem; display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 6px;" title="Download file">
                             <i class="fa-solid fa-download"></i> Download
                         </button>
+                        <button type="button" class="btn btn-danger modal-delete-single-btn" style="background: linear-gradient(135deg, #ef4444, #dc2626); color: white; font-size: 0.72rem; padding: 0.35rem 0.65rem; display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 6px; border: none; cursor: pointer; font-weight: 600;" title="Delete this file">
+                            <i class="fa-solid fa-trash-can"></i> Delete
+                        </button>
                     </div>
                 </td>
             `;
@@ -6471,6 +6572,14 @@ function doPost(e) {
                 });
             }
 
+            const delBtn = tr.querySelector('.modal-delete-single-btn');
+            if (delBtn) {
+                delBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await deleteRenamedFile(file);
+                });
+            }
+
             tableBody.appendChild(tr);
         });
 
@@ -6493,11 +6602,12 @@ function doPost(e) {
         const gridTable = document.getElementById('excelGridTable');
         if (!modal) return;
 
-        const lastDot = fileObj.newName.lastIndexOf('.');
-        const baseName = lastDot !== -1 ? fileObj.newName.substring(0, lastDot) : fileObj.newName;
-        const ext = lastDot !== -1 ? fileObj.newName.substring(lastDot) : '.xlsx';
+        const fName = fileObj.newName || fileObj.name || fileObj.originalName || 'file.xlsx';
+        const lastDot = fName.lastIndexOf('.');
+        const baseName = lastDot !== -1 ? fName.substring(0, lastDot) : fName;
+        const ext = lastDot !== -1 ? fName.substring(lastDot) : '.xlsx';
 
-        if (fileNameEl) fileNameEl.innerText = fileObj.newName;
+        if (fileNameEl) fileNameEl.innerText = fName;
         if (renameInput) renameInput.value = baseName;
         if (extLabel) extLabel.innerText = ext;
 
@@ -6528,7 +6638,7 @@ function doPost(e) {
                 `;
             }
             try {
-                aoa = await parseFileToAoa(fileObj.file || fileObj.blob, fileObj.originalName);
+                aoa = await parseFileToAoa(fileObj.file || fileObj.blob, fileObj.originalName || fName);
                 fileObj.aoa = aoa;
             } catch (err) {
                 if (gridTable) {
@@ -6639,7 +6749,7 @@ function doPost(e) {
             const handleSave = async () => {
                 const newBase = renameInput.value;
                 await saveManualRename(fileObj, newBase);
-                if (fileNameEl) fileNameEl.innerText = fileObj.newName;
+                if (fileNameEl) fileNameEl.innerText = fName;
                 const newLastDot = fileObj.newName.lastIndexOf('.');
                 renameInput.value = newLastDot !== -1 ? fileObj.newName.substring(0, newLastDot) : fileObj.newName;
                 if (extLabel) extLabel.innerText = newLastDot !== -1 ? fileObj.newName.substring(newLastDot) : '.xlsx';
@@ -6699,7 +6809,7 @@ function doPost(e) {
     if (renFullscreenModal) {
         renFullscreenModal.addEventListener('click', (e) => {
             if (e.target === renFullscreenModal) {
-                closeRenameModal();
+                closeRenameModal(); closeGmModal();
             }
         });
     }
@@ -6710,7 +6820,7 @@ function doPost(e) {
             if (viewerModal && viewerModal.classList.contains('show')) {
                 closeExcelDataViewer();
             } else {
-                closeRenameModal();
+                closeRenameModal(); closeGmModal();
             }
         }
     });
@@ -7098,10 +7208,80 @@ function doPost(e) {
         alert(`Successfully transferred ${addedCount} file(s) to Folder Create!`);
     }
 
+    async function rebuildGmZip() {
+        try {
+            if (!gmMergedList || gmMergedList.length === 0) {
+                gmZipBlob = null;
+                return;
+            }
+            const zip = new JSZip();
+            for (const file of gmMergedList) {
+                const buffer = await file.blob.arrayBuffer();
+                zip.file(file.name, buffer);
+            }
+            gmZipBlob = await zip.generateAsync({ type: 'blob' });
+        } catch (e) {
+            console.error('Failed to rebuild merge zip:', e);
+        }
+    }
+
+    async function deleteMergedFile(fileObj) {
+        const displayName = fileObj.name || 'this merged file';
+        const ok = await showCustomConfirm('Delete Merged File', `Are you sure you want to delete "${displayName}"?`, 'danger', 'Delete');
+        if (!ok) return;
+
+        gmMergedList = gmMergedList.filter(f => f !== fileObj && f.name !== fileObj.name);
+        await rebuildGmZip();
+
+        if (gmMergedList.length === 0) {
+            gmZipBlob = null;
+            closeGmModal();
+            if (gmOutputContainer) {
+                gmOutputContainer.innerHTML = `
+                    <div class="empty-output-state">
+                        <i class="fa-solid fa-code-merge placeholder-icon"></i>
+                        <p>Upload files and click process to merge by filename suffix.</p>
+                    </div>
+                `;
+                gmOutputContainer.className = 'processed-container empty';
+            }
+            if (gmStatus) {
+                gmStatus.className = 'status-indicator idle';
+                gmStatus.innerText = 'Idle';
+            }
+        } else {
+            renderGmDashboard(gmMergedList);
+            const modal = document.getElementById('gmFullscreenModal');
+            if (modal && modal.classList.contains('show')) {
+                const totalCount = gmMergedList.length;
+                const totalRows = gmMergedList.reduce((acc, f) => acc + (f.rows || 0), 0);
+
+                const totalBadge = document.getElementById('modalGmTotalBadge');
+                if (totalBadge) totalBadge.innerHTML = `<i class="fa-solid fa-files"></i> Total: ${totalCount}`;
+
+                const rowsBadge = document.getElementById('modalGmRowsBadge');
+                if (rowsBadge) rowsBadge.innerHTML = `<i class="fa-solid fa-database"></i> Total Rows: ${totalRows.toLocaleString()}`;
+
+                renderGmModalTableRows();
+            }
+        }
+
+        saveTabSession('merge_tab', {
+            gmFiles: gmFiles,
+            mergedList: gmMergedList,
+            gmZipBlob: gmZipBlob
+        });
+        gmLog(`Deleted merged file: "${displayName}"`, 'warning');
+    }
+
     function renderGmDashboard(files) {
         if (!gmOutputContainer) return;
+        gmMergedList = files || gmMergedList;
         gmOutputContainer.innerHTML = '';
         gmOutputContainer.className = 'processed-container';
+
+        const totalCount = gmMergedList.length;
+        const totalRows = gmMergedList.reduce((acc, f) => acc + (f.rows || 0), 0);
 
         const header = document.createElement('div');
         header.className = 'processed-header';
@@ -7113,17 +7293,32 @@ function doPost(e) {
         header.style.flexWrap = 'wrap';
         header.style.gap = '0.5rem';
         header.innerHTML = `
-            <h3><i class="fa-solid fa-circle-check text-success"></i> Merged Files (${files.length})</h3>
-            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                <button class="btn btn-success" id="gmMoveToFolderBtn" style="background: linear-gradient(135deg, #059669, #10b981); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.45rem 1rem; border-radius: 8px; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; box-shadow: 0 2px 4px rgba(5, 150, 105, 0.25);">
+            <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                <h3 style="margin: 0;"><i class="fa-solid fa-circle-check text-success"></i> Merged Files (${totalCount})</h3>
+                <span class="rename-badge-pill success" style="font-size: 0.75rem; padding: 2px 8px;">
+                    <i class="fa-solid fa-database"></i> ${totalRows.toLocaleString()} Rows
+                </span>
+            </div>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                <button class="btn" id="openGmFullscreenBtn" type="button" style="background: linear-gradient(135deg, #4f46e5, #3730a3); color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; font-size: 0.78rem; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(79, 70, 229, 0.25);">
+                    <i class="fa-solid fa-expand"></i> Full View
+                </button>
+                <button class="btn btn-success" id="gmMoveToFolderBtn" style="background: linear-gradient(135deg, #059669, #10b981); color: white; font-weight: 600; font-size: 0.78rem; padding: 0.45rem 0.85rem; border-radius: 8px; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; box-shadow: 0 2px 4px rgba(5, 150, 105, 0.25);">
                     <i class="fa-solid fa-folder-plus"></i> Move to Folder Create
                 </button>
-                <button class="btn btn-primary btn-glow" id="downloadAllGmBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
+                <button class="btn btn-primary btn-glow" id="downloadAllGmBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); font-size: 0.78rem; padding: 0.45rem 0.85rem;">
                     <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
                 </button>
             </div>
         `;
         gmOutputContainer.appendChild(header);
+
+        const openModalBtn = document.getElementById('openGmFullscreenBtn');
+        if (openModalBtn) {
+            openModalBtn.addEventListener('click', () => {
+                openGmModal(gmMergedList);
+            });
+        }
 
         const gmMoveBtn = document.getElementById('gmMoveToFolderBtn');
         if (gmMoveBtn) gmMoveBtn.addEventListener('click', moveToFolderCreateFromMerge);
@@ -7137,7 +7332,7 @@ function doPost(e) {
         listContainer.style.maxHeight = '300px';
         listContainer.style.overflowY = 'auto';
 
-        files.forEach((file, index) => {
+        gmMergedList.forEach((file, index) => {
             const item = document.createElement('div');
             item.className = 'processed-item';
             item.style.padding = '0.75rem 1rem';
@@ -7147,20 +7342,56 @@ function doPost(e) {
             item.style.alignItems = 'center';
             item.style.border = '1px solid var(--border-color)';
             item.style.background = 'rgba(255, 255, 255, 0.8)';
-            item.style.borderLeft = '5px solid var(--color-primary)';
+            item.style.borderLeft = '5px solid #8b5cf6';
 
             item.innerHTML = `
-                <div class="file-details" style="display: flex; flex-direction: column; gap: 0.2rem;">
-                    <span class="file-name" style="font-weight: 600; color: var(--text-primary); font-size: 0.9rem; word-break: break-all;" title="${file.name}">${file.name}</span>
+                <div class="file-details" style="display: flex; flex-direction: column; gap: 0.2rem; overflow: hidden; max-width: 62%;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                        <span class="file-name gm-dash-file-name" style="font-weight: 600; color: var(--text-primary); font-size: 0.88rem; word-break: break-all; cursor: pointer;" title="Click to view 50 rows preview">${file.name}</span>
+                        <span style="font-family: monospace; font-weight: 700; background: #ede9fe; color: #6d28d9; border: 1px solid #d8b4fe; padding: 2px 7px; border-radius: 4px; font-size: 0.72rem;">
+                            ${file.groupKey || 'GROUP'}
+                        </span>
+                    </div>
                     <div style="display: flex; gap: 1rem; font-size: 0.75rem; color: var(--text-muted);">
-                        <span><i class="fa-solid fa-database"></i> ${file.rows} Rows</span>
+                        <span><i class="fa-solid fa-database"></i> ${(file.rows || 0).toLocaleString()} Rows</span>
                         <span><i class="fa-solid fa-weight-hanging"></i> ${formatBytes(file.size)}</span>
                     </div>
                 </div>
-                <button class="btn btn-success download-single-gm-btn" data-index="${index}" style="font-size: 0.75rem; padding: 0.4rem 0.75rem; display: flex; align-items: center; gap: 0.3rem;">
-                    <i class="fa-solid fa-download"></i> Download
-                </button>
+                <div style="display: flex; align-items: center; gap: 0.35rem; flex-shrink: 0;">
+                    <button class="btn view-excel-btn preview-gm-dash-btn" data-index="${index}" style="font-size: 0.7rem; padding: 0.32rem 0.55rem;" title="View first 50 rows of this Excel">
+                        <i class="fa-solid fa-table-cells"></i> 50 Rows
+                    </button>
+                    <button class="btn btn-success download-single-gm-btn" data-index="${index}" style="font-size: 0.72rem; padding: 0.35rem 0.65rem; display: flex; align-items: center; gap: 0.3rem; white-space: nowrap;">
+                        <i class="fa-solid fa-download"></i> Download
+                    </button>
+                    <button class="btn btn-danger delete-gm-dash-btn" data-index="${index}" style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.7rem; padding: 0.35rem 0.55rem; border-radius: 6px; font-weight: 600; cursor: pointer;" title="Delete this merged file">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
             `;
+
+            const nameEl = item.querySelector('.gm-dash-file-name');
+            if (nameEl) nameEl.addEventListener('click', () => openExcelDataViewer(file));
+
+            const previewBtn = item.querySelector('.preview-gm-dash-btn');
+            if (previewBtn) previewBtn.addEventListener('click', () => openExcelDataViewer(file));
+
+            const singleDlBtn = item.querySelector('.download-single-gm-btn');
+            if (singleDlBtn) {
+                singleDlBtn.addEventListener('click', () => {
+                    triggerDownload(file.blob, file.name);
+                    gmLog(`Downloaded merged file: ${file.name}`, 'info');
+                });
+            }
+
+            const delBtn = item.querySelector('.delete-gm-dash-btn');
+            if (delBtn) {
+                delBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await deleteMergedFile(file);
+                });
+            }
+
             listContainer.appendChild(item);
         });
 
@@ -7175,19 +7406,200 @@ function doPost(e) {
                 }
             });
         }
+    }
 
-        const singleBtns = listContainer.querySelectorAll('.download-single-gm-btn');
-        singleBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const idx = parseInt(btn.getAttribute('data-index'));
-                const file = files[idx];
-                if (file) {
+    function openGmModal(files) {
+        const modal = document.getElementById('gmFullscreenModal');
+        if (!modal) return;
+
+        gmMergedList = files || gmMergedList;
+        const totalCount = gmMergedList.length;
+        const totalRows = gmMergedList.reduce((acc, f) => acc + (f.rows || 0), 0);
+
+        const totalBadge = document.getElementById('modalGmTotalBadge');
+        if (totalBadge) totalBadge.innerHTML = `<i class="fa-solid fa-files"></i> Total: ${totalCount}`;
+
+        const rowsBadge = document.getElementById('modalGmRowsBadge');
+        if (rowsBadge) rowsBadge.innerHTML = `<i class="fa-solid fa-database"></i> Total Rows: ${totalRows.toLocaleString()}`;
+
+        const searchInput = document.getElementById('modalGmSearchInput');
+        if (searchInput) searchInput.value = '';
+
+        renderGmModalTableRows();
+        modal.classList.add('show');
+    }
+
+    function closeGmModal() {
+        const modal = document.getElementById('gmFullscreenModal');
+        if (modal) {
+            modal.classList.remove('show');
+        }
+    }
+
+    function renderGmModalTableRows() {
+        const tableBody = document.getElementById('modalGmTableBody');
+        const summaryText = document.getElementById('modalGmSummaryText');
+        const searchInput = document.getElementById('modalGmSearchInput');
+        if (!tableBody) return;
+
+        const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+        let filtered = gmMergedList.filter(file => {
+            if (!query) return true;
+            return file.name.toLowerCase().includes(query) ||
+                   (file.groupKey && file.groupKey.toLowerCase().includes(query));
+        });
+
+        tableBody.innerHTML = '';
+
+        if (filtered.length === 0) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="7" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+                        <i class="fa-solid fa-filter-circle-xmark" style="font-size: 2rem; margin-bottom: 0.5rem; display: block; opacity: 0.5;"></i>
+                        No merged files matching current criteria.
+                    </td>
+                </tr>
+            `;
+            if (summaryText) summaryText.innerText = `Showing 0 of ${gmMergedList.length} files`;
+            return;
+        }
+
+        filtered.forEach((file, index) => {
+            const tr = document.createElement('tr');
+            tr.className = 'rename-row-ok';
+
+            tr.innerHTML = `
+                <td style="text-align: center; font-weight: 700; color: var(--text-muted);">${index + 1}</td>
+                <td style="text-align: center;">
+                    <span style="font-family: monospace; font-weight: 700; background: #ede9fe; color: #6d28d9; border: 1px solid #d8b4fe; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">
+                        ${file.groupKey || 'GROUP'}
+                    </span>
+                </td>
+                <td>
+                    <span class="gm-file-name-text" style="font-weight: 700; color: var(--text-primary); font-size: 0.85rem; word-break: break-all; cursor: pointer;" title="Click to view Excel preview">
+                        ${file.name}
+                    </span>
+                </td>
+                <td style="text-align: center; font-size: 0.82rem; font-weight: 600; color: #0284c7;">
+                    <i class="fa-solid fa-database"></i> ${(file.rows || 0).toLocaleString()} Rows
+                </td>
+                <td style="text-align: center;">
+                    <button type="button" class="view-excel-btn gm-row-preview-btn" title="Click to view first 50 rows of this Excel">
+                        <i class="fa-solid fa-table-cells"></i> View 50 Rows
+                    </button>
+                </td>
+                <td style="text-align: right; color: var(--text-muted); font-size: 0.8rem; white-space: nowrap;">
+                    ${formatBytes(file.size)}
+                </td>
+                <td style="text-align: center; white-space: nowrap;">
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 0.35rem;">
+                        <button type="button" class="btn btn-success modal-gm-download-single-btn" style="font-size: 0.72rem; padding: 0.35rem 0.65rem; display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 6px;" title="Download merged file">
+                            <i class="fa-solid fa-download"></i> Download
+                        </button>
+                        <button type="button" class="btn btn-danger modal-gm-delete-single-btn" style="background: linear-gradient(135deg, #ef4444, #dc2626); color: white; font-size: 0.72rem; padding: 0.35rem 0.65rem; display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 6px; border: none; cursor: pointer; font-weight: 600;" title="Delete this merged file">
+                            <i class="fa-solid fa-trash-can"></i> Delete
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            const nameText = tr.querySelector('.gm-file-name-text');
+            if (nameText) {
+                nameText.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openExcelDataViewer(file);
+                });
+            }
+
+            const previewBtn = tr.querySelector('.gm-row-preview-btn');
+            if (previewBtn) {
+                previewBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openExcelDataViewer(file);
+                });
+            }
+
+            const dlBtn = tr.querySelector('.modal-gm-download-single-btn');
+            if (dlBtn) {
+                dlBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
                     triggerDownload(file.blob, file.name);
                     gmLog(`Downloaded merged file: ${file.name}`, 'info');
-                }
-            });
+                });
+            }
+
+            const delBtn = tr.querySelector('.modal-gm-delete-single-btn');
+            if (delBtn) {
+                delBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await deleteMergedFile(file);
+                });
+            }
+
+            tableBody.appendChild(tr);
+        });
+
+        if (summaryText) {
+            summaryText.innerText = `Showing ${filtered.length} of ${gmMergedList.length} files`;
+        }
+    }
+
+    // Bind Merge Full View Modal Controls
+    const closeGmModalBtn = document.getElementById('closeGmModalBtn');
+    if (closeGmModalBtn) closeGmModalBtn.addEventListener('click', closeGmModal);
+
+    const modalGmFooterCloseBtn = document.getElementById('modalGmFooterCloseBtn');
+    if (modalGmFooterCloseBtn) modalGmFooterCloseBtn.addEventListener('click', closeGmModal);
+
+    const modalGmHeaderMoveToFolderBtn = document.getElementById('modalGmHeaderMoveToFolderBtn');
+    if (modalGmHeaderMoveToFolderBtn) modalGmHeaderMoveToFolderBtn.addEventListener('click', () => {
+        closeGmModal();
+        moveToFolderCreateFromMerge();
+    });
+
+    const modalGmFooterMoveToFolderBtn = document.getElementById('modalGmFooterMoveToFolderBtn');
+    if (modalGmFooterMoveToFolderBtn) modalGmFooterMoveToFolderBtn.addEventListener('click', () => {
+        closeGmModal();
+        moveToFolderCreateFromMerge();
+    });
+
+    const modalGmDownloadAllZipBtn = document.getElementById('modalGmDownloadAllZipBtn');
+    if (modalGmDownloadAllZipBtn) {
+        modalGmDownloadAllZipBtn.addEventListener('click', () => {
+            if (gmZipBlob) {
+                triggerDownload(gmZipBlob, 'ajio_murge_file.zip');
+                gmLog('Downloaded complete ZIP package: ajio_murge_file.zip', 'info');
+            }
         });
     }
+
+    const modalGmFooterDownloadBtn = document.getElementById('modalGmFooterDownloadBtn');
+    if (modalGmFooterDownloadBtn) {
+        modalGmFooterDownloadBtn.addEventListener('click', () => {
+            if (gmZipBlob) {
+                triggerDownload(gmZipBlob, 'ajio_murge_file.zip');
+                gmLog('Downloaded complete ZIP package: ajio_murge_file.zip', 'info');
+            }
+        });
+    }
+
+    const modalGmSearchInput = document.getElementById('modalGmSearchInput');
+    if (modalGmSearchInput) {
+        modalGmSearchInput.addEventListener('input', () => {
+            renderGmModalTableRows();
+        });
+    }
+
+    const gmFullscreenModal = document.getElementById('gmFullscreenModal');
+    if (gmFullscreenModal) {
+        gmFullscreenModal.addEventListener('click', (e) => {
+            if (e.target === gmFullscreenModal) {
+                closeGmModal();
+            }
+        });
+    }
+
 
     async function restoreMergeSession() {
         try {
@@ -9750,7 +10162,7 @@ function doPost(e) {
             item.style.border = '1px solid var(--border-color)';
             item.style.background = 'rgba(255, 255, 255, 0.8)';
             
-            if (file.name === "Summary_Report.xlsx") {
+            if (file.name.includes("Summary") || file.name.includes("SUMMARY")) {
                 item.style.borderLeft = '5px solid #d97706';
             } else if (file.name === "Merged_Errors.xlsx") {
                 item.style.borderLeft = '5px solid #8b5cf6';
@@ -10077,10 +10489,10 @@ function doPost(e) {
                         
                         const summaryBuffer = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
                         const summaryBlob = new Blob([summaryBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-                        zip.file("Summary_Report.xlsx", summaryBuffer);
-                        
+                        const summaryReportName = getAjioSummaryFilename('AJIO_Summary_Report');
+                        zip.file(summaryReportName, summaryBuffer);
                         filesListForDashboard.push({
-                            name: "Summary_Report.xlsx",
+                            name: summaryReportName,
                             size: summaryBuffer.byteLength,
                             desc: `Summary sheet of errors by party (excludes empty SKU mismatches)`,
                             blob: summaryBlob
