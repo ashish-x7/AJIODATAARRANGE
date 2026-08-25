@@ -4,14 +4,15 @@ function getFormattedDateTime(date = new Date()) {
     const day = pad(date.getDate());
     const month = pad(date.getMonth() + 1);
     const year = date.getFullYear();
-    let hours = date.getHours();
+    const hours = pad(date.getHours());
     const minutes = pad(date.getMinutes());
     const seconds = pad(date.getSeconds());
-    return `${day}-${month}-${year}_${pad(hours)}-${minutes}-${seconds}`;
+    return `${day}-${month}-${year} ${hours}-${minutes}-${seconds}`;
 }
 
-function getAjioSummaryFilename(base = 'AJIO_Summary_Report', ext = 'xlsx') {
-    return `${base}_${getFormattedDateTime()}.${ext}`;
+function getAjioSummaryFilename(base = 'ajio invoice summry', ext = 'xlsx') {
+    const cleanBase = (base === 'AJIO_Summary_Report' || !base) ? 'ajio invoice summry' : base;
+    return `${cleanBase} ${getFormattedDateTime()}.${ext}`;
 }
 
 /* ==========================================================================
@@ -348,12 +349,16 @@ document.addEventListener('DOMContentLoaded', () => {
        LOGGER UTILITY
        ========================================================================== */
     function log(message, type = 'info') {
+        if (!consoleLog) return;
         const line = document.createElement('div');
         line.className = `log-line ${type}`;
         
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         line.innerText = `[${timestamp}] ${message}`;
         
+        if (consoleLog.children.length > 300) {
+            consoleLog.removeChild(consoleLog.firstChild);
+        }
         consoleLog.appendChild(line);
         consoleLog.scrollTop = consoleLog.scrollHeight;
     }
@@ -1178,35 +1183,21 @@ document.addEventListener('DOMContentLoaded', () => {
                         log(`No blank SKU rows found - skipping BLANK SKU file.`, 'info');
                     }
 
-                    const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
-                    const wbDuplicate = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDuplicate, wsDuplicate, "Duplicates");
-                    const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
+                    // 2 MORE INVOICE file - only create when there are duplicate invoices (> 1 count)
+                    const duplicateCount = duplicateReport.length - 1;
+                    if (duplicateCount > 0) {
+                        const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
+                        const wbDuplicate = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wbDuplicate, wsDuplicate, "Duplicates");
+                        const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
+                        outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
+                        log(`2 MORE INVOICE file created with ${duplicateCount} duplicate invoices for ${vendorCode}.`, 'info');
+                    } else {
+                        log(`No duplicate invoices found for ${vendorCode} - skipping 2 MORE INVOICE file.`, 'info');
+                    }
 
-                    // Build combined SUMMARY file with Details + Discount Percentage sheets
+                    // Calculate total orders for master summary report
                     const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
-                    const detailsHeaders = [
-                        "Filename", "Invoice Range", "Total Orders", "New", "Cancelled", 
-                        "Shipped", "Delivered", "Ready to Ship", "PO Created", "Others", "Date Range", "Warehouse"
-                    ];
-                    const detailsData = [
-                        detailsHeaders,
-                        [
-                            outputRangeFilename, lastRangeStr, totalOrders, cntNew, cntCancelled, 
-                            cntShipped, cntDelivered, cntRTS, cntPO, cntOther, dateRangeStr, warehouseStr
-                        ]
-                    ];
-
-                    const wbSummaryFile = XLSX.utils.book_new();
-                    // Sheet 1: Details Log
-                    const wsDetailsSheet = XLSX.utils.aoa_to_sheet(detailsData);
-                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDetailsSheet, "Details Log");
-                    // Sheet 2: Discount Percentage
-                    const wsDiscountSheet = XLSX.utils.aoa_to_sheet(discountReport);
-                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDiscountSheet, "Discount Percentage");
-                    const outSummaryFile = XLSX.write(wbSummaryFile, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}SUMMARY.xlsx`, outSummaryFile);
 
                     batchResults.push({
                         vendorCode: vendorCode,
@@ -1287,7 +1278,8 @@ document.addEventListener('DOMContentLoaded', () => {
             XLSX.utils.book_append_sheet(summaryWb, wsShort, "Short List");
 
             const summaryOut = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
-            outputZip.file("Summary_Report.xlsx", summaryOut);
+            const summaryReportFilename = getAjioSummaryFilename('ajio invoice summry');
+            outputZip.file(summaryReportFilename, summaryOut);
 
             overallProgressBar.style.width = '95%';
             progressPercent.innerText = '95%';
@@ -1802,35 +1794,21 @@ document.addEventListener('DOMContentLoaded', () => {
                         log(`No blank SKU rows found - skipping BLANK SKU file.`, 'info');
                     }
 
-                    const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
-                    const wbDuplicate = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDuplicate, wsDuplicate, "Duplicates");
-                    const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
+                    // 2 MORE INVOICE file - only create when there are duplicate invoices (> 1 count)
+                    const duplicateCount = duplicateReport.length - 1;
+                    if (duplicateCount > 0) {
+                        const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
+                        const wbDuplicate = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wbDuplicate, wsDuplicate, "Duplicates");
+                        const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
+                        outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
+                        log(`2 MORE INVOICE file created with ${duplicateCount} duplicate invoices for ${vendorCode}.`, 'info');
+                    } else {
+                        log(`No duplicate invoices found for ${vendorCode} - skipping 2 MORE INVOICE file.`, 'info');
+                    }
 
-                    // Build combined SUMMARY file with Details + Discount Percentage sheets
+                    // Calculate total orders for master summary report
                     const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
-                    const detailsHeaders = [
-                        "Filename", "Invoice Range", "Total Orders", "New", "Cancelled", 
-                        "Shipped", "Delivered", "Ready to Ship", "PO Created", "Others", "Date Range", "Warehouse"
-                    ];
-                    const detailsData = [
-                        detailsHeaders,
-                        [
-                            outputRangeFilename, lastRangeStr, totalOrders, cntNew, cntCancelled, 
-                            cntShipped, cntDelivered, cntRTS, cntPO, cntOther, dateRangeStr, warehouseStr
-                        ]
-                    ];
-
-                    const wbSummaryFile = XLSX.utils.book_new();
-                    // Sheet 1: Details Log
-                    const wsDetailsSheet = XLSX.utils.aoa_to_sheet(detailsData);
-                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDetailsSheet, "Details Log");
-                    // Sheet 2: Discount Percentage
-                    const wsDiscountSheet = XLSX.utils.aoa_to_sheet(discountReport);
-                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDiscountSheet, "Discount Percentage");
-                    const outSummaryFile = XLSX.write(wbSummaryFile, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}SUMMARY.xlsx`, outSummaryFile);
 
                     batchResults.push({
                         vendorCode: vendorCode,
@@ -1921,7 +1899,8 @@ document.addEventListener('DOMContentLoaded', () => {
             XLSX.utils.book_append_sheet(summaryWb, wsShort, "Short List");
 
             const summaryOut = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
-            outputZip.file("Summary_Report.xlsx", summaryOut);
+            const summaryReportFilename = getAjioSummaryFilename('ajio invoice summry');
+            outputZip.file(summaryReportFilename, summaryOut);
 
             // Decide output ZIP name
             if (selectedFiles.length === 1 && selectedFiles[0].name.split('.').pop().toLowerCase() === 'zip') {
@@ -2167,12 +2146,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Merger Logger Utility
     function mergerLog(message, type = 'info') {
+        if (!mergerConsoleLog) return;
         const line = document.createElement('div');
         line.className = `log-line ${type}`;
         
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         line.innerText = `[${timestamp}] ${message}`;
         
+        if (mergerConsoleLog.children.length > 300) {
+            mergerConsoleLog.removeChild(mergerConsoleLog.firstChild);
+        }
         mergerConsoleLog.appendChild(line);
         mergerConsoleLog.scrollTop = mergerConsoleLog.scrollHeight;
     }
@@ -2830,22 +2813,17 @@ function jsonResponse(data) {
             }
 
             // 3. Duplicate Invoice File (only if duplicates found)
-            const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
-            const wbDuplicate = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wbDuplicate, wsDuplicate, "Duplicates");
-            const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
-            zipFolder.file("2 MORE INVOICE.xlsx", outDuplicate);
-
-            // 4. Combined SUMMARY File (Details Log + Discount Percentage sheets)
-            const wbSummaryFile = XLSX.utils.book_new();
-            // Sheet 1: Details Log
-            const wsDetailsSheet = XLSX.utils.aoa_to_sheet(detailsData);
-            XLSX.utils.book_append_sheet(wbSummaryFile, wsDetailsSheet, "Details Log");
-            // Sheet 2: Discount Percentage
-            const wsDiscountSheet = XLSX.utils.aoa_to_sheet(discountReport);
-            XLSX.utils.book_append_sheet(wbSummaryFile, wsDiscountSheet, "Discount Percentage");
-            const outSummaryFile = XLSX.write(wbSummaryFile, { bookType: 'xlsx', type: 'array' });
-            zipFolder.file("SUMMARY.xlsx", outSummaryFile);
+            const duplicateCount = duplicateReport.length - 1;
+            if (duplicateCount > 0) {
+                const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
+                const wbDuplicate = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wbDuplicate, wsDuplicate, "Duplicates");
+                const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
+                zipFolder.file("2 MORE INVOICE.xlsx", outDuplicate);
+                mergerLog(`2 MORE INVOICE file created with ${duplicateCount} duplicate invoices.`, 'info');
+            } else {
+                mergerLog(`No duplicate invoices found - skipping 2 MORE INVOICE file.`, 'info');
+            }
 
             // Package final zip
             mergerZipBlob = await pipelineZip.generateAsync({ type: 'blob' });
@@ -3484,35 +3462,21 @@ function jsonResponse(data) {
                         log(`No blank SKU rows found - skipping BLANK SKU file.`, 'info');
                     }
 
-                    const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
-                    const wbDuplicate = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbDuplicate, wsDuplicate, "Duplicates");
-                    const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
+                    // 2 MORE INVOICE file - only create when there are duplicate invoices (> 1 count)
+                    const duplicateCount = duplicateReport.length - 1;
+                    if (duplicateCount > 0) {
+                        const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
+                        const wbDuplicate = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wbDuplicate, wsDuplicate, "Duplicates");
+                        const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
+                        outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
+                        mergerLog(`2 MORE INVOICE file created with ${duplicateCount} duplicate invoices for ${vendorCode}.`, 'info');
+                    } else {
+                        mergerLog(`No duplicate invoices found for ${vendorCode} - skipping 2 MORE INVOICE file.`, 'info');
+                    }
 
-                    // Build combined SUMMARY file with Details + Discount Percentage sheets
+                    // Calculate total orders for master summary report
                     const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
-                    const detailsHeaders = [
-                        "Filename", "Invoice Range", "Total Orders", "New", "Cancelled", 
-                        "Shipped", "Delivered", "Ready to Ship", "PO Created", "Others", "Date Range", "Warehouse"
-                    ];
-                    const detailsData = [
-                        detailsHeaders,
-                        [
-                            outputRangeFilename, lastRangeStr, totalOrders, cntNew, cntCancelled, 
-                            cntShipped, cntDelivered, cntRTS, cntPO, cntOther, dateRangeStr, warehouseStr
-                        ]
-                    ];
-
-                    const wbSummaryFile = XLSX.utils.book_new();
-                    // Sheet 1: Details Log
-                    const wsDetailsSheet = XLSX.utils.aoa_to_sheet(detailsData);
-                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDetailsSheet, "Details Log");
-                    // Sheet 2: Discount Percentage
-                    const wsDiscountSheet = XLSX.utils.aoa_to_sheet(discountReport);
-                    XLSX.utils.book_append_sheet(wbSummaryFile, wsDiscountSheet, "Discount Percentage");
-                    const outSummaryFile = XLSX.write(wbSummaryFile, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}SUMMARY.xlsx`, outSummaryFile);
 
                     batchResults.push({
                         vendorCode: vendorCode,
@@ -3592,7 +3556,8 @@ function jsonResponse(data) {
             XLSX.utils.book_append_sheet(summaryWb, wsShort, "Short List");
 
             const summaryOut = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
-            outputZip.file("Summary_Report.xlsx", summaryOut);
+            const summaryReportFilename = getAjioSummaryFilename('ajio invoice summry');
+            outputZip.file(summaryReportFilename, summaryOut);
 
             mergerProgressBar.style.width = '95%';
             mergerProgressPercent.innerText = '95%';
@@ -4049,6 +4014,9 @@ function jsonResponse(data) {
         line.className = `log-line ${type}`;
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         line.innerText = `[${timestamp}] ${message}`;
+        if (vendorConsoleLog.children.length > 300) {
+            vendorConsoleLog.removeChild(vendorConsoleLog.firstChild);
+        }
         vendorConsoleLog.appendChild(line);
         vendorConsoleLog.scrollTop = vendorConsoleLog.scrollHeight;
     }
@@ -4593,6 +4561,9 @@ function doPost(e) {
         line.className = `log-line ${type}`;
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         line.innerText = `[${timestamp}] ${message}`;
+        if (separateConsoleLog.children.length > 300) {
+            separateConsoleLog.removeChild(separateConsoleLog.firstChild);
+        }
         separateConsoleLog.appendChild(line);
         separateConsoleLog.scrollTop = separateConsoleLog.scrollHeight;
     }
@@ -5656,6 +5627,9 @@ function doPost(e) {
         line.className = `log-line ${type}`;
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         line.innerText = `[${timestamp}] ${message}`;
+        if (renConsoleLog.children.length > 300) {
+            renConsoleLog.removeChild(renConsoleLog.firstChild);
+        }
         renConsoleLog.appendChild(line);
         renConsoleLog.scrollTop = renConsoleLog.scrollHeight;
     }
@@ -6909,6 +6883,9 @@ function doPost(e) {
         line.className = `log-line ${type}`;
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         line.innerText = `[${timestamp}] ${message}`;
+        if (gmConsoleLog.children.length > 300) {
+            gmConsoleLog.removeChild(gmConsoleLog.firstChild);
+        }
         gmConsoleLog.appendChild(line);
         gmConsoleLog.scrollTop = gmConsoleLog.scrollHeight;
     }
@@ -7702,6 +7679,9 @@ function doPost(e) {
         line.className = `log-line ${type}`;
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         line.innerText = `[${timestamp}] ${message}`;
+        if (aeConsoleLog.children.length > 300) {
+            aeConsoleLog.removeChild(aeConsoleLog.firstChild);
+        }
         aeConsoleLog.appendChild(line);
         aeConsoleLog.scrollTop = aeConsoleLog.scrollHeight;
     }
@@ -8556,7 +8536,8 @@ function doPost(e) {
     let fcModalCurrentFilter = 'all'; // 'all', 'incomplete', 'ready'
     let fcSourceCopyFile = null;
     let fcSourceCopyPrefix = "";
-    let fcSelectedTargetPrefix = null;
+    let fcSelectedTargetPrefixes = new Set();
+    let fcAvailableIncompleteFolders = [];
     let fcMode = 'files'; // 'files' or 'folders'
 
     const fcDropzone = document.getElementById('fcDropzone');
@@ -8588,6 +8569,9 @@ function doPost(e) {
         line.className = `log-line ${type}`;
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         line.innerText = `[${timestamp}] ${message}`;
+        if (fcConsoleLog.children.length > 300) {
+            fcConsoleLog.removeChild(fcConsoleLog.firstChild);
+        }
         fcConsoleLog.appendChild(line);
         fcConsoleLog.scrollTop = fcConsoleLog.scrollHeight;
     }
@@ -9537,48 +9521,110 @@ function doPost(e) {
     const fcMoveTargetFoldersList = document.getElementById('fcMoveTargetFoldersList');
     const fcMoveCancelBtn = document.getElementById('fcMoveCancelBtn');
     const fcMoveConfirmBtn = document.getElementById('fcMoveConfirmBtn');
+    const fcMoveConfirmBtnText = document.getElementById('fcMoveConfirmBtnText');
+    const fcMoveSelectAllBtn = document.getElementById('fcMoveSelectAllBtn');
+    const fcMoveDeselectAllBtn = document.getElementById('fcMoveDeselectAllBtn');
+    const fcMoveSearchInput = document.getElementById('fcMoveSearchInput');
+    const fcMoveSelectionCountBadge = document.getElementById('fcMoveSelectionCountBadge');
+
+    function updateFcMoveSelectionUI() {
+        const count = fcSelectedTargetPrefixes.size;
+        if (fcMoveSelectionCountBadge) {
+            fcMoveSelectionCountBadge.innerText = `${count} folder${count === 1 ? '' : 's'} selected`;
+        }
+        if (fcMoveConfirmBtnText) {
+            if (count === 0) {
+                fcMoveConfirmBtnText.innerText = 'Select Folder(s) to Copy';
+            } else if (count === 1) {
+                fcMoveConfirmBtnText.innerText = 'Copy to 1 Selected Folder';
+            } else {
+                fcMoveConfirmBtnText.innerText = `Copy to ${count} Selected Folders`;
+            }
+        }
+        if (fcMoveConfirmBtn) {
+            fcMoveConfirmBtn.disabled = (count === 0);
+            fcMoveConfirmBtn.style.opacity = count === 0 ? '0.6' : '1';
+            fcMoveConfirmBtn.style.cursor = count === 0 ? 'not-allowed' : 'pointer';
+        }
+    }
+
+    function renderFcTargetFoldersList(searchTerm = '') {
+        if (!fcMoveTargetFoldersList) return;
+        fcMoveTargetFoldersList.innerHTML = '';
+
+        const filterText = (searchTerm || '').trim().toLowerCase();
+        const filtered = fcAvailableIncompleteFolders.filter(g => {
+            if (!filterText) return true;
+            return g.prefix.toLowerCase().includes(filterText);
+        });
+
+        if (filtered.length === 0) {
+            const emptyEl = document.createElement('div');
+            emptyEl.style.cssText = 'padding: 1.2rem; text-align: center; color: #94a3b8; font-size: 0.82rem;';
+            emptyEl.innerHTML = '<i class="fa-solid fa-circle-exclamation" style="font-size: 1.2rem; margin-bottom: 0.3rem; display: block;"></i> No matching incomplete folders found.';
+            fcMoveTargetFoldersList.appendChild(emptyEl);
+            return;
+        }
+
+        filtered.forEach(g => {
+            const isSelected = fcSelectedTargetPrefixes.has(g.prefix);
+            const opt = document.createElement('div');
+            opt.className = `target-folder-option ${isSelected ? 'selected' : ''}`;
+            opt.setAttribute('data-prefix', g.prefix);
+
+            opt.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 0.65rem;">
+                    <input type="checkbox" class="fc-target-chk" ${isSelected ? 'checked' : ''} style="cursor: pointer; pointer-events: none;">
+                    <i class="fa-solid fa-folder text-danger" style="font-size: 0.95rem;"></i>
+                    <span style="font-size: 0.85rem; color: #1e293b;">Folder <strong>[${g.prefix}]</strong></span>
+                </div>
+                <span style="background: #fee2e2; color: #dc2626; font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px;">
+                    ${g.files.length} / 2 Files
+                </span>
+            `;
+
+            opt.addEventListener('click', () => {
+                if (fcSelectedTargetPrefixes.has(g.prefix)) {
+                    fcSelectedTargetPrefixes.delete(g.prefix);
+                    opt.classList.remove('selected');
+                    const chk = opt.querySelector('.fc-target-chk');
+                    if (chk) chk.checked = false;
+                } else {
+                    fcSelectedTargetPrefixes.add(g.prefix);
+                    opt.classList.add('selected');
+                    const chk = opt.querySelector('.fc-target-chk');
+                    if (chk) chk.checked = true;
+                }
+                updateFcMoveSelectionUI();
+            });
+
+            fcMoveTargetFoldersList.appendChild(opt);
+        });
+    }
 
     function openFcCopyFileModal(sourceFile, sourcePrefix) {
         if (!fcMoveFileModal) return;
         fcSourceCopyFile = sourceFile;
         fcSourceCopyPrefix = sourcePrefix;
-        fcSelectedTargetPrefix = null;
+        fcSelectedTargetPrefixes.clear();
 
         if (fcMoveSourceFileName) fcMoveSourceFileName.innerText = sourceFile.name;
+        if (fcMoveSearchInput) fcMoveSearchInput.value = '';
 
-        const incompleteFolders = fcFolderGroups.filter(g => g.files.length < 2 && g.prefix !== sourcePrefix);
+        fcAvailableIncompleteFolders = fcFolderGroups.filter(g => g.files.length < 2 && g.prefix !== sourcePrefix);
 
-        if (incompleteFolders.length === 0) {
+        if (fcAvailableIncompleteFolders.length === 0) {
             showCustomNotification('Information', 'No other incomplete folders (< 2 files) are available to copy into!', 'info');
             return;
         }
 
-        if (fcMoveTargetFoldersList) {
-            fcMoveTargetFoldersList.innerHTML = '';
-            incompleteFolders.forEach((g, idx) => {
-                const opt = document.createElement('div');
-                opt.className = `target-folder-option ${idx === 0 ? 'selected' : ''}`;
-                if (idx === 0) fcSelectedTargetPrefix = g.prefix;
-
-                opt.innerHTML = `
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <i class="fa-solid fa-folder text-danger"></i>
-                        <span style="font-size: 0.85rem; color: #1e293b;">Folder <strong>[${g.prefix}]</strong></span>
-                    </div>
-                    <span style="background: #fee2e2; color: #dc2626; font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px;">
-                        ${g.files.length} / 2 Files
-                    </span>
-                `;
-
-                opt.addEventListener('click', () => {
-                    document.querySelectorAll('.target-folder-option').forEach(o => o.classList.remove('selected'));
-                    opt.classList.add('selected');
-                    fcSelectedTargetPrefix = g.prefix;
-                });
-
-                fcMoveTargetFoldersList.appendChild(opt);
-            });
+        // Pre-select first incomplete folder by default
+        if (fcAvailableIncompleteFolders.length > 0) {
+            fcSelectedTargetPrefixes.add(fcAvailableIncompleteFolders[0].prefix);
         }
+
+        renderFcTargetFoldersList();
+        updateFcMoveSelectionUI();
 
         fcMoveFileModal.classList.add('show');
         fcMoveFileModal.classList.add('active');
@@ -9590,7 +9636,8 @@ function doPost(e) {
         fcMoveFileModal.classList.remove('active');
         fcSourceCopyFile = null;
         fcSourceCopyPrefix = "";
-        fcSelectedTargetPrefix = null;
+        fcSelectedTargetPrefixes.clear();
+        fcAvailableIncompleteFolders = [];
     }
 
     if (fcMoveCancelBtn) fcMoveCancelBtn.addEventListener('click', closeFcCopyFileModal);
@@ -9600,48 +9647,80 @@ function doPost(e) {
         });
     }
 
+    if (fcMoveSelectAllBtn) {
+        fcMoveSelectAllBtn.addEventListener('click', () => {
+            const filterText = (fcMoveSearchInput ? fcMoveSearchInput.value : '').trim().toLowerCase();
+            const listToSelect = fcAvailableIncompleteFolders.filter(g => !filterText || g.prefix.toLowerCase().includes(filterText));
+            listToSelect.forEach(g => fcSelectedTargetPrefixes.add(g.prefix));
+            renderFcTargetFoldersList(fcMoveSearchInput ? fcMoveSearchInput.value : '');
+            updateFcMoveSelectionUI();
+        });
+    }
+
+    if (fcMoveDeselectAllBtn) {
+        fcMoveDeselectAllBtn.addEventListener('click', () => {
+            fcSelectedTargetPrefixes.clear();
+            renderFcTargetFoldersList(fcMoveSearchInput ? fcMoveSearchInput.value : '');
+            updateFcMoveSelectionUI();
+        });
+    }
+
+    if (fcMoveSearchInput) {
+        fcMoveSearchInput.addEventListener('input', (e) => {
+            renderFcTargetFoldersList(e.target.value);
+        });
+    }
+
     if (fcMoveConfirmBtn) {
         fcMoveConfirmBtn.addEventListener('click', async () => {
-            if (!fcSourceCopyFile || !fcSelectedTargetPrefix) {
-                alert('Please select a destination incomplete folder.');
+            if (!fcSourceCopyFile || fcSelectedTargetPrefixes.size === 0) {
+                alert('Please select at least one destination incomplete folder.');
                 return;
             }
 
-            const targetGroup = fcFolderGroups.find(g => g.prefix === fcSelectedTargetPrefix);
-            if (!targetGroup) {
-                alert('Target folder not found.');
-                return;
-            }
-
-            // Derive new name for the copied file
-            let newCopiedName = fcSourceCopyFile.name;
-            if (newCopiedName.startsWith(fcSourceCopyPrefix + '-')) {
-                newCopiedName = fcSelectedTargetPrefix + '-' + newCopiedName.substring((fcSourceCopyPrefix + '-').length);
-            } else if (newCopiedName.includes('-')) {
-                const rest = newCopiedName.substring(newCopiedName.indexOf('-') + 1);
-                newCopiedName = `${fcSelectedTargetPrefix}-${rest}`;
-            } else {
-                newCopiedName = `${fcSelectedTargetPrefix}-${newCopiedName}`;
-            }
-
+            const targetPrefixList = Array.from(fcSelectedTargetPrefixes);
+            const copiedTargetPrefixes = [];
             const copyBlob = fcSourceCopyFile.blob || fcSourceCopyFile.file;
-            const copyFileObj = {
-                id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-                name: newCopiedName,
-                size: fcSourceCopyFile.size,
-                blob: copyBlob,
-                file: fcSourceCopyFile.file || new File([copyBlob], newCopiedName, { type: copyBlob.type }),
-                rows: fcSourceCopyFile.rows || 0
-            };
 
-            targetGroup.files.push(copyFileObj);
-            fcFiles.push(copyFileObj);
+            for (const targetPrefix of targetPrefixList) {
+                const targetGroup = fcFolderGroups.find(g => g.prefix === targetPrefix);
+                if (!targetGroup) continue;
+
+                // Derive new name for the copied file
+                let newCopiedName = fcSourceCopyFile.name;
+                if (fcSourceCopyPrefix && newCopiedName.startsWith(fcSourceCopyPrefix + '-')) {
+                    newCopiedName = targetPrefix + '-' + newCopiedName.substring((fcSourceCopyPrefix + '-').length);
+                } else if (newCopiedName.includes('-')) {
+                    const rest = newCopiedName.substring(newCopiedName.indexOf('-') + 1);
+                    newCopiedName = `${targetPrefix}-${rest}`;
+                } else {
+                    newCopiedName = `${targetPrefix}-${newCopiedName}`;
+                }
+
+                const copyFileObj = {
+                    id: Date.now() + '-' + Math.random().toString(36).substr(2, 9) + '-' + targetPrefix,
+                    name: newCopiedName,
+                    size: fcSourceCopyFile.size,
+                    blob: copyBlob,
+                    file: fcSourceCopyFile.file || new File([copyBlob], newCopiedName, { type: copyBlob ? copyBlob.type : '' }),
+                    rows: fcSourceCopyFile.rows || 0
+                };
+
+                targetGroup.files.push(copyFileObj);
+                fcFiles.push(copyFileObj);
+                copiedTargetPrefixes.push(targetPrefix);
+            }
 
             closeFcCopyFileModal();
             await rebuildFcPackage();
 
-            fcLog(`Copied file "${fcSourceCopyFile.name}" to folder [${fcSelectedTargetPrefix}] as "${newCopiedName}".`, 'success');
-            showCustomNotification('Success', `Successfully copied file into Folder [${fcSelectedTargetPrefix}]. Folder is now complete (2 Files)!`, 'success');
+            if (copiedTargetPrefixes.length === 1) {
+                fcLog(`Copied file "${fcSourceCopyFile.name}" to folder [${copiedTargetPrefixes[0]}].`, 'success');
+                showCustomNotification('Success', `Successfully copied file into Folder [${copiedTargetPrefixes[0]}]. Folder is now complete (2 Files)!`, 'success');
+            } else {
+                fcLog(`Copied file "${fcSourceCopyFile.name}" to ${copiedTargetPrefixes.length} folders: [${copiedTargetPrefixes.join(', ')}].`, 'success');
+                showCustomNotification('Success', `Successfully copied file into ${copiedTargetPrefixes.length} folders ([${copiedTargetPrefixes.join(', ')}])!`, 'success');
+            }
         });
     }
 
@@ -9866,6 +9945,9 @@ function doPost(e) {
         line.className = `log-line ${type}`;
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         line.innerText = `[${timestamp}] ${message}`;
+        if (ieConsoleLog.children.length > 300) {
+            ieConsoleLog.removeChild(ieConsoleLog.firstChild);
+        }
         ieConsoleLog.appendChild(line);
         ieConsoleLog.scrollTop = ieConsoleLog.scrollHeight;
     }
