@@ -788,19 +788,20 @@ input:checked + .slider:before {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 16px;
-    padding: 1.5rem;
+    padding: 1.25rem;
     display: flex;
     flex-direction: column;
     flex-grow: 1;
     min-height: 250px;
-    max-height: 350px;
-    justify-content: center;
     position: relative;
-    overflow: hidden;
+    overflow-y: auto;
 }
 
 .processed-container.empty {
     align-items: center;
+    justify-content: center;
+    min-height: 250px;
+    max-height: 350px;
 }
 
 .empty-output-state {

@@ -2106,8 +2106,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (targetPaneId === 'tab-error-tracker') {
                 renderErrorTracker();
             }
-            if (targetPaneId === 'tab-vendors') {
-                if (typeof fetchVendors === 'function' && (!vendorParties || vendorParties.length === 0)) {
+            if (targetPaneId === 'tab-vendor' || targetPaneId === 'tab-vendors') {
+                if (typeof fetchVendors === 'function') {
                     fetchVendors();
                 }
             }
@@ -4198,15 +4198,22 @@ function doPost(e) {
             return;
         }
 
+        vendorTableContainer.style.maxHeight = '480px';
+        vendorTableContainer.style.overflowY = 'auto';
+        vendorTableContainer.style.overflowX = 'auto';
+
         const table = document.createElement('table');
         table.className = 'data-table';
+        table.style.width = '100%';
+        table.style.borderCollapse = 'separate';
+        table.style.borderSpacing = '0';
         
         table.innerHTML = `
-            <thead>
+            <thead style="position: sticky; top: 0; z-index: 10; background: #f8fafc; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                 <tr>
-                    <th style="width: 25%">CODE</th>
-                    <th style="width: 55%">PARTY CODE / NAME</th>
-                    <th style="width: 20%; text-align: center;">ACTIONS</th>
+                    <th style="width: 20%; background: #f8fafc; padding: 0.75rem 1rem; border-bottom: 2px solid var(--border-color);">CODE</th>
+                    <th style="width: 60%; background: #f8fafc; padding: 0.75rem 1rem; border-bottom: 2px solid var(--border-color);">PARTY CODE / NAME</th>
+                    <th style="width: 20%; text-align: center; background: #f8fafc; padding: 0.75rem 1rem; border-bottom: 2px solid var(--border-color);">ACTIONS</th>
                 </tr>
             </thead>
             <tbody>
@@ -4308,33 +4315,38 @@ function doPost(e) {
             return;
         }
 
-        vendorSyncStatus.className = 'status-indicator syncing';
-        vendorSyncStatus.innerText = 'Syncing...';
+        if (vendorSyncStatus) {
+            vendorSyncStatus.className = 'status-indicator syncing';
+            vendorSyncStatus.innerText = 'Syncing...';
+        }
         vendorLog("Fetching vendor directory from Google Sheets...", "process");
 
         try {
-            // Try POST first with action: 'getParties'
-            let res = await fetch(GOOGLE_SHEETS_SCRIPT_URL, {
-                method: 'POST',
-                body: JSON.stringify({ action: 'getParties' })
-            }).then(r => r.json()).catch(() => null);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 12000);
 
-            // Fallback to GET if POST didn't return parties
-            if (!res || !res.parties) {
-                res = await fetch(`${GOOGLE_SHEETS_SCRIPT_URL}?action=getParties`)
-                    .then(r => r.json()).catch(() => null);
-            }
+            // Fetch via direct GET with action=getParties
+            const response = await fetch(`${GOOGLE_SHEETS_SCRIPT_URL}?action=getParties`, {
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            const res = await response.json();
 
             if (res && res.parties && Array.isArray(res.parties) && res.parties.length > 0) {
                 vendorParties = res.parties;
                 try { localStorage.setItem('cachedVendorParties', JSON.stringify(vendorParties)); } catch(e){}
                 vendorLog(`Fetched ${vendorParties.length} vendor record(s) from Google Sheets successfully.`, "success");
-                vendorSyncStatus.className = 'status-indicator success';
-                vendorSyncStatus.innerText = 'Connected';
+                if (vendorSyncStatus) {
+                    vendorSyncStatus.className = 'status-indicator success';
+                    vendorSyncStatus.innerText = 'Connected';
+                }
                 renderVendorTable();
                 return;
             }
-        } catch (err) {}
+        } catch (err) {
+            vendorLog(`Google Sheets sync error: ${err.message}`, "error");
+        }
 
         // Local fallback
         const savedParties = localStorage.getItem('cachedVendorParties');
@@ -4344,8 +4356,10 @@ function doPost(e) {
             } catch(e) {}
         }
         vendorLog(`Google Sheets sync offline. Active vendors in local cache: ${vendorParties.length}`, "info");
-        vendorSyncStatus.className = 'status-indicator idle';
-        vendorSyncStatus.innerText = 'Offline';
+        if (vendorSyncStatus) {
+            vendorSyncStatus.className = 'status-indicator idle';
+            vendorSyncStatus.innerText = 'Offline';
+        }
         renderVendorTable();
     }
 
@@ -4502,6 +4516,12 @@ function doPost(e) {
             }
         });
     }
+
+    // Initial render from cache & background sync
+    if (vendorParties && vendorParties.length > 0) {
+        renderVendorTable(vendorParties);
+    }
+    fetchVendors();
 
     /* ==========================================================================
        SEPARATE FILE PROCESSING LOGIC
@@ -8525,6 +8545,948 @@ function doPost(e) {
     }
 
     /* ==========================================================================
+       AJIO ERROR SUB-TAB NAVIGATION (SALE VS PURCHASE)
+       ========================================================================== */
+    const aeSubTabBtns = document.querySelectorAll('.ae-subtab-btn');
+    aeSubTabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetSubTabId = btn.getAttribute('data-ae-subtab');
+            aeSubTabBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            const salePane = document.getElementById('ae-subtab-sale');
+            const purchasePane = document.getElementById('ae-subtab-purchase');
+
+            if (targetSubTabId === 'ae-subtab-sale') {
+                if (salePane) {
+                    salePane.classList.add('active-pane');
+                    salePane.style.display = 'block';
+                }
+                if (purchasePane) {
+                    purchasePane.classList.remove('active-pane');
+                    purchasePane.style.display = 'none';
+                }
+            } else {
+                if (salePane) {
+                    salePane.classList.remove('active-pane');
+                    salePane.style.display = 'none';
+                }
+                if (purchasePane) {
+                    purchasePane.classList.add('active-pane');
+                    purchasePane.style.display = 'block';
+                }
+            }
+        });
+    });
+
+    /* ==========================================================================
+       PURCHASE AJIO ERROR LOGIC
+       ========================================================================== */
+    let aePurchaseDetailsFiles = [];
+    let aePurchaseDataFile = null;
+    let aePurchaseProcessedBlob = null;
+
+    const aePurchaseDetailsDropzone = document.getElementById('aePurchaseDetailsDropzone');
+    const aePurchaseDetailsFileInput = document.getElementById('aePurchaseDetailsFileInput');
+    const aePurchaseDetailsFileDisplay = document.getElementById('aePurchaseDetailsFileDisplay');
+    const aePurchaseDetailsSelectedCount = document.getElementById('aePurchaseDetailsSelectedCount');
+    const aePurchaseDetailsUploadedFileList = document.getElementById('aePurchaseDetailsUploadedFileList');
+    const clearAePurchaseDetailsFilesBtn = document.getElementById('clearAePurchaseDetailsFilesBtn');
+
+    const aePurchaseDataDropzone = document.getElementById('aePurchaseDataDropzone');
+    const aePurchaseDataFileInput = document.getElementById('aePurchaseDataFileInput');
+    const aePurchaseDataFileDisplay = document.getElementById('aePurchaseDataFileDisplay');
+
+    const aePurchaseBtn = document.getElementById('aePurchaseBtn');
+    const aePurchaseStatus = document.getElementById('aePurchaseStatus');
+    const aePurchaseProgressCard = document.getElementById('aePurchaseProgressCard');
+    const aePurchaseProgressBar = document.getElementById('aePurchaseProgressBar');
+    const aePurchaseProgressPercent = document.getElementById('aePurchaseProgressPercent');
+    const aePurchaseProgressStepText = document.getElementById('aePurchaseProgressStepText');
+    const aePurchaseOutputContainer = document.getElementById('aePurchaseOutputContainer');
+    const aePurchaseConsoleLog = document.getElementById('aePurchaseConsoleLog');
+    const clearAePurchaseLogBtn = document.getElementById('clearAePurchaseLogBtn');
+
+    function aePurchaseLog(message, type = 'info') {
+        if (!aePurchaseConsoleLog) return;
+        const line = document.createElement('div');
+        line.className = `log-line ${type}`;
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        line.innerText = `[${timestamp}] ${message}`;
+        if (aePurchaseConsoleLog.children.length > 300) {
+            aePurchaseConsoleLog.removeChild(aePurchaseConsoleLog.firstChild);
+        }
+        aePurchaseConsoleLog.appendChild(line);
+        aePurchaseConsoleLog.scrollTop = aePurchaseConsoleLog.scrollHeight;
+    }
+
+    if (clearAePurchaseLogBtn) {
+        clearAePurchaseLogBtn.addEventListener('click', () => {
+            aePurchaseConsoleLog.innerHTML = '';
+            aePurchaseLog('Log cleared.', 'info');
+        });
+    }
+
+    function checkAePurchaseInputs() {
+        if (aePurchaseDetailsFiles.length > 0 && aePurchaseDataFile) {
+            if (aePurchaseBtn) aePurchaseBtn.removeAttribute('disabled');
+        } else {
+            if (aePurchaseBtn) aePurchaseBtn.setAttribute('disabled', 'true');
+        }
+    }
+
+    function updateAePurchaseDetailsUI() {
+        if (aePurchaseDetailsSelectedCount) aePurchaseDetailsSelectedCount.innerText = aePurchaseDetailsFiles.length;
+        if (!aePurchaseDetailsUploadedFileList) return;
+
+        if (aePurchaseDetailsFiles.length > 0) {
+            aePurchaseDetailsUploadedFileList.innerHTML = '';
+            aePurchaseDetailsFiles.forEach((fileObj) => {
+                const item = document.createElement('div');
+                item.className = 'file-item';
+
+                const info = document.createElement('div');
+                info.className = 'file-info';
+
+                const icon = document.createElement('i');
+                icon.className = getFileIconClass(fileObj.name);
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'file-name';
+                nameSpan.innerText = fileObj.name;
+
+                const sizeSpan = document.createElement('span');
+                sizeSpan.className = 'file-size';
+                sizeSpan.innerText = formatBytes(fileObj.size);
+
+                info.appendChild(icon);
+                info.appendChild(nameSpan);
+                info.appendChild(sizeSpan);
+
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'file-action-btn';
+                removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+                removeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    aePurchaseDetailsFiles = aePurchaseDetailsFiles.filter(f => f.id !== fileObj.id);
+                    aePurchaseLog(`Removed file: ${fileObj.name}`, 'info');
+                    updateAePurchaseDetailsUI();
+                    checkAePurchaseInputs();
+                });
+
+                item.appendChild(info);
+                item.appendChild(removeBtn);
+                aePurchaseDetailsUploadedFileList.appendChild(item);
+            });
+        } else {
+            aePurchaseDetailsUploadedFileList.innerHTML = '<div class="empty-list-msg">No details files selected yet.</div>';
+        }
+        checkAePurchaseInputs();
+    }
+
+    if (aePurchaseDetailsDropzone && aePurchaseDetailsFileInput) {
+        setupMultiDropzone(aePurchaseDetailsDropzone, aePurchaseDetailsFileInput, (files) => {
+            let added = 0;
+            files.forEach(file => {
+                if (!aePurchaseDetailsFiles.some(f => f.name === file.name && f.size === file.size)) {
+                    aePurchaseDetailsFiles.push({
+                        id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                        name: file.name,
+                        size: file.size,
+                        file: file
+                    });
+                    added++;
+                }
+            });
+            if (added > 0) {
+                aePurchaseLog(`Added ${added} Purchase Details file(s). Total: ${aePurchaseDetailsFiles.length}`, 'success');
+            }
+            updateAePurchaseDetailsUI();
+        });
+    }
+
+    if (clearAePurchaseDetailsFilesBtn) {
+        clearAePurchaseDetailsFilesBtn.addEventListener('click', () => {
+            aePurchaseDetailsFiles = [];
+            if (aePurchaseDetailsFileInput) aePurchaseDetailsFileInput.value = '';
+            updateAePurchaseDetailsUI();
+            aePurchaseLog('Cleared all selected Purchase Details files.', 'info');
+        });
+    }
+
+    if (aePurchaseDataDropzone && aePurchaseDataFileInput) {
+        setupMiniDropzone(aePurchaseDataDropzone, aePurchaseDataFileInput, (file) => {
+            aePurchaseDataFile = file;
+            if (aePurchaseDataFileDisplay) {
+                aePurchaseDataFileDisplay.innerText = file.name;
+                aePurchaseDataFileDisplay.title = file.name;
+            }
+            aePurchaseDataDropzone.classList.add('file-selected');
+            aePurchaseLog(`Selected Purchase Data File: ${file.name} (${formatBytes(file.size)})`, 'info');
+            checkAePurchaseInputs();
+        });
+    }
+
+    let aePurchaseMergedBlob = null;
+    let aePurchaseMergedFilename = "";
+    let aePurchaseZipBlob = null;
+    let aePurchaseZipFilename = "";
+
+    function toPureText(val) {
+        if (val === undefined || val === null) return "";
+        let str = String(val).trim();
+        if (typeof val === 'number') {
+            // Prevent scientific notation like 7.02207e+11 for 12-digit ASIN numbers
+            str = Number(val).toLocaleString('fullwide', { useGrouping: false });
+        } else if (str.toLowerCase().includes('e')) {
+            const num = Number(str);
+            if (!isNaN(num)) {
+                str = num.toLocaleString('fullwide', { useGrouping: false });
+            }
+        }
+        if (str.includes('.') && /^\d+\.0+$/.test(str)) {
+            str = str.split('.')[0];
+        }
+        return str;
+    }
+
+    function cleanPurchaseKeyVal(val) {
+        if (val === undefined || val === null) return "";
+        let str = toPureText(val).toUpperCase();
+        str = str.replace(/\s+/g, '').trim();
+        return str;
+    }
+
+    function formatPurchaseDateVal(dt) {
+        if (dt === undefined || dt === null) return "";
+        if (typeof dt === 'number' && dt > 20000 && dt < 80000) {
+            // Excel serial date to DD/MM/YYYY
+            const dObj = new Date(Math.round((dt - 25569) * 86400 * 1000));
+            const pad = n => String(n).padStart(2, '0');
+            return `${pad(dObj.getDate())}/${pad(dObj.getMonth() + 1)}/${dObj.getFullYear()}`;
+        }
+        if (dt instanceof Date && !isNaN(dt.getTime())) {
+            const pad = n => String(n).padStart(2, '0');
+            return `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}/${dt.getFullYear()}`;
+        }
+        return String(dt).trim();
+    }
+
+    function colNumToExcelLetter(idx) {
+        let letter = '';
+        let temp = idx;
+        while (temp >= 0) {
+            letter = String.fromCharCode((temp % 26) + 65) + letter;
+            temp = Math.floor(temp / 26) - 1;
+        }
+        return letter;
+    }
+
+    function formatPurchaseWorksheet(ws) {
+        if (!ws || !ws['!ref']) return;
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        const cols = [];
+
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            cols.push({ wch: 10 });
+        }
+
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            if (R === 0 && ws['!merges'] && ws['!merges'].length > 0) {
+                continue; // Skip title row for col width calc
+            }
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const cell_address = { c: C, r: R };
+                const cell_ref = XLSX.utils.encode_cell(cell_address);
+                const cell = ws[cell_ref];
+                if (cell && cell.v !== undefined && cell.v !== null) {
+                    const len = String(cell.v).length;
+                    if (len > cols[C].wch) cols[C].wch = len;
+                }
+            }
+        }
+
+        cols.forEach((col, idx) => {
+            if (idx === 14) {
+                col.wch = Math.min(Math.max(col.wch + 4, 15), 30); // Order date col
+            } else if (idx === 4) {
+                col.wch = Math.min(Math.max(col.wch + 3, 16), 35); // Item Asin
+            } else {
+                col.wch = Math.min(Math.max(col.wch + 3, 10), 45);
+            }
+        });
+        ws['!cols'] = cols;
+
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const cell_address = { c: C, r: R };
+                const cell_ref = XLSX.utils.encode_cell(cell_address);
+                if (!ws[cell_ref]) {
+                    ws[cell_ref] = { t: 's', v: '' };
+                }
+                const cell = ws[cell_ref];
+                const isTitle = (R === 0);
+                const isHeader = (R === 1);
+                const isData = (R >= 2);
+
+                cell.s = {
+                    border: {
+                        top: { style: 'thin', color: { rgb: 'E5E7EB' } },
+                        bottom: { style: 'thin', color: { rgb: 'E5E7EB' } },
+                        left: { style: 'thin', color: { rgb: 'E5E7EB' } },
+                        right: { style: 'thin', color: { rgb: 'E5E7EB' } }
+                    }
+                };
+
+                if (isTitle) {
+                    cell.s.font = { name: 'Segoe UI', sz: 12, bold: true, color: { rgb: 'FFFFFF' } };
+                    cell.s.fill = { fgColor: { rgb: '7B2CBF' } }; // Royal Purple banner
+                    cell.s.alignment = { horizontal: 'center', vertical: 'center' };
+                } else if (isHeader) {
+                    cell.s.font = { name: 'Segoe UI', sz: 10, bold: true, color: { rgb: '1E293B' } };
+                    if (C === 14) {
+                        cell.s.fill = { fgColor: { rgb: 'DCFCE7' } }; // Light Green for Order Date
+                        cell.s.font = { name: 'Segoe UI', sz: 10, bold: true, color: { rgb: '15803D' } };
+                    } else if (C === 4) {
+                        cell.s.fill = { fgColor: { rgb: 'EDE9FE' } }; // Soft purple for Item Asin
+                        cell.s.font = { name: 'Segoe UI', sz: 10, bold: true, color: { rgb: '6D28D9' } };
+                    } else {
+                        cell.s.fill = { fgColor: { rgb: 'F1F5F9' } }; // Slate Header
+                    }
+                    cell.s.alignment = { horizontal: 'center', vertical: 'center' };
+                } else if (isData) {
+                    cell.s.font = { name: 'Segoe UI', sz: 9, color: { rgb: '334155' } };
+
+                    // Column E (index 4 - Item Asin): FORCE PURE TEXT FORMAT WITHOUT SCIENTIFIC NOTATION
+                    if (C === 4) {
+                        const cleanAsin = toPureText(cell.v);
+                        cell.v = cleanAsin;
+                        cell.t = 's'; // Force String Type in Excel
+                        cell.z = '@'; // Force Text Format in Excel
+                        cell.s.alignment = { horizontal: 'left', vertical: 'center' };
+                        cell.s.font = { name: 'Segoe UI', sz: 9, color: { rgb: '1E293B' } };
+                    }
+                    // Column D (index 3 - Order ID), Column B (index 1 - Sale Invoice No), Column A (index 0 - Invoice No)
+                    else if (C === 3 || C === 1 || C === 0) {
+                        const cleanText = toPureText(cell.v);
+                        cell.v = cleanText;
+                        cell.t = 's';
+                        cell.z = '@';
+                        cell.s.alignment = { horizontal: 'left', vertical: 'center' };
+                    }
+                    // Column O (index 14 - Order date)
+                    else if (C === 14) {
+                        cell.t = 's';
+                        cell.z = '@';
+                        cell.s.alignment = { horizontal: 'center', vertical: 'center' };
+                        cell.s.font = { name: 'Segoe UI', sz: 9, bold: true, color: { rgb: '15803D' } };
+                    }
+                    // Numerical amount / quantity columns
+                    else {
+                        const val = cell.v;
+                        if (val !== undefined && val !== null && !isNaN(Number(val)) && String(val).trim() !== "") {
+                            cell.s.alignment = { horizontal: 'right', vertical: 'center' };
+                        } else {
+                            cell.s.alignment = { horizontal: 'left', vertical: 'center' };
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    function renderAePurchaseDashboard(filesList, mergedBlob, zipFilename, mergedFilename, stats) {
+        if (!aePurchaseOutputContainer) return;
+        aePurchaseOutputContainer.innerHTML = '';
+        aePurchaseOutputContainer.className = 'processed-container';
+
+        // 1. Stats Cards
+        const statsRow = document.createElement('div');
+        statsRow.className = 'stats-card-grid';
+        statsRow.style.display = 'grid';
+        statsRow.style.gridTemplateColumns = 'repeat(auto-fit, minmax(130px, 1fr))';
+        statsRow.style.gap = '0.75rem';
+        statsRow.style.marginBottom = '1.25rem';
+
+        statsRow.innerHTML = `
+            <div style="background: white; border: 1px solid var(--border-color); border-radius: 10px; padding: 0.85rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Total Files</div>
+                <div style="font-size: 1.4rem; font-weight: 800; color: #7b2cbf; margin-top: 0.2rem;">${stats.totalFiles}</div>
+            </div>
+            <div style="background: white; border: 1px solid var(--border-color); border-radius: 10px; padding: 0.85rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Total Rows</div>
+                <div style="font-size: 1.4rem; font-weight: 800; color: #1e293b; margin-top: 0.2rem;">${stats.totalRows}</div>
+            </div>
+            <div style="background: white; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; padding: 0.85rem; background: rgba(240, 253, 244, 0.6); box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                <div style="font-size: 0.72rem; color: #15803d; font-weight: 600; text-transform: uppercase;">Dates Matched</div>
+                <div style="font-size: 1.4rem; font-weight: 800; color: #15803d; margin-top: 0.2rem;">${stats.totalMatched}</div>
+            </div>
+            <div style="background: white; border: 1px solid ${stats.totalUnmatched > 0 ? 'rgba(245, 158, 11, 0.3)' : 'var(--border-color)'}; border-radius: 10px; padding: 0.85rem; background: ${stats.totalUnmatched > 0 ? 'rgba(254, 243, 199, 0.5)' : 'white'}; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                <div style="font-size: 0.72rem; color: ${stats.totalUnmatched > 0 ? '#b45309' : 'var(--text-muted)'}; font-weight: 600; text-transform: uppercase;">Unmatched</div>
+                <div style="font-size: 1.4rem; font-weight: 800; color: ${stats.totalUnmatched > 0 ? '#b45309' : '#64748b'}; margin-top: 0.2rem;">${stats.totalUnmatched}</div>
+            </div>
+        `;
+        aePurchaseOutputContainer.appendChild(statsRow);
+
+        // 2. Action Download Bar
+        const actionsBar = document.createElement('div');
+        actionsBar.style.display = 'flex';
+        actionsBar.style.flexWrap = 'wrap';
+        actionsBar.style.gap = '0.75rem';
+        actionsBar.style.marginBottom = '1.25rem';
+
+        actionsBar.innerHTML = `
+            <button type="button" class="btn btn-primary" id="aePurchaseDownloadZipBtn" style="flex: 1; min-width: 200px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.65rem 1.2rem; font-weight: 700; border-radius: 8px; background: linear-gradient(135deg, #7b2cbf, #560bad); cursor: pointer;">
+                <i class="fa-solid fa-file-zipper"></i> Download ZIP Package
+            </button>
+            <button type="button" class="btn btn-success" id="aePurchaseDownloadMergedBtn" style="flex: 1; min-width: 200px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.65rem 1.2rem; font-weight: 700; border-radius: 8px; background: linear-gradient(135deg, #059669, #10b981); cursor: pointer;">
+                <i class="fa-solid fa-file-excel"></i> Download Merged Excel (${filesList.length} Sheets)
+            </button>
+        `;
+        aePurchaseOutputContainer.appendChild(actionsBar);
+
+        // Bind Download Buttons
+        const dlZipBtn = actionsBar.querySelector('#aePurchaseDownloadZipBtn');
+        if (dlZipBtn) {
+            dlZipBtn.addEventListener('click', () => {
+                if (aePurchaseZipBlob) {
+                    triggerDownload(aePurchaseZipBlob, zipFilename);
+                    aePurchaseLog(`Downloaded complete ZIP package: ${zipFilename}`, 'info');
+                }
+            });
+        }
+
+        const dlMergedBtn = actionsBar.querySelector('#aePurchaseDownloadMergedBtn');
+        if (dlMergedBtn) {
+            dlMergedBtn.addEventListener('click', () => {
+                if (mergedBlob) {
+                    triggerDownload(mergedBlob, mergedFilename);
+                    aePurchaseLog(`Downloaded Merged Excel file: ${mergedFilename}`, 'info');
+                }
+            });
+        }
+
+        // 3. Processed Files Table Card
+        const tableCard = document.createElement('div');
+        tableCard.style.background = 'white';
+        tableCard.style.border = '1px solid var(--border-color)';
+        tableCard.style.borderRadius = '12px';
+        tableCard.style.overflow = 'hidden';
+        tableCard.style.boxShadow = '0 1px 3px rgba(0,0,0,0.03)';
+
+        const tableHeader = document.createElement('div');
+        tableHeader.style.padding = '0.75rem 1rem';
+        tableHeader.style.borderBottom = '1px solid var(--border-color)';
+        tableHeader.style.background = '#f8fafc';
+        tableHeader.style.display = 'flex';
+        tableHeader.style.justifyContent = 'space-between';
+        tableHeader.style.alignItems = 'center';
+        tableHeader.innerHTML = `
+            <span style="font-size: 0.85rem; font-weight: 700; color: #1e293b;"><i class="fa-solid fa-table-list text-purple"></i> Processed Purchase Details Files (${filesList.length})</span>
+            <span style="font-size: 0.75rem; color: var(--text-muted);">Column O (Order date) successfully updated</span>
+        `;
+        const tableWrap = document.createElement('div');
+        tableWrap.style.overflowX = 'auto';
+        tableWrap.style.overflowY = 'auto';
+        tableWrap.style.maxHeight = '280px';
+        tableWrap.style.webkitOverflowScrolling = 'touch';
+
+        const table = document.createElement('table');
+        table.className = 'data-table';
+        table.style.width = '100%';
+        table.style.minWidth = '720px';
+        table.style.fontSize = '0.82rem';
+
+        table.innerHTML = `
+            <thead style="position: sticky; top: 0; z-index: 2; background: #f8fafc;">
+                <tr>
+                    <th style="width: 40px; text-align: center; background: #f8fafc;">#</th>
+                    <th style="background: #f8fafc;">Details File Name</th>
+                    <th style="background: #f8fafc;">Sheet Name</th>
+                    <th style="text-align: center; background: #f8fafc;">Total Rows</th>
+                    <th style="text-align: center; background: #f8fafc;">Matched Dates</th>
+                    <th style="text-align: center; background: #f8fafc;">Unmatched</th>
+                    <th style="text-align: center; background: #f8fafc;">Status</th>
+                    <th style="text-align: center; width: 140px; background: #f8fafc;">Actions</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        `;
+
+        const tbody = table.querySelector('tbody');
+        filesList.forEach((file, idx) => {
+            const tr = document.createElement('tr');
+            const matchRate = file.totalRows > 0 ? Math.round((file.matched / file.totalRows) * 100) : 0;
+            const isFullMatch = file.unmatched === 0;
+
+            tr.innerHTML = `
+                <td style="text-align: center; font-weight: 700; color: var(--text-muted);">${idx + 1}</td>
+                <td style="font-weight: 600; color: var(--text-primary);">
+                    <i class="fa-solid fa-file-excel text-purple" style="margin-right: 0.35rem;"></i>
+                    ${file.name}
+                </td>
+                <td style="color: #64748b; font-family: monospace; font-size: 0.78rem;">[${file.sheetName}]</td>
+                <td style="text-align: center; font-weight: 700;">${file.totalRows}</td>
+                <td style="text-align: center; font-weight: 700; color: #15803d;">${file.matched}</td>
+                <td style="text-align: center; font-weight: 700; color: ${file.unmatched > 0 ? '#b45309' : '#64748b'};">${file.unmatched}</td>
+                <td style="text-align: center;">
+                    <span style="font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 6px; background: ${isFullMatch ? '#dcfce7' : '#fef3c7'}; color: ${isFullMatch ? '#15803d' : '#b45309'}; border: 1px solid ${isFullMatch ? '#86efac' : '#fde68a'};">
+                        ${matchRate}% Matched
+                    </span>
+                </td>
+                <td style="text-align: center;">
+                    <div style="display: inline-flex; gap: 0.35rem;">
+                        <button type="button" class="btn btn-download-single" title="Download this updated file" style="padding: 0.3rem 0.6rem; font-size: 0.75rem; border-radius: 6px; background: #ede9fe; color: #6d28d9; border: 1px solid #d8b4fe; cursor: pointer;">
+                            <i class="fa-solid fa-download"></i>
+                        </button>
+                        <button type="button" class="btn btn-preview-single" title="Preview Excel data" style="padding: 0.3rem 0.6rem; font-size: 0.75rem; border-radius: 6px; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; cursor: pointer;">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            // Bind single download
+            const dlBtn = tr.querySelector('.btn-download-single');
+            if (dlBtn) {
+                dlBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    triggerDownload(file.blob, file.name);
+                    aePurchaseLog(`Downloaded individual file: ${file.name}`, 'info');
+                });
+            }
+
+            // Bind preview
+            const prevBtn = tr.querySelector('.btn-preview-single');
+            if (prevBtn) {
+                prevBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (typeof openExcelDataViewer === 'function') {
+                        openExcelDataViewer({
+                            name: file.name,
+                            newName: file.name,
+                            blob: file.blob,
+                            aoa: file.aoa
+                        });
+                    }
+                });
+            }
+
+            tbody.appendChild(tr);
+        });
+
+        tableWrap.appendChild(table);
+        tableCard.appendChild(tableWrap);
+        aePurchaseOutputContainer.appendChild(tableCard);
+    }
+
+    if (aePurchaseBtn) {
+        aePurchaseBtn.addEventListener('click', async () => {
+            if (aePurchaseDetailsFiles.length === 0 || !aePurchaseDataFile) return;
+
+            aePurchaseBtn.setAttribute('disabled', 'true');
+            if (aePurchaseStatus) {
+                aePurchaseStatus.className = 'status-indicator processing';
+                aePurchaseStatus.innerText = 'Processing';
+            }
+            if (aePurchaseProgressCard) aePurchaseProgressCard.classList.remove('hidden');
+            if (aePurchaseProgressBar) aePurchaseProgressBar.style.width = '5%';
+            if (aePurchaseProgressPercent) aePurchaseProgressPercent.innerText = '5%';
+            if (aePurchaseProgressStepText) aePurchaseProgressStepText.innerText = 'Reading Ajio Data file...';
+
+            if (aePurchaseOutputContainer) {
+                aePurchaseOutputContainer.innerHTML = `
+                    <div class="empty-output-state">
+                        <i class="fa-solid fa-spinner fa-spin placeholder-icon" style="color: #7b2cbf;"></i>
+                        <p>Processing Purchase Details and matching with Ajio Data file...</p>
+                    </div>
+                `;
+            }
+
+            try {
+                aePurchaseLog('Starting Purchase Error Process...', 'process');
+                aePurchaseLog(`Selected Details Files: ${aePurchaseDetailsFiles.length}`, 'info');
+                aePurchaseLog(`Selected Ajio Data File: ${aePurchaseDataFile.name}`, 'info');
+
+                // Step 1: Read and Index the Ajio Data File
+                if (aePurchaseProgressBar) aePurchaseProgressBar.style.width = '10%';
+                if (aePurchaseProgressPercent) aePurchaseProgressPercent.innerText = '10%';
+                if (aePurchaseProgressStepText) aePurchaseProgressStepText.innerText = 'Parsing Ajio Data spreadsheet...';
+
+                const dataBuffer = await readFileAsArrayBuffer(aePurchaseDataFile);
+                const dataWb = XLSX.read(dataBuffer, { type: 'array', cellDates: true });
+                
+                // Find sheet with data or default to first
+                let dataSheetName = dataWb.SheetNames[0];
+                for (const sName of dataWb.SheetNames) {
+                    const low = sName.toLowerCase();
+                    if (low.includes('data') || low.includes('ajio')) {
+                        dataSheetName = sName;
+                        break;
+                    }
+                }
+
+                const dataWs = dataWb.Sheets[dataSheetName];
+                const dataAoa = XLSX.utils.sheet_to_json(dataWs, { header: 1, defval: "" });
+                aePurchaseLog(`Loaded Ajio Data sheet [${dataSheetName}] with ${dataAoa.length} rows.`, 'info');
+
+                if (dataAoa.length < 2) {
+                    throw new Error(`Ajio Data sheet [${dataSheetName}] is empty or has no data rows.`);
+                }
+
+                // Locate Data file header row
+                let dataHeaderRowIndex = -1;
+                for (let i = 0; i < Math.min(dataAoa.length, 10); i++) {
+                    const row = dataAoa[i];
+                    if (row && row.some(cell => {
+                        const str = String(cell || "").trim().toLowerCase();
+                        return str.includes("seller invoice") || str.includes("seller order") || str.includes("customer order") || str.includes("cust order date");
+                    })) {
+                        dataHeaderRowIndex = i;
+                        break;
+                    }
+                }
+                if (dataHeaderRowIndex === -1) {
+                    dataHeaderRowIndex = 1; // Default row 2 (index 1)
+                }
+
+                const dataHeaderRow = dataAoa[dataHeaderRowIndex] || [];
+                let sellerInvoiceCol = 7; // Col H default
+                let sellerOrderNoCol = 4; // Col E default
+                let custOrderNoCol = 1;   // Col B default
+                let custOrderDateCol = 2; // Col C default
+
+                for (let c = 0; c < dataHeaderRow.length; c++) {
+                    const val = String(dataHeaderRow[c] || "").trim().toLowerCase().replace(/[\._\-\s]+/g, " ");
+                    
+                    // 1. Seller Invoice No (Col H - MUST NOT be date)
+                    if ((val === "seller invoice no" || val === "seller invoice number" || val === "seller invoice" || val.includes("seller invoice")) && !val.includes("date")) {
+                        sellerInvoiceCol = c;
+                    }
+                    // 2. Seller Order No (Col E - MUST NOT be date or invoice)
+                    else if ((val === "seller order no" || val === "seller order number" || val === "seller order" || val.includes("seller order")) && !val.includes("date") && !val.includes("invoice")) {
+                        sellerOrderNoCol = c;
+                    }
+                    // 3. Customer Order No (Col B - MUST NOT be date)
+                    else if ((val === "customer order no" || val === "cust order no" || val === "customer order number" || val === "customer order" || val.includes("customer order") || val.includes("cust order")) && !val.includes("date")) {
+                        custOrderNoCol = c;
+                    }
+                    // 4. Cust Order Date (Col C - MUST contain order + date, NOT invoice or po)
+                    else if ((val === "cust order date" || val === "customer order date" || (val.includes("order") && val.includes("date"))) && !val.includes("invoice") && !val.includes("po")) {
+                        custOrderDateCol = c;
+                    }
+                }
+
+                aePurchaseLog(`Data File Columns detected: Seller Invoice No = Col ${colNumToExcelLetter(sellerInvoiceCol)} (${sellerInvoiceCol}), Seller Order No = Col ${colNumToExcelLetter(sellerOrderNoCol)} (${sellerOrderNoCol}), Cust Order Date = Col ${colNumToExcelLetter(custOrderDateCol)} (${custOrderDateCol})`, 'info');
+
+                // Build multi-strategy lookup maps
+                const dataCompositeMap = new Map();
+                const dataCustCompositeMap = new Map();
+                const dataInvoiceOnlyMap = new Map();
+                const dataOrderOnlyMap = new Map();
+                const dataCustOrderOnlyMap = new Map();
+
+                for (let r = dataHeaderRowIndex + 1; r < dataAoa.length; r++) {
+                    const row = dataAoa[r];
+                    if (!row || row.length === 0) continue;
+                    const inv = row[sellerInvoiceCol];
+                    const ord = row[sellerOrderNoCol];
+                    const custOrd = row[custOrderNoCol];
+                    const dt = row[custOrderDateCol];
+
+                    const formattedDate = formatPurchaseDateVal(dt);
+                    if (formattedDate !== "") {
+                        const cleanInv = cleanPurchaseKeyVal(inv);
+                        const cleanOrd = cleanPurchaseKeyVal(ord);
+                        const cleanCustOrd = cleanPurchaseKeyVal(custOrd);
+
+                        if (cleanInv && cleanOrd) {
+                            dataCompositeMap.set(`${cleanInv}__${cleanOrd}`, formattedDate);
+                        }
+                        if (cleanInv && cleanCustOrd) {
+                            dataCustCompositeMap.set(`${cleanInv}__${cleanCustOrd}`, formattedDate);
+                        }
+                        if (cleanInv && !dataInvoiceOnlyMap.has(cleanInv)) {
+                            dataInvoiceOnlyMap.set(cleanInv, formattedDate);
+                        }
+                        if (cleanOrd && !dataOrderOnlyMap.has(cleanOrd)) {
+                            dataOrderOnlyMap.set(cleanOrd, formattedDate);
+                        }
+                        if (cleanCustOrd && !dataCustOrderOnlyMap.has(cleanCustOrd)) {
+                            dataCustOrderOnlyMap.set(cleanCustOrd, formattedDate);
+                        }
+                    }
+                }
+
+                aePurchaseLog(`Indexed ${dataCompositeMap.size} composite keys + ${dataOrderOnlyMap.size} order keys from Data file.`, 'success');
+
+                // Step 2: Process Each Details File
+                const zip = new JSZip();
+                const mergedWb = XLSX.utils.book_new();
+                const processedFilesList = [];
+                let overallTotalRows = 0;
+                let overallMatchedCount = 0;
+                let overallUnmatchedCount = 0;
+
+                const totalFiles = aePurchaseDetailsFiles.length;
+
+                for (let fileIdx = 0; fileIdx < totalFiles; fileIdx++) {
+                    const fileObj = aePurchaseDetailsFiles[fileIdx];
+                    const progressPercent = 20 + Math.round((fileIdx / totalFiles) * 60);
+                    if (aePurchaseProgressBar) aePurchaseProgressBar.style.width = `${progressPercent}%`;
+                    if (aePurchaseProgressPercent) aePurchaseProgressPercent.innerText = `${progressPercent}%`;
+                    if (aePurchaseProgressStepText) aePurchaseProgressStepText.innerText = `Processing file ${fileIdx + 1} of ${totalFiles}: ${fileObj.name}...`;
+
+                    aePurchaseLog(`Processing Details File [${fileIdx + 1}/${totalFiles}]: ${fileObj.name}...`, 'info');
+
+                    const detailsBuffer = await readFileAsArrayBuffer(fileObj.file);
+                    const detailsWb = XLSX.read(detailsBuffer, { type: 'array', cellDates: true });
+                    const detailsSheetName = detailsWb.SheetNames[0];
+                    const detailsWs = detailsWb.Sheets[detailsSheetName];
+                    const detailsAoa = XLSX.utils.sheet_to_json(detailsWs, { header: 1, defval: "", raw: false });
+
+                    if (detailsAoa.length < 2) {
+                        aePurchaseLog(`Skipped [${fileObj.name}]: Sheet has no data rows.`, 'warning');
+                        continue;
+                    }
+
+                    // Locate Details Header Row (row containing "invoice no" or "sale invoice no")
+                    let detailsHeaderRowIndex = -1;
+                    for (let i = 0; i < Math.min(detailsAoa.length, 5); i++) {
+                        const row = detailsAoa[i];
+                        if (row && row.some(cell => {
+                            const str = String(cell || "").trim().toLowerCase();
+                            return str.includes("sale invoice") || str.includes("invoice no") || str.includes("order id");
+                        })) {
+                            detailsHeaderRowIndex = i;
+                            break;
+                        }
+                    }
+                    if (detailsHeaderRowIndex === -1) {
+                        detailsHeaderRowIndex = 1; // Default row 2 (index 1)
+                    }
+
+                    const detailsHeaderRow = detailsAoa[detailsHeaderRowIndex] || [];
+                    let saleInvoiceCol = 1; // Col B default
+                    let orderIdCol = 3;     // Col D default
+                    let itemAsinCol = 4;    // Col E default
+                    let orderDateCol = 14;  // Col O default
+
+                    for (let c = 0; c < detailsHeaderRow.length; c++) {
+                        const val = String(detailsHeaderRow[c] || "").trim().toLowerCase().replace(/[\._\-\s]+/g, " ");
+                        if ((val === "sale invoice no" || val === "sale invoice number" || val === "sale invoice" || val.includes("sale invoice")) && !val.includes("date")) {
+                            saleInvoiceCol = c;
+                        } else if ((val === "order id" || val === "orderid" || val === "order no" || val === "order number" || (val.includes("order") && (val.includes("id") || val.includes("no")))) && !val.includes("date") && !val.includes("sale") && !val.includes("invoice")) {
+                            orderIdCol = c;
+                        } else if (val === "item asin" || val === "asin" || val.includes("asin")) {
+                            itemAsinCol = c;
+                        } else if ((val === "order date" || val === "cust order date" || (val.includes("order") && val.includes("date"))) && !val.includes("invoice")) {
+                            orderDateCol = c;
+                        }
+                    }
+
+                    // Ensure Column O (index 14) in header row is "Order date"
+                    while (detailsHeaderRow.length < 15) {
+                        detailsHeaderRow.push("");
+                    }
+                    detailsHeaderRow[14] = "Order date";
+
+                    const updatedFileAoa = [];
+                    // Preserve title row(s) before header row
+                    for (let r = 0; r < detailsHeaderRowIndex; r++) {
+                        const titleRow = [...(detailsAoa[r] || [])];
+                        while (titleRow.length < 15) titleRow.push("");
+                        updatedFileAoa.push(titleRow);
+                    }
+                    updatedFileAoa.push(detailsHeaderRow);
+
+                    let fileTotalRows = 0;
+                    let fileMatchedCount = 0;
+                    let fileUnmatchedCount = 0;
+
+                    for (let r = detailsHeaderRowIndex + 1; r < detailsAoa.length; r++) {
+                        const rawRow = detailsAoa[r];
+                        if (!rawRow || rawRow.every(c => String(c || "").trim() === "")) continue;
+
+                        const row = [...rawRow];
+                        while (row.length < 15) row.push("");
+
+                        // Force Column E (Item Asin) to clean text string
+                        if (row[itemAsinCol] !== undefined && row[itemAsinCol] !== null) {
+                            row[itemAsinCol] = toPureText(row[itemAsinCol]);
+                        }
+                        if (row[4] !== undefined && row[4] !== null) {
+                            row[4] = toPureText(row[4]);
+                        }
+                        // Force Column D (Order ID) to clean text string
+                        if (row[orderIdCol] !== undefined && row[orderIdCol] !== null) {
+                            row[orderIdCol] = toPureText(row[orderIdCol]);
+                        }
+                        if (row[3] !== undefined && row[3] !== null) {
+                            row[3] = toPureText(row[3]);
+                        }
+
+                        const saleInv = row[saleInvoiceCol];
+                        const orderId = row[orderIdCol];
+                        const cleanInv = cleanPurchaseKeyVal(saleInv);
+                        const cleanOrd = cleanPurchaseKeyVal(orderId);
+
+                        // 1. Try Primary Composite Key: Sale Invoice + Order ID
+                        let matchedDate = dataCompositeMap.get(`${cleanInv}__${cleanOrd}`);
+
+                        // 2. Try Secondary Composite Key: Sale Invoice + Cust Order ID
+                        if (!matchedDate) {
+                            matchedDate = dataCustCompositeMap.get(`${cleanInv}__${cleanOrd}`);
+                        }
+
+                        // 3. Try Normalized alphanumeric Order ID
+                        if (!matchedDate && cleanOrd) {
+                            const altOrd = cleanOrd.replace(/[^0-9A-Z]/g, '');
+                            matchedDate = dataCompositeMap.get(`${cleanInv}__${altOrd}`);
+                        }
+
+                        // 4. Try Order ID Only lookup
+                        if (!matchedDate && cleanOrd) {
+                            matchedDate = dataOrderOnlyMap.get(cleanOrd) || dataCustOrderOnlyMap.get(cleanOrd);
+                        }
+
+                        // 5. Try Invoice No Only lookup
+                        if (!matchedDate && cleanInv) {
+                            matchedDate = dataInvoiceOnlyMap.get(cleanInv);
+                        }
+
+                        if (matchedDate) {
+                            row[14] = matchedDate; // Write into Column O (index 14)
+                            fileMatchedCount++;
+                        } else {
+                            row[14] = ""; // Keep empty
+                            fileUnmatchedCount++;
+                        }
+                        fileTotalRows++;
+                        updatedFileAoa.push(row);
+                    }
+
+                    overallTotalRows += fileTotalRows;
+                    overallMatchedCount += fileMatchedCount;
+                    overallUnmatchedCount += fileUnmatchedCount;
+
+                    // Convert to Worksheet and apply formatting
+                    const fileWs = XLSX.utils.aoa_to_sheet(updatedFileAoa);
+                    if (detailsHeaderRowIndex > 0) {
+                        // Title banner row 1 merge across A1:O1 (0,0 to 0,14)
+                        fileWs['!merges'] = [
+                            { s: { r: 0, c: 0 }, e: { r: 0, c: 14 } }
+                        ];
+                    }
+                    formatPurchaseWorksheet(fileWs);
+
+                    // Build clean safe sheet name from file name
+                    const cleanSheetName = getSafeSheetName(fileObj.name.replace(/\.[^/.]+$/, ""));
+
+                    // Save single file workbook
+                    const singleWb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(singleWb, fileWs, cleanSheetName);
+                    const singleBuffer = XLSX.write(singleWb, { bookType: 'xlsx', type: 'array' });
+                    const singleBlob = new Blob([singleBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+                    // Add to ZIP and Merged Workbook
+                    zip.file(fileObj.name, singleBuffer);
+                    
+                    // Avoid duplicate sheet names in merged workbook
+                    let mergedSheetName = cleanSheetName;
+                    let dupIndex = 1;
+                    while (mergedWb.SheetNames.includes(mergedSheetName)) {
+                        mergedSheetName = getSafeSheetName(`${cleanSheetName}_${dupIndex++}`);
+                    }
+                    XLSX.utils.book_append_sheet(mergedWb, fileWs, mergedSheetName);
+
+                    processedFilesList.push({
+                        name: fileObj.name,
+                        sheetName: mergedSheetName,
+                        blob: singleBlob,
+                        totalRows: fileTotalRows,
+                        matched: fileMatchedCount,
+                        unmatched: fileUnmatchedCount,
+                        aoa: updatedFileAoa
+                    });
+
+                    // Register into Error Dispute Tracker
+                    const partyOrWhName = fileObj.name.replace(/\.[^/.]+$/, "").replace(/price dispute/gi, "").replace(/[-_]+/g, " ").trim() || fileObj.name;
+                    registerTrackedError('purchase', fileObj.name, partyOrWhName, 'Purchase Price Dispute', fileTotalRows);
+
+                    aePurchaseLog(`[${fileObj.name}] Done: ${fileTotalRows} rows (${fileMatchedCount} dates matched, ${fileUnmatchedCount} unmatched) -> Added to Error Tracker`, fileMatchedCount > 0 ? 'success' : 'warning');
+                }
+
+                if (processedFilesList.length === 0) {
+                    throw new Error('No Details files could be processed.');
+                }
+
+                // Step 3: Finalize Merged Excel & ZIP Bundle
+                if (aePurchaseProgressBar) aePurchaseProgressBar.style.width = '85%';
+                if (aePurchaseProgressPercent) aePurchaseProgressPercent.innerText = '85%';
+                if (aePurchaseProgressStepText) aePurchaseProgressStepText.innerText = 'Finalizing Merged Excel and ZIP package...';
+
+                const timestampStr = getFormattedDateTime().replace(/[:\s]/g, '_');
+                aePurchaseMergedFilename = `Merged_Purchase_Errors_${timestampStr}.xlsx`;
+                aePurchaseZipFilename = `ajio_purchase_error_bundle_${timestampStr}.zip`;
+
+                const mergedBuffer = XLSX.write(mergedWb, { bookType: 'xlsx', type: 'array' });
+                aePurchaseMergedBlob = new Blob([mergedBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                zip.file(aePurchaseMergedFilename, mergedBuffer);
+
+                aePurchaseZipBlob = await zip.generateAsync({ type: 'blob' });
+
+                if (aePurchaseProgressBar) aePurchaseProgressBar.style.width = '100%';
+                if (aePurchaseProgressPercent) aePurchaseProgressPercent.innerText = '100% Completed';
+                if (aePurchaseProgressStepText) aePurchaseProgressStepText.innerText = 'All purchase files processed successfully!';
+                
+                if (aePurchaseStatus) {
+                    aePurchaseStatus.className = 'status-indicator success';
+                    aePurchaseStatus.innerText = 'Completed';
+                }
+
+                aePurchaseLog(`Successfully completed! ${processedFilesList.length} files processed. Total records: ${overallTotalRows} (${overallMatchedCount} dates matched).`, 'success');
+                aePurchaseLog(`Merged Excel created: "${aePurchaseMergedFilename}" (${formatBytes(aePurchaseMergedBlob.size)})`, 'success');
+                aePurchaseLog(`ZIP Package created: "${aePurchaseZipFilename}" (${formatBytes(aePurchaseZipBlob.size)})`, 'success');
+
+                // Step 4: Render Results Dashboard
+                renderAePurchaseDashboard(
+                    processedFilesList,
+                    aePurchaseMergedBlob,
+                    aePurchaseZipFilename,
+                    aePurchaseMergedFilename,
+                    {
+                        totalFiles: processedFilesList.length,
+                        totalRows: overallTotalRows,
+                        totalMatched: overallMatchedCount,
+                        totalUnmatched: overallUnmatchedCount
+                    }
+                );
+
+                alert(`PURCHASE ERROR PROCESS COMPLETED SUCCESSFULLY!\n\n- Processed Files: ${processedFilesList.length}\n- Total Records: ${overallTotalRows}\n- Dates Matched: ${overallMatchedCount}\n\nMerged Excel & ZIP package are ready for download!`);
+
+            } catch (err) {
+                console.error('Purchase process error:', err);
+                aePurchaseLog(`Purchase process failed: ${err.message}`, 'error');
+                if (aePurchaseStatus) {
+                    aePurchaseStatus.className = 'status-indicator idle';
+                    aePurchaseStatus.innerText = 'Failed';
+                }
+                if (aePurchaseOutputContainer) {
+                    aePurchaseOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-circle-exclamation placeholder-icon" style="color: #ef4444;"></i>
+                            <p style="color: #ef4444; font-weight: 600;">Error: ${err.message}</p>
+                        </div>
+                    `;
+                }
+            } finally {
+                aePurchaseBtn.removeAttribute('disabled');
+            }
+        });
+    }
+
+    /* ==========================================================================
        FOLDER CREATE LOGIC
        ========================================================================== */
     let fcFiles = [];
@@ -10620,6 +11582,896 @@ function doPost(e) {
         });
     }
 
+    /* ==========================================================================
+       LOSS ERROR TAB LOGIC
+       ========================================================================== */
+    const leDetailsFileInput = document.getElementById('leDetailsFileInput');
+    const leDetailsDropzone = document.getElementById('leDetailsDropzone');
+    const leDetailsFileDisplay = document.getElementById('leDetailsFileDisplay');
+    const leDetailsSelectedCount = document.getElementById('leDetailsSelectedCount');
+    const leDetailsUploadedFileList = document.getElementById('leDetailsUploadedFileList');
+    const clearLeDetailsFilesBtn = document.getElementById('clearLeDetailsFilesBtn');
+
+    const leDataFileInput = document.getElementById('leDataFileInput');
+    const leDataDropzone = document.getElementById('leDataDropzone');
+    const leDataFileDisplay = document.getElementById('leDataFileDisplay');
+
+    const leBtn = document.getElementById('leBtn');
+    const leStatus = document.getElementById('leStatus');
+    const leProgressCard = document.getElementById('leProgressCard');
+    const leProgressBar = document.getElementById('leProgressBar');
+    const leProgressPercent = document.getElementById('leProgressPercent');
+    const leProgressStepText = document.getElementById('leProgressStepText');
+    const leOutputContainer = document.getElementById('leOutputContainer');
+    const leConsoleLog = document.getElementById('leConsoleLog');
+    const clearLeLogBtn = document.getElementById('clearLeLogBtn');
+
+    let leDetailsFiles = []; // Array of { file, name, size }
+    let leDataFile = null;
+    let leZipBlob = null;
+    let leMergedBlob = null;
+
+    function leLog(msg, type = 'info') {
+        if (!leConsoleLog) return;
+        const line = document.createElement('div');
+        line.className = `log-line ${type}`;
+        line.innerHTML = `<span class="log-time">[${new Date().toLocaleTimeString()}]</span> ${msg}`;
+        leConsoleLog.appendChild(line);
+        leConsoleLog.scrollTop = leConsoleLog.scrollHeight;
+    }
+
+    if (clearLeLogBtn) {
+        clearLeLogBtn.addEventListener('click', () => {
+            if (leConsoleLog) {
+                leConsoleLog.innerHTML = '<div class="log-line info">[System] Log cleared.</div>';
+            }
+        });
+    }
+
+    function checkLeInputs() {
+        if (leDetailsFiles.length > 0 && leDataFile) {
+            leBtn.removeAttribute('disabled');
+        } else {
+            leBtn.setAttribute('disabled', 'true');
+        }
+    }
+
+    function updateLeDetailsFileListUI() {
+        if (!leDetailsUploadedFileList || !leDetailsSelectedCount) return;
+        leDetailsUploadedFileList.innerHTML = '';
+        leDetailsSelectedCount.innerText = leDetailsFiles.length;
+
+        if (leDetailsFiles.length === 0) {
+            leDetailsUploadedFileList.innerHTML = '<div class="empty-list-msg">No loss details files selected yet.</div>';
+            if (leDetailsFileDisplay) leDetailsFileDisplay.innerText = 'Drag & drop or Click to choose multiple files';
+            if (leDetailsDropzone) leDetailsDropzone.classList.remove('file-selected');
+            checkLeInputs();
+            return;
+        }
+
+        if (leDetailsFileDisplay) {
+            leDetailsFileDisplay.innerText = `${leDetailsFiles.length} file(s) selected: ${leDetailsFiles[0].name}${leDetailsFiles.length > 1 ? ` (+${leDetailsFiles.length - 1} more)` : ''}`;
+        }
+        if (leDetailsDropzone) leDetailsDropzone.classList.add('file-selected');
+
+        leDetailsFiles.forEach((fileObj, idx) => {
+            const item = document.createElement('div');
+            item.className = 'file-item';
+            item.innerHTML = `
+                <div class="file-info">
+                    <i class="fa-solid fa-file-excel file-icon text-rose" style="color: #e11d48;"></i>
+                    <span class="file-name" title="${fileObj.name}">${fileObj.name}</span>
+                    <span class="file-size">(${formatBytes(fileObj.size)})</span>
+                </div>
+                <button type="button" class="file-action-btn remove-le-file" data-idx="${idx}" title="Remove file">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            `;
+            const removeBtn = item.querySelector('.remove-le-file');
+            if (removeBtn) {
+                removeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    leDetailsFiles.splice(idx, 1);
+                    updateLeDetailsFileListUI();
+                });
+            }
+            leDetailsUploadedFileList.appendChild(item);
+        });
+
+        checkLeInputs();
+    }
+
+    if (leDetailsDropzone && leDetailsFileInput) {
+        leDetailsDropzone.addEventListener('click', () => leDetailsFileInput.click());
+        leDetailsFileInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            let added = 0;
+            files.forEach(f => {
+                if (!leDetailsFiles.some(existing => existing.name === f.name)) {
+                    leDetailsFiles.push({ file: f, name: f.name, size: f.size });
+                    added++;
+                }
+            });
+            leDetailsFileInput.value = '';
+            if (added > 0) {
+                leLog(`Added ${added} Loss Details file(s). Total: ${leDetailsFiles.length}`, 'success');
+            }
+            updateLeDetailsFileListUI();
+        });
+    }
+
+    if (clearLeDetailsFilesBtn) {
+        clearLeDetailsFilesBtn.addEventListener('click', () => {
+            leDetailsFiles = [];
+            if (leDetailsFileInput) leDetailsFileInput.value = '';
+            updateLeDetailsFileListUI();
+            leLog('Cleared all selected Loss Details files.', 'info');
+        });
+    }
+
+    if (leDataDropzone && leDataFileInput) {
+        setupMiniDropzone(leDataDropzone, leDataFileInput, (file) => {
+            leDataFile = file;
+            if (leDataFileDisplay) {
+                leDataFileDisplay.innerText = file.name;
+                leDataFileDisplay.title = file.name;
+            }
+            leDataDropzone.classList.add('file-selected');
+            leLog(`Selected Reference Data File: ${file.name} (${formatBytes(file.size)})`, 'info');
+            checkLeInputs();
+        });
+    }
+
+    function cleanLossKeyVal(val) {
+        if (val === undefined || val === null) return "";
+        let str = toPureText(val).toUpperCase();
+        str = str.replace(/\s+/g, '').trim();
+        return str;
+    }
+
+    function formatLossDateVal(dt) {
+        if (dt === undefined || dt === null) return "";
+        if (typeof dt === 'number' && dt > 20000 && dt < 80000) {
+            const dObj = new Date(Math.round((dt - 25569) * 86400 * 1000));
+            const pad = n => String(n).padStart(2, '0');
+            return `${pad(dObj.getDate())}/${pad(dObj.getMonth() + 1)}/${dObj.getFullYear()}`;
+        }
+        if (dt instanceof Date && !isNaN(dt.getTime())) {
+            const pad = n => String(n).padStart(2, '0');
+            return `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}/${dt.getFullYear()}`;
+        }
+        return String(dt).trim();
+    }
+
+    function formatLossWorksheet(ws) {
+        if (!ws || !ws['!ref']) return;
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        const cols = [];
+
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            cols.push({ wch: 12 });
+        }
+
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            if (R === 0 && ws['!merges'] && ws['!merges'].length > 0) {
+                continue; // Skip title banner row for col width calc
+            }
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const cell_address = { c: C, r: R };
+                const cell_ref = XLSX.utils.encode_cell(cell_address);
+                const cell = ws[cell_ref];
+                if (cell && cell.v !== undefined && cell.v !== null) {
+                    const len = String(cell.v).length;
+                    if (len > cols[C].wch) cols[C].wch = len;
+                }
+            }
+        }
+
+        cols.forEach((col, idx) => {
+            if (idx === 5) {
+                col.wch = Math.min(Math.max(col.wch + 4, 15), 25); // Order date (Col F)
+            } else if (idx === 1) {
+                col.wch = Math.min(Math.max(col.wch + 3, 16), 30); // Order ID (Col B)
+            } else if (idx === 6 || idx === 0) {
+                col.wch = Math.min(Math.max(col.wch + 3, 16), 30); // Invoice IDs
+            } else {
+                col.wch = Math.min(Math.max(col.wch + 3, 12), 35);
+            }
+        });
+        ws['!cols'] = cols;
+
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const cell_address = { c: C, r: R };
+                const cell_ref = XLSX.utils.encode_cell(cell_address);
+                if (!ws[cell_ref]) {
+                    ws[cell_ref] = { t: 's', v: '' };
+                }
+                const cell = ws[cell_ref];
+                const isTitle = (R === 0);
+                const isHeader = (R === 1);
+                const isData = (R >= 2);
+
+                cell.s = {
+                    border: {
+                        top: { style: 'thin', color: { rgb: 'E5E7EB' } },
+                        bottom: { style: 'thin', color: { rgb: 'E5E7EB' } },
+                        left: { style: 'thin', color: { rgb: 'E5E7EB' } },
+                        right: { style: 'thin', color: { rgb: 'E5E7EB' } }
+                    }
+                };
+
+                if (isTitle) {
+                    cell.s.font = { name: 'Segoe UI', sz: 12, bold: true, color: { rgb: 'FFFFFF' } };
+                    cell.s.fill = { fgColor: { rgb: 'E11D48' } }; // Rose/Crimson banner
+                    cell.s.alignment = { horizontal: 'center', vertical: 'center' };
+                } else if (isHeader) {
+                    cell.s.font = { name: 'Segoe UI', sz: 10, bold: true, color: { rgb: '1E293B' } };
+                    if (C === 5) {
+                        cell.s.fill = { fgColor: { rgb: 'DCFCE7' } }; // Light Green for Order Date (Col F)
+                        cell.s.font = { name: 'Segoe UI', sz: 10, bold: true, color: { rgb: '15803D' } };
+                    } else {
+                        cell.s.fill = { fgColor: { rgb: 'F1F5F9' } };
+                    }
+                    cell.s.alignment = { horizontal: (C === 1 || C === 5) ? 'center' : 'left', vertical: 'center' };
+                } else if (isData) {
+                    cell.s.font = { name: 'Segoe UI', sz: 9.5, color: { rgb: '334155' } };
+                    
+                    // Col B: Order ID (Pure text formatting)
+                    if (C === 1) {
+                        cell.t = 's';
+                        cell.z = '@';
+                        cell.v = toPureText(cell.v);
+                        cell.s.alignment = { horizontal: 'center', vertical: 'center' };
+                    }
+                    // Col F: Order date
+                    else if (C === 5) {
+                        cell.t = 's';
+                        cell.z = '@';
+                        cell.s.alignment = { horizontal: 'center', vertical: 'center' };
+                        if (cell.v && String(cell.v).trim() !== '') {
+                            cell.s.font = { name: 'Segoe UI', sz: 9.5, bold: true, color: { rgb: '15803D' } };
+                        }
+                    }
+                    // Numerical amount columns (C, D, E)
+                    else if (C === 2 || C === 3 || C === 4) {
+                        cell.s.alignment = { horizontal: 'right', vertical: 'center' };
+                    }
+                    // Invoice IDs
+                    else {
+                        cell.s.alignment = { horizontal: 'left', vertical: 'center' };
+                    }
+                }
+            }
+        }
+    }
+
+    function renderLeDashboard(filesList, mergedBlob, zipFilename, mergedFilename, stats) {
+        if (!leOutputContainer) return;
+        leOutputContainer.innerHTML = '';
+        leOutputContainer.className = 'processed-container';
+        leOutputContainer.style.maxHeight = 'none';
+        leOutputContainer.style.overflow = 'visible';
+
+        // 1. Stats Cards
+        const statsRow = document.createElement('div');
+        statsRow.className = 'stats-card-grid';
+        statsRow.style.display = 'grid';
+        statsRow.style.gridTemplateColumns = 'repeat(auto-fit, minmax(130px, 1fr))';
+        statsRow.style.gap = '0.75rem';
+        statsRow.style.marginBottom = '1.25rem';
+
+        statsRow.innerHTML = `
+            <div style="background: white; border: 1px solid var(--border-color); border-radius: 10px; padding: 0.85rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Total Files</div>
+                <div style="font-size: 1.4rem; font-weight: 800; color: #e11d48; margin-top: 0.2rem;">${stats.totalFiles}</div>
+            </div>
+            <div style="background: white; border: 1px solid var(--border-color); border-radius: 10px; padding: 0.85rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Total Rows</div>
+                <div style="font-size: 1.4rem; font-weight: 800; color: #1e293b; margin-top: 0.2rem;">${stats.totalRows}</div>
+            </div>
+            <div style="background: white; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; padding: 0.85rem; background: rgba(240, 253, 244, 0.6); box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                <div style="font-size: 0.72rem; color: #15803d; font-weight: 600; text-transform: uppercase;">Dates Matched</div>
+                <div style="font-size: 1.4rem; font-weight: 800; color: #15803d; margin-top: 0.2rem;">${stats.totalMatched}</div>
+            </div>
+            <div style="background: white; border: 1px solid ${stats.totalUnmatched > 0 ? 'rgba(245, 158, 11, 0.3)' : 'var(--border-color)'}; border-radius: 10px; padding: 0.85rem; background: ${stats.totalUnmatched > 0 ? 'rgba(254, 243, 199, 0.5)' : 'white'}; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                <div style="font-size: 0.72rem; color: ${stats.totalUnmatched > 0 ? '#b45309' : 'var(--text-muted)'}; font-weight: 600; text-transform: uppercase;">Unmatched</div>
+                <div style="font-size: 1.4rem; font-weight: 800; color: ${stats.totalUnmatched > 0 ? '#b45309' : '#64748b'}; margin-top: 0.2rem;">${stats.totalUnmatched}</div>
+            </div>
+        `;
+        leOutputContainer.appendChild(statsRow);
+
+        // 2. Action Download Bar
+        const actionsBar = document.createElement('div');
+        actionsBar.style.display = 'flex';
+        actionsBar.style.flexWrap = 'wrap';
+        actionsBar.style.gap = '0.75rem';
+        actionsBar.style.marginBottom = '1.25rem';
+
+        actionsBar.innerHTML = `
+            <button type="button" class="btn btn-primary" id="leDownloadZipBtn" style="flex: 1; min-width: 200px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.65rem 1.2rem; font-weight: 700; border-radius: 8px; background: linear-gradient(135deg, #e11d48, #be123c); cursor: pointer;">
+                <i class="fa-solid fa-file-zipper"></i> Download ZIP Package
+            </button>
+            <button type="button" class="btn btn-success" id="leDownloadMergedBtn" style="flex: 1; min-width: 200px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.65rem 1.2rem; font-weight: 700; border-radius: 8px; background: linear-gradient(135deg, #059669, #10b981); cursor: pointer;">
+                <i class="fa-solid fa-file-excel"></i> Download Merged Excel (${filesList.length} Sheets)
+            </button>
+        `;
+        leOutputContainer.appendChild(actionsBar);
+
+        // Bind Download Buttons
+        const dlZipBtn = actionsBar.querySelector('#leDownloadZipBtn');
+        if (dlZipBtn) {
+            dlZipBtn.addEventListener('click', () => {
+                if (leZipBlob) {
+                    triggerDownload(leZipBlob, zipFilename);
+                    leLog(`Downloaded complete ZIP package: ${zipFilename}`, 'info');
+                }
+            });
+        }
+
+        const dlMergedBtn = actionsBar.querySelector('#leDownloadMergedBtn');
+        if (dlMergedBtn) {
+            dlMergedBtn.addEventListener('click', () => {
+                if (mergedBlob) {
+                    triggerDownload(mergedBlob, mergedFilename);
+                    leLog(`Downloaded Merged Excel file: ${mergedFilename}`, 'info');
+                }
+            });
+        }
+
+        // 3. Processed Files Table Card
+        const tableCard = document.createElement('div');
+        tableCard.style.background = 'white';
+        tableCard.style.border = '1px solid var(--border-color)';
+        tableCard.style.borderRadius = '12px';
+        tableCard.style.overflow = 'hidden';
+        tableCard.style.boxShadow = '0 1px 3px rgba(0,0,0,0.03)';
+
+        const tableHeader = document.createElement('div');
+        tableHeader.style.padding = '0.75rem 1rem';
+        tableHeader.style.borderBottom = '1px solid var(--border-color)';
+        tableHeader.style.background = '#f8fafc';
+        tableHeader.style.display = 'flex';
+        tableHeader.style.justifyContent = 'space-between';
+        tableHeader.style.alignItems = 'center';
+        tableHeader.innerHTML = `
+            <span style="font-size: 0.85rem; font-weight: 700; color: #1e293b;"><i class="fa-solid fa-table-list text-rose" style="color: #e11d48;"></i> Processed Loss Details Files (${filesList.length})</span>
+            <span style="font-size: 0.75rem; color: var(--text-muted);">Column F (Order date) successfully updated</span>
+        `;
+        tableCard.appendChild(tableHeader);
+
+        const tableWrap = document.createElement('div');
+        tableWrap.style.overflowX = 'auto';
+        tableWrap.style.overflowY = 'auto';
+        tableWrap.style.maxHeight = '280px';
+        tableWrap.style.webkitOverflowScrolling = 'touch';
+
+        const table = document.createElement('table');
+        table.className = 'data-table';
+        table.style.width = '100%';
+        table.style.minWidth = '720px';
+        table.style.fontSize = '0.82rem';
+
+        table.innerHTML = `
+            <thead style="position: sticky; top: 0; z-index: 2; background: #f8fafc;">
+                <tr>
+                    <th style="width: 40px; text-align: center; background: #f8fafc;">#</th>
+                    <th style="background: #f8fafc;">Details File Name</th>
+                    <th style="background: #f8fafc;">Sheet Name</th>
+                    <th style="text-align: center; background: #f8fafc;">Total Rows</th>
+                    <th style="text-align: center; background: #f8fafc;">Matched Dates</th>
+                    <th style="text-align: center; background: #f8fafc;">Unmatched</th>
+                    <th style="text-align: center; background: #f8fafc;">Status</th>
+                    <th style="text-align: center; width: 140px; background: #f8fafc;">Actions</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        `;
+
+        const tbody = table.querySelector('tbody');
+        filesList.forEach((file, idx) => {
+            const tr = document.createElement('tr');
+            const matchRate = file.totalRows > 0 ? Math.round((file.matched / file.totalRows) * 100) : 0;
+            const isFullMatch = file.unmatched === 0;
+
+            tr.innerHTML = `
+                <td style="text-align: center; font-weight: 700; color: var(--text-muted);">${idx + 1}</td>
+                <td style="font-weight: 600; color: var(--text-primary);">
+                    <i class="fa-solid fa-file-excel text-rose" style="color: #e11d48; margin-right: 0.35rem;"></i>
+                    ${file.name}
+                </td>
+                <td style="color: #64748b; font-family: monospace; font-size: 0.78rem;">[${file.sheetName}]</td>
+                <td style="text-align: center; font-weight: 700;">${file.totalRows}</td>
+                <td style="text-align: center; font-weight: 700; color: #15803d;">${file.matched}</td>
+                <td style="text-align: center; font-weight: 700; color: ${file.unmatched > 0 ? '#b45309' : '#64748b'};">${file.unmatched}</td>
+                <td style="text-align: center;">
+                    <span style="font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 6px; background: ${isFullMatch ? '#dcfce7' : '#fef3c7'}; color: ${isFullMatch ? '#15803d' : '#b45309'}; border: 1px solid ${isFullMatch ? '#86efac' : '#fde68a'};">
+                        ${matchRate}% Matched
+                    </span>
+                </td>
+                <td style="text-align: center;">
+                    <div style="display: flex; gap: 0.35rem; justify-content: center;">
+                        <button type="button" class="btn btn-secondary le-dl-single" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; border-radius: 6px;" title="Download this file">
+                            <i class="fa-solid fa-download"></i>
+                        </button>
+                        <button type="button" class="btn btn-secondary le-preview-single" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; border-radius: 6px;" title="Preview Excel data">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            // Download single file handler
+            const dlBtn = tr.querySelector('.le-dl-single');
+            if (dlBtn) {
+                dlBtn.addEventListener('click', () => {
+                    triggerDownload(file.blob, file.name);
+                    leLog(`Downloaded: ${file.name}`, 'info');
+                });
+            }
+
+            // Preview single file handler
+            const prevBtn = tr.querySelector('.le-preview-single');
+            if (prevBtn) {
+                prevBtn.addEventListener('click', () => {
+                    if (file.aoa) {
+                        showDataPreviewModal(file.name, file.aoa);
+                    }
+                });
+            }
+
+            tbody.appendChild(tr);
+        });
+
+        tableWrap.appendChild(table);
+        tableCard.appendChild(tableWrap);
+        leOutputContainer.appendChild(tableCard);
+    }
+
+    if (leBtn) {
+        leBtn.addEventListener('click', async () => {
+            if (leDetailsFiles.length === 0 || !leDataFile) return;
+
+            leBtn.setAttribute('disabled', 'true');
+            if (leStatus) {
+                leStatus.className = 'status-indicator processing';
+                leStatus.innerText = 'Processing';
+            }
+            if (leProgressCard) leProgressCard.classList.remove('hidden');
+            if (leProgressBar) leProgressBar.style.width = '5%';
+            if (leProgressPercent) leProgressPercent.innerText = '5%';
+            if (leProgressStepText) leProgressStepText.innerText = 'Reading Ajio Data file...';
+
+            if (leOutputContainer) {
+                leOutputContainer.innerHTML = `
+                    <div class="empty-output-state">
+                        <i class="fa-solid fa-spinner fa-spin placeholder-icon" style="color: #e11d48;"></i>
+                        <p>Processing Loss Details and matching with Ajio Data file...</p>
+                    </div>
+                `;
+            }
+
+            try {
+                leLog('Starting Loss Error Process...', 'process');
+                leLog(`Selected Details Files: ${leDetailsFiles.length}`, 'info');
+                leLog(`Selected Ajio Data File: ${leDataFile.name}`, 'info');
+
+                // Step 1: Read and Index the Ajio Data File
+                if (leProgressBar) leProgressBar.style.width = '10%';
+                if (leProgressPercent) leProgressPercent.innerText = '10%';
+                if (leProgressStepText) leProgressStepText.innerText = 'Parsing Ajio Data spreadsheet...';
+
+                const dataBuffer = await readFileAsArrayBuffer(leDataFile);
+                const dataWb = XLSX.read(dataBuffer, { type: 'array', cellDates: true });
+                
+                let dataSheetName = dataWb.SheetNames[0];
+                for (const sName of dataWb.SheetNames) {
+                    const low = sName.toLowerCase();
+                    if (low.includes('data') || low.includes('ajio')) {
+                        dataSheetName = sName;
+                        break;
+                    }
+                }
+
+                const dataWs = dataWb.Sheets[dataSheetName];
+                const dataAoa = XLSX.utils.sheet_to_json(dataWs, { header: 1, defval: "" });
+                leLog(`Loaded Ajio Data sheet [${dataSheetName}] with ${dataAoa.length} rows.`, 'info');
+
+                if (dataAoa.length < 2) {
+                    throw new Error(`Ajio Data sheet [${dataSheetName}] is empty or has no data rows.`);
+                }
+
+                // Locate Data file header row
+                let dataHeaderRowIndex = -1;
+                for (let i = 0; i < Math.min(dataAoa.length, 10); i++) {
+                    const row = dataAoa[i];
+                    if (row && row.some(cell => {
+                        const str = String(cell || "").trim().toLowerCase();
+                        return str.includes("seller invoice") || str.includes("seller order") || str.includes("customer order") || str.includes("cust order date");
+                    })) {
+                        dataHeaderRowIndex = i;
+                        break;
+                    }
+                }
+                if (dataHeaderRowIndex === -1) {
+                    dataHeaderRowIndex = 1; // Default row 2 (index 1)
+                }
+
+                const dataHeaderRow = dataAoa[dataHeaderRowIndex] || [];
+                let sellerInvoiceCol = 7; // Col H default
+                let sellerOrderNoCol = 4; // Col E default
+                let custOrderNoCol = 1;   // Col B default
+                let custOrderDateCol = 2; // Col C default
+
+                for (let c = 0; c < dataHeaderRow.length; c++) {
+                    const val = String(dataHeaderRow[c] || "").trim().toLowerCase().replace(/[\._\-\s]+/g, " ");
+                    
+                    // 1. Seller Invoice No (Col H - MUST NOT be date)
+                    if ((val === "seller invoice no" || val === "seller invoice number" || val === "seller invoice" || val.includes("seller invoice")) && !val.includes("date")) {
+                        sellerInvoiceCol = c;
+                    }
+                    // 2. Seller Order No (Col E - MUST NOT be date or invoice)
+                    else if ((val === "seller order no" || val === "seller order number" || val === "seller order" || val.includes("seller order")) && !val.includes("date") && !val.includes("invoice")) {
+                        sellerOrderNoCol = c;
+                    }
+                    // 3. Customer Order No (Col B - MUST NOT be date)
+                    else if ((val === "customer order no" || val === "cust order no" || val === "customer order number" || val === "customer order" || val.includes("customer order") || val.includes("cust order")) && !val.includes("date")) {
+                        custOrderNoCol = c;
+                    }
+                    // 4. Cust Order Date (Col C - MUST contain order + date, NOT invoice or po)
+                    else if ((val === "cust order date" || val === "customer order date" || (val.includes("order") && val.includes("date"))) && !val.includes("invoice") && !val.includes("po")) {
+                        custOrderDateCol = c;
+                    }
+                }
+
+                leLog(`Data File Columns detected: Seller Invoice No = Col ${colNumToExcelLetter(sellerInvoiceCol)} (${sellerInvoiceCol}), Seller Order No = Col ${colNumToExcelLetter(sellerOrderNoCol)} (${sellerOrderNoCol}), Cust Order Date = Col ${colNumToExcelLetter(custOrderDateCol)} (${custOrderDateCol})`, 'info');
+
+                // Build multi-strategy lookup maps
+                const dataCompositeMap = new Map();
+                const dataCustCompositeMap = new Map();
+                const dataInvoiceOnlyMap = new Map();
+                const dataOrderOnlyMap = new Map();
+                const dataCustOrderOnlyMap = new Map();
+
+                for (let r = dataHeaderRowIndex + 1; r < dataAoa.length; r++) {
+                    const row = dataAoa[r];
+                    if (!row || row.length === 0) continue;
+                    const inv = row[sellerInvoiceCol];
+                    const ord = row[sellerOrderNoCol];
+                    const custOrd = row[custOrderNoCol];
+                    const dt = row[custOrderDateCol];
+
+                    const formattedDate = formatLossDateVal(dt);
+                    if (formattedDate !== "") {
+                        const cleanInv = cleanLossKeyVal(inv);
+                        const cleanOrd = cleanLossKeyVal(ord);
+                        const cleanCustOrd = cleanLossKeyVal(custOrd);
+
+                        if (cleanInv && cleanOrd) {
+                            dataCompositeMap.set(`${cleanInv}__${cleanOrd}`, formattedDate);
+                        }
+                        if (cleanInv && cleanCustOrd) {
+                            dataCustCompositeMap.set(`${cleanInv}__${cleanCustOrd}`, formattedDate);
+                        }
+                        if (cleanInv && !dataInvoiceOnlyMap.has(cleanInv)) {
+                            dataInvoiceOnlyMap.set(cleanInv, formattedDate);
+                        }
+                        if (cleanOrd && !dataOrderOnlyMap.has(cleanOrd)) {
+                            dataOrderOnlyMap.set(cleanOrd, formattedDate);
+                        }
+                        if (cleanCustOrd && !dataCustOrderOnlyMap.has(cleanCustOrd)) {
+                            dataCustOrderOnlyMap.set(cleanCustOrd, formattedDate);
+                        }
+                    }
+                }
+
+                leLog(`Indexed ${dataCompositeMap.size} composite date records from Ajio Data file.`, 'success');
+
+                // Step 2: Process Each Loss Details File
+                const zip = new JSZip();
+                const mergedWb = XLSX.utils.book_new();
+                const usedSheetNames = new Set();
+                const processedFilesList = [];
+
+                let totalProcessedRows = 0;
+                let totalMatchedDates = 0;
+                let totalUnmatchedDates = 0;
+
+                for (let fIdx = 0; fIdx < leDetailsFiles.length; fIdx++) {
+                    const fileObj = leDetailsFiles[fIdx];
+                    const progressVal = Math.round(15 + ((fIdx + 1) / leDetailsFiles.length) * 75);
+                    if (leProgressBar) leProgressBar.style.width = `${progressVal}%`;
+                    if (leProgressPercent) leProgressPercent.innerText = `${progressVal}%`;
+                    if (leProgressStepText) leProgressStepText.innerText = `Processing [${fIdx + 1}/${leDetailsFiles.length}] ${fileObj.name}...`;
+
+                    leLog(`[${fIdx + 1}/${leDetailsFiles.length}] Processing Loss file: "${fileObj.name}"...`, 'process');
+
+                    const fileBuffer = await readFileAsArrayBuffer(fileObj.file);
+                    const fileWb = XLSX.read(fileBuffer, { type: 'array', cellDates: true });
+                    const fileWs = fileWb.Sheets[fileWb.SheetNames[0]];
+                    const fileAoa = XLSX.utils.sheet_to_json(fileWs, { header: 1, defval: "" });
+
+                    if (fileAoa.length === 0) {
+                        leLog(`Warning: File "${fileObj.name}" is completely empty. Skipping.`, 'warning');
+                        continue;
+                    }
+
+                    // Extract Clean Base File Name
+                    const baseFileName = fileObj.name.replace(/\.[^/.]+$/, "").trim();
+
+                    // Detect Header Row vs Title Row
+                    let headerRowIndex = 0;
+                    let hasExistingTitle = false;
+
+                    for (let i = 0; i < Math.min(fileAoa.length, 5); i++) {
+                        const row = fileAoa[i] || [];
+                        const isHeader = row.some(cell => {
+                            const str = String(cell || "").trim().toLowerCase();
+                            return str.includes("invoice id") || str.includes("order id") || str.includes("sale price") || str.includes("difference") || str.includes("sale invoice");
+                        });
+                        if (isHeader) {
+                            headerRowIndex = i;
+                            if (i > 0) hasExistingTitle = true;
+                            break;
+                        }
+                    }
+
+                    // Prepare Working 2D Array
+                    let workingAoa = [];
+
+                    if (!hasExistingTitle) {
+                        // Insert Row 1: Merged Title banner with file name
+                        workingAoa.push([baseFileName, "", "", "", "", "", ""]);
+                        // Row 2: Headers
+                        const originalHeaders = fileAoa[headerRowIndex] || [];
+                        const standardHeaders = [
+                            originalHeaders[0] || "Invoice ID",
+                            originalHeaders[1] || "Order ID",
+                            originalHeaders[2] || "Sale Price/Amt",
+                            originalHeaders[3] || "Purchase Price/Amt",
+                            originalHeaders[4] || "Difference",
+                            "Order date", // Col F (index 5)
+                            originalHeaders[6] || originalHeaders[5] || "Sale Invoice ID" // Col G (index 6)
+                        ];
+                        workingAoa.push(standardHeaders);
+
+                        // Data rows starting from original index + 1
+                        for (let r = headerRowIndex + 1; r < fileAoa.length; r++) {
+                            const origRow = fileAoa[r];
+                            if (!origRow || origRow.length === 0 || origRow.every(c => c === "" || c === null || c === undefined)) continue;
+                            
+                            // Reorder row so that Col F is Order date and Col G is Sale Invoice ID
+                            const newRow = [
+                                origRow[0] !== undefined ? origRow[0] : "",
+                                origRow[1] !== undefined ? origRow[1] : "",
+                                origRow[2] !== undefined ? origRow[2] : "",
+                                origRow[3] !== undefined ? origRow[3] : "",
+                                origRow[4] !== undefined ? origRow[4] : "",
+                                "", // Order date placeholder
+                                origRow[6] !== undefined ? origRow[6] : (origRow[5] !== undefined ? origRow[5] : "") // Sale Invoice ID
+                            ];
+                            workingAoa.push(newRow);
+                        }
+                    } else {
+                        // Title banner already in Row 0 -> keep title banner text
+                        workingAoa.push([baseFileName, "", "", "", "", "", ""]);
+                        // Header in Row 1
+                        const headerRow = fileAoa[headerRowIndex] || [];
+                        while (headerRow.length < 7) headerRow.push("");
+                        headerRow[5] = "Order date"; // Ensure Col F header is Order date
+                        if (!headerRow[6] || String(headerRow[6]).trim() === "") {
+                            headerRow[6] = "Sale Invoice ID";
+                        }
+                        workingAoa.push(headerRow);
+
+                        // Data rows starting from index 2
+                        for (let r = headerRowIndex + 1; r < fileAoa.length; r++) {
+                            const origRow = fileAoa[r];
+                            if (!origRow || origRow.length === 0 || origRow.every(c => c === "" || c === null || c === undefined)) continue;
+                            while (origRow.length < 7) origRow.push("");
+                            workingAoa.push([...origRow]);
+                        }
+                    }
+
+                    // Locate Column Positions in working headers (Row index 1)
+                    const headerCells = workingAoa[1] || [];
+                    let colG_SaleInvoice = 6; // Col G default
+                    let colB_OrderId = 1;     // Col B default
+                    let colF_OrderDate = 5;   // Col F default
+
+                    for (let c = 0; c < headerCells.length; c++) {
+                        const hVal = String(headerCells[c] || "").trim().toLowerCase();
+                        if (hVal.includes("sale invoice") || hVal.includes("invoice id")) {
+                            if (c >= 5) colG_SaleInvoice = c;
+                        } else if (hVal.includes("order id") || hVal === "order no") {
+                            colB_OrderId = c;
+                        } else if (hVal.includes("order date") || hVal.includes("cust order date")) {
+                            colF_OrderDate = c;
+                        }
+                    }
+
+                    // Ensure header cell 5 says "Order date"
+                    workingAoa[1][colF_OrderDate] = "Order date";
+
+                    // Match Data Rows (Row index >= 2)
+                    let fileMatched = 0;
+                    let fileUnmatched = 0;
+                    let fileTotalRows = 0;
+
+                    for (let r = 2; r < workingAoa.length; r++) {
+                        const row = workingAoa[r];
+                        if (!row || row.length === 0) continue;
+                        fileTotalRows++;
+
+                        const saleInvoiceVal = row[colG_SaleInvoice]; // Col G
+                        const orderIdVal = row[colB_OrderId];         // Col B
+
+                        const cleanG = cleanLossKeyVal(saleInvoiceVal);
+                        const cleanB = cleanLossKeyVal(orderIdVal);
+
+                        let matchedDate = "";
+
+                        // Strategy 1: Composite Key (Sale Invoice ID (Col G) + Order ID (Col B))
+                        if (cleanG && cleanB) {
+                            matchedDate = dataCompositeMap.get(`${cleanG}__${cleanB}`) || "";
+                            if (!matchedDate) {
+                                matchedDate = dataCustCompositeMap.get(`${cleanG}__${cleanB}`) || "";
+                            }
+                        }
+
+                        // Strategy 2: Order ID only
+                        if (!matchedDate && cleanB) {
+                            matchedDate = dataOrderOnlyMap.get(cleanB) || dataCustOrderOnlyMap.get(cleanB) || "";
+                        }
+
+                        // Strategy 3: Sale Invoice ID only
+                        if (!matchedDate && cleanG) {
+                            matchedDate = dataInvoiceOnlyMap.get(cleanG) || "";
+                        }
+
+                        // Ensure row has Col F slot
+                        while (row.length <= colF_OrderDate) row.push("");
+                        row[colF_OrderDate] = matchedDate || "";
+
+                        // Pure text format on Order ID (Col B)
+                        row[colB_OrderId] = toPureText(row[colB_OrderId]);
+
+                        if (matchedDate) {
+                            fileMatched++;
+                        } else {
+                            fileUnmatched++;
+                        }
+                    }
+
+                    totalProcessedRows += fileTotalRows;
+                    totalMatchedDates += fileMatched;
+                    totalUnmatchedDates += fileUnmatched;
+
+                    leLog(`[${fileObj.name}] Done: ${fileTotalRows} rows [${fileMatched} dates matched, ${fileUnmatched} unmatched]`, fileUnmatched === 0 ? 'success' : 'info');
+
+                    // Create Worksheet
+                    const updatedWs = XLSX.utils.aoa_to_sheet(workingAoa);
+                    
+                    // Merge Row 1: A1 to G1
+                    const endCol = Math.max(6, (workingAoa[1] ? workingAoa[1].length - 1 : 6));
+                    updatedWs['!merges'] = [
+                        { s: { r: 0, c: 0 }, e: { r: 0, c: endCol } }
+                    ];
+
+                    formatLossWorksheet(updatedWs);
+
+                    // Sheet Name (Clean & Max 31 chars)
+                    let safeSheetName = baseFileName.replace(/[:\\/?*\[\]]/g, "_").trim().slice(0, 31);
+                    if (!safeSheetName) safeSheetName = `Loss_Sheet_${fIdx + 1}`;
+                    if (usedSheetNames.has(safeSheetName)) {
+                        let cnt = 2;
+                        let altName = safeSheetName.slice(0, 28) + `_${cnt}`;
+                        while (usedSheetNames.has(altName)) {
+                            cnt++;
+                            altName = safeSheetName.slice(0, 28) + `_${cnt}`;
+                        }
+                        safeSheetName = altName;
+                    }
+                    usedSheetNames.add(safeSheetName);
+
+                    // 1. Add to Merged Workbook
+                    XLSX.utils.book_append_sheet(mergedWb, updatedWs, safeSheetName);
+
+                    // 2. Create Single Updated Workbook
+                    const singleWb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(singleWb, updatedWs, safeSheetName);
+                    const singleBuffer = XLSX.write(singleWb, { bookType: 'xlsx', type: 'array' });
+                    const singleBlob = new Blob([singleBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+
+                    // Add to ZIP Package
+                    const outputSingleFilename = `${baseFileName}.xlsx`;
+                    zip.file(outputSingleFilename, singleBuffer);
+
+                    // Push to Processed List for UI Table
+                    processedFilesList.push({
+                        name: outputSingleFilename,
+                        sheetName: safeSheetName,
+                        totalRows: fileTotalRows,
+                        matched: fileMatched,
+                        unmatched: fileUnmatched,
+                        blob: singleBlob,
+                        aoa: workingAoa
+                    });
+
+                    // 3. Register in Error Tracker Database
+                    let partyOrWhName = baseFileName;
+                    if (baseFileName.includes('-')) {
+                        partyOrWhName = baseFileName.split('-')[0].trim() + '-' + baseFileName.split('-')[1].trim();
+                    }
+                    partyOrWhName = partyOrWhName.replace(/Ajio|Loss|Report|Dispute/gi, '').trim() || baseFileName;
+
+                    try {
+                        registerTrackedError('loss', fileObj.name, partyOrWhName, 'Loss Report Dispute', fileTotalRows);
+                    } catch (trackErr) {
+                        console.warn("Could not register in Error Tracker:", trackErr);
+                    }
+                }
+
+                if (processedFilesList.length === 0) {
+                    throw new Error("No Loss Details files were processed.");
+                }
+
+                // Step 3: Finalize Merged Excel & ZIP Bundle
+                if (leProgressBar) leProgressBar.style.width = '95%';
+                if (leProgressPercent) leProgressPercent.innerText = '95%';
+                if (leProgressStepText) leProgressStepText.innerText = 'Generating ZIP & Merged Excel files...';
+
+                const timestamp = getFormattedDateTime();
+                const mergedFilename = `Merged_Loss_Errors_${timestamp}.xlsx`;
+                const zipFilename = `ajio_loss_error_bundle_${timestamp}.zip`;
+
+                const mergedBuffer = XLSX.write(mergedWb, { bookType: 'xlsx', type: 'array' });
+                leMergedBlob = new Blob([mergedBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                zip.file(mergedFilename, mergedBuffer);
+
+                leZipBlob = await zip.generateAsync({ type: 'blob' });
+
+                // Step 4: Render UI Dashboard
+                if (leProgressBar) leProgressBar.style.width = '100%';
+                if (leProgressPercent) leProgressPercent.innerText = '100%';
+                if (leProgressStepText) leProgressStepText.innerText = 'All loss files processed successfully!';
+
+                if (leStatus) {
+                    leStatus.className = 'status-indicator success';
+                    leStatus.innerText = 'Completed';
+                }
+
+                renderLeDashboard(processedFilesList, leMergedBlob, zipFilename, mergedFilename, {
+                    totalFiles: processedFilesList.length,
+                    totalRows: totalProcessedRows,
+                    totalMatched: totalMatchedDates,
+                    totalUnmatched: totalUnmatchedDates
+                });
+
+                leLog(`Successfully completed ${processedFilesList.length} files processed. Total records: ${totalProcessedRows} (${totalMatchedDates} dates matched).`, 'success');
+                leLog(`Merged Excel created: "${mergedFilename}" (${formatBytes(mergedBuffer.byteLength)})`, 'info');
+                leLog(`ZIP Package created: "${zipFilename}" (${formatBytes(leZipBlob.size)})`, 'info');
+
+            } catch (err) {
+                leLog(`Process failed: ${err.message}`, 'error');
+                if (leStatus) {
+                    leStatus.className = 'status-indicator idle';
+                    leStatus.innerText = 'Failed';
+                }
+                if (leOutputContainer) {
+                    leOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-circle-exclamation placeholder-icon" style="color: #ef4444;"></i>
+                            <p style="color: #ef4444; font-weight: 600;">Error: ${err.message}</p>
+                        </div>
+                    `;
+                }
+            } finally {
+                leBtn.removeAttribute('disabled');
+            }
+        });
+    }
+
     // Add Clear & Reset button to all tab panel headers dynamically
     const panelHeaders = document.querySelectorAll('.tab-pane .panel-header');
     panelHeaders.forEach(header => {
@@ -10837,7 +12689,63 @@ function doPost(e) {
             }
 
             // 7. Error Tabs (Ajio Error & Invoice Error)
-            if (paneId === 'tab-ajio-error' || paneId === 'tab-invoice-error') {
+            if (paneId === 'tab-ajio-error') {
+                // Reset Sale State
+                aeDetailsFile = null;
+                aeDataFile = null;
+                aeProcessedBlob = null;
+                aeProcessedFilename = "";
+                if (aeDetailsFileInput) aeDetailsFileInput.value = '';
+                if (aeDataFileInput) aeDataFileInput.value = '';
+                if (aeDetailsFileDisplay) aeDetailsFileDisplay.innerText = 'Drag & drop or Click to choose';
+                if (aeDataFileDisplay) aeDataFileDisplay.innerText = 'Drag & drop or Click to choose';
+                if (aeDetailsDropzone) aeDetailsDropzone.classList.remove('file-selected');
+                if (aeDataDropzone) aeDataDropzone.classList.remove('file-selected');
+                checkAeInputs();
+                if (aeOutputContainer) {
+                    aeOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-triangle-exclamation placeholder-icon"></i>
+                            <p>Upload files and click process to run Ajio Error logic.</p>
+                        </div>
+                    `;
+                    aeOutputContainer.className = 'processed-container empty';
+                }
+                if (aeStatus) {
+                    aeStatus.className = 'status-indicator idle';
+                    aeStatus.innerText = 'Idle';
+                }
+                if (aeProgressCard) aeProgressCard.classList.add('hidden');
+
+                // Reset Purchase State
+                aePurchaseDetailsFiles = [];
+                aePurchaseDataFile = null;
+                aePurchaseProcessedBlob = null;
+                if (aePurchaseDetailsFileInput) aePurchaseDetailsFileInput.value = '';
+                if (aePurchaseDataFileInput) aePurchaseDataFileInput.value = '';
+                if (aePurchaseDataFileDisplay) aePurchaseDataFileDisplay.innerText = 'Drag & drop or Click to choose';
+                if (aePurchaseDataDropzone) aePurchaseDataDropzone.classList.remove('file-selected');
+                updateAePurchaseDetailsUI();
+                if (aePurchaseOutputContainer) {
+                    aePurchaseOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-bag-shopping placeholder-icon" style="color: var(--color-primary);"></i>
+                            <p>Upload Purchase Details & Data files and click process to run Purchase Error logic.</p>
+                        </div>
+                    `;
+                    aePurchaseOutputContainer.className = 'processed-container empty';
+                }
+                if (aePurchaseStatus) {
+                    aePurchaseStatus.className = 'status-indicator idle';
+                    aePurchaseStatus.innerText = 'Idle';
+                }
+                if (aePurchaseProgressCard) aePurchaseProgressCard.classList.add('hidden');
+
+                aeLog('Cleared files and reset Sale & Purchase sections.', 'info');
+                return;
+            }
+
+            if (paneId === 'tab-invoice-error') {
                 ieFiles = [];
                 if (ieFileInput) ieFileInput.value = '';
                 updateIeUI();
@@ -10856,6 +12764,32 @@ function doPost(e) {
                 }
                 if (ieProgressCard) ieProgressCard.classList.add('hidden');
                 ieLog('Cleared error files and reset tab.', 'info');
+                return;
+            }
+
+            if (paneId === 'tab-loss-error') {
+                leDetailsFiles = [];
+                leDataFile = null;
+                if (leDetailsFileInput) leDetailsFileInput.value = '';
+                if (leDataFileInput) leDataFileInput.value = '';
+                updateLeDetailsFileListUI();
+                if (leDataFileDisplay) leDataFileDisplay.innerText = 'Drag & drop or Click to choose';
+                if (leDataDropzone) leDataDropzone.classList.remove('file-selected');
+                if (leStatus) {
+                    leStatus.className = 'status-indicator idle';
+                    leStatus.innerText = 'Idle';
+                }
+                if (leProgressCard) leProgressCard.classList.add('hidden');
+                if (leOutputContainer) {
+                    leOutputContainer.className = 'processed-container empty';
+                    leOutputContainer.innerHTML = `
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-arrow-trend-down placeholder-icon" style="color: #e11d48;"></i>
+                            <p>Upload Loss Details & Reference files and click process to run Loss Error logic.</p>
+                        </div>
+                    `;
+                }
+                leLog('Cleared all files and reset Loss Error tab.', 'info');
                 return;
             }
         });
@@ -11085,7 +13019,20 @@ function doPost(e) {
                 (statusVal === 'solved' && item.solved);
             
             // Source match
-            const matchesSource = sourceVal === 'all' || item.type === sourceVal;
+            let matchesSource = false;
+            if (sourceVal === 'all') {
+                matchesSource = true;
+            } else if (sourceVal === 'purchase') {
+                matchesSource = (item.type === 'purchase' || item.type === 'ajio_purchase');
+            } else if (sourceVal === 'ajio') {
+                matchesSource = (item.type === 'ajio' || item.type === 'ajio_sale');
+            } else if (sourceVal === 'invoice') {
+                matchesSource = (item.type === 'invoice');
+            } else if (sourceVal === 'loss') {
+                matchesSource = (item.type === 'loss' || item.type === 'loss_error');
+            } else {
+                matchesSource = (item.type === sourceVal);
+            }
 
             return matchesQuery && matchesStatus && matchesSource;
         });
@@ -11147,10 +13094,16 @@ function doPost(e) {
             });
 
             // Source badge
-            const isAjio = record.type === 'ajio';
-            const sourceBadge = isAjio 
-                ? `<span style="background: rgba(0, 150, 199, 0.08); color: var(--color-secondary); border: 1px solid rgba(0, 150, 199, 0.15); padding: 0.2rem 0.45rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600;">AJIO ERROR</span>`
-                : `<span style="background: rgba(123, 44, 191, 0.08); color: var(--color-primary); border: 1px solid rgba(123, 44, 191, 0.15); padding: 0.2rem 0.45rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600;">INVOICE</span>`;
+            let sourceBadge = '';
+            if (record.type === 'purchase' || record.type === 'ajio_purchase') {
+                sourceBadge = `<span style="background: rgba(123, 44, 191, 0.1); color: #7b2cbf; border: 1px solid rgba(123, 44, 191, 0.25); padding: 0.2rem 0.5rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700;"><i class="fa-solid fa-cart-shopping" style="margin-right: 0.25rem;"></i> PURCHASE</span>`;
+            } else if (record.type === 'loss' || record.type === 'loss_error') {
+                sourceBadge = `<span style="background: rgba(225, 29, 72, 0.1); color: #e11d48; border: 1px solid rgba(225, 29, 72, 0.25); padding: 0.2rem 0.5rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700;"><i class="fa-solid fa-arrow-trend-down" style="margin-right: 0.25rem;"></i> LOSS</span>`;
+            } else if (record.type === 'ajio') {
+                sourceBadge = `<span style="background: rgba(0, 150, 199, 0.08); color: var(--color-secondary); border: 1px solid rgba(0, 150, 199, 0.2); padding: 0.2rem 0.5rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700;"><i class="fa-solid fa-tag" style="margin-right: 0.25rem;"></i> AJIO SALE</span>`;
+            } else {
+                sourceBadge = `<span style="background: rgba(234, 88, 12, 0.08); color: #ea580c; border: 1px solid rgba(234, 88, 12, 0.2); padding: 0.2rem 0.5rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700;"><i class="fa-solid fa-file-invoice" style="margin-right: 0.25rem;"></i> INVOICE</span>`;
+            }
 
             // Error Type details
             const detailHtml = `

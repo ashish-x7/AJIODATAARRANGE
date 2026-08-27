@@ -63,6 +63,9 @@
             <button class="tab-btn" data-tab="tab-invoice-error">
                 <i class="fa-solid fa-file-invoice-dollar"></i> Invoice Error
             </button>
+            <button class="tab-btn" data-tab="tab-loss-error">
+                <i class="fa-solid fa-arrow-trend-down"></i> Loss Error
+            </button>
             <button class="tab-btn" data-tab="tab-error-tracker" style="border-left: 2px solid rgba(123, 44, 191, 0.3);">
                 <i class="fa-solid fa-list-check"></i> Error Tracker
             </button>
@@ -358,7 +361,7 @@
                 </div>
 
                 <!-- Vendor Table Container -->
-                <div class="processed-container" id="vendorTableContainer" style="min-height: 400px; justify-content: flex-start; padding: 0.5rem; overflow-y: auto; background: white; border-radius: 12px; border: 1px solid var(--border-color); box-shadow: inset 0 1px 4px rgba(0,0,0,0.01);">
+                <div class="processed-container" id="vendorTableContainer" style="min-height: 250px; max-height: 480px; justify-content: flex-start; padding: 0.5rem; overflow-y: auto; overflow-x: auto; background: white; border-radius: 12px; border: 1px solid var(--border-color); box-shadow: inset 0 1px 4px rgba(0,0,0,0.01);">
                     <div class="empty-output-state" id="vendorEmptyState">
                         <i class="fa-solid fa-spinner fa-spin placeholder-icon"></i>
                         <p>Connecting to Google Sheets and loading directory...</p>
@@ -768,98 +771,202 @@
         </div>
 
         <!-- Tab 7: Ajio Error Pane -->
-        <div id="tab-ajio-error" class="tab-pane hidden-pane">
-            <main class="app-grid">
-                <!-- Left Panel: Upload -->
-                <section class="panel upload-panel">
-                    <div class="panel-header">
-                        <h2><i class="fa-solid fa-triangle-exclamation text-purple"></i> Upload Files for Ajio Error</h2>
-                        <span class="badge">Local Only</span>
-                    </div>
+        <div id="tab-ajio-error" class="tab-pane hidden-pane" style="width: 100%;">
+            <!-- Sub-tab Navigation for Sale vs Purchase -->
+            <div class="sub-tab-navigation" style="margin-bottom: 1.25rem; background: white; border: 1px solid var(--border-color); border-radius: 12px; padding: 0.35rem; display: flex; gap: 0.5rem; max-width: 360px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                <button type="button" class="sub-tab-btn ae-subtab-btn active" data-ae-subtab="ae-subtab-sale" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.55rem 1rem; font-size: 0.88rem; font-weight: 700; border-radius: 8px; cursor: pointer;">
+                    <i class="fa-solid fa-cart-shopping"></i> SALE
+                </button>
+                <button type="button" class="sub-tab-btn ae-subtab-btn" data-ae-subtab="ae-subtab-purchase" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.55rem 1rem; font-size: 0.88rem; font-weight: 700; border-radius: 8px; cursor: pointer;">
+                    <i class="fa-solid fa-bag-shopping"></i> PURCHASE
+                </button>
+            </div>
 
-                    <!-- Date Range Selection -->
-                    <div class="settings-card" style="margin-bottom: 1rem;">
-                        <h3><i class="fa-solid fa-calendar-days text-purple"></i> Select Date Range</h3>
-                        <div style="display: flex; gap: 0.75rem; margin-top: 0.5rem;">
-                            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1;">
-                                <label for="aeFromDate" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">From Date</label>
-                                <input type="date" id="aeFromDate" style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.5rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; height: 36px; width: 100%;">
-                            </div>
-                            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1;">
-                                <label for="aeToDate" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">To Date</label>
-                                <input type="date" id="aeToDate" style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.5rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; height: 36px; width: 100%;">
-                            </div>
+            <!-- Subtab 1: SALE Pane -->
+            <div id="ae-subtab-sale" class="sub-tab-pane active-pane">
+                <main class="app-grid">
+                    <!-- Left Panel: Upload (Sale) -->
+                    <section class="panel upload-panel">
+                        <div class="panel-header">
+                            <h2><i class="fa-solid fa-cart-shopping text-purple"></i> Upload Files for Ajio Sale Error</h2>
+                            <span class="badge">Sale Pipeline</span>
                         </div>
-                    </div>
 
-                    <!-- Input 1: Ajio Details File -->
-                    <div class="merger-upload-card" style="margin-bottom: 1rem;">
-                        <h3><i class="fa-solid fa-file-invoice text-purple"></i> 1. Select Ajio Details File (.xlsx, .xls)</h3>
-                        <div class="mini-dropzone" id="aeDetailsDropzone">
-                            <input type="file" id="aeDetailsFileInput" accept=".xlsx,.xls" class="file-input-hidden">
-                            <div class="mini-dropzone-content">
-                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
-                                <span class="filename-display" id="aeDetailsFileDisplay">Drag & drop or Click to choose</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Input 2: Ajio Data File -->
-                    <div class="merger-upload-card" style="margin-bottom: 1rem;">
-                        <h3><i class="fa-solid fa-database text-teal"></i> 2. Select Ajio Data File (.xlsx, .xls)</h3>
-                        <div class="mini-dropzone" id="aeDataDropzone">
-                            <input type="file" id="aeDataFileInput" accept=".xlsx,.xls" class="file-input-hidden">
-                            <div class="mini-dropzone-content">
-                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
-                                <span class="filename-display" id="aeDataFileDisplay">Drag & drop or Click to choose</span>
+                        <!-- Date Range Selection -->
+                        <div class="settings-card" style="margin-bottom: 1rem;">
+                            <h3><i class="fa-solid fa-calendar-days text-purple"></i> Select Date Range</h3>
+                            <div style="display: flex; gap: 0.75rem; margin-top: 0.5rem;">
+                                <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1;">
+                                    <label for="aeFromDate" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">From Date</label>
+                                    <input type="date" id="aeFromDate" style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.5rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; height: 36px; width: 100%;">
+                                </div>
+                                <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1;">
+                                    <label for="aeToDate" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">To Date</label>
+                                    <input type="date" id="aeToDate" style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.5rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; height: 36px; width: 100%;">
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Run Ajio Error CTA -->
-                    <button class="btn btn-large btn-success btn-glow" id="aeBtn" disabled style="margin-top: 1rem; width: 100%; background: linear-gradient(135deg, #059669, #10b981);">
-                        <i class="fa-solid fa-bolt"></i> START AJIO ERROR PROCESS
-                    </button>
-                </section>
+                        <!-- Input 1: Ajio Details File -->
+                        <div class="merger-upload-card" style="margin-bottom: 1rem;">
+                            <h3><i class="fa-solid fa-file-invoice text-purple"></i> 1. Select Ajio Details File (.xlsx, .xls)</h3>
+                            <div class="mini-dropzone" id="aeDetailsDropzone">
+                                <input type="file" id="aeDetailsFileInput" accept=".xlsx,.xls" class="file-input-hidden">
+                                <div class="mini-dropzone-content">
+                                    <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                    <span class="filename-display" id="aeDetailsFileDisplay">Drag & drop or Click to choose</span>
+                                </div>
+                            </div>
+                        </div>
 
-                <!-- Right Panel: Results & Stats -->
-                <section class="panel output-panel">
-                    <div class="panel-header">
-                        <h2><i class="fa-solid fa-square-poll-horizontal"></i> Ajio Error Dashboard</h2>
-                        <span class="status-indicator idle" id="aeStatus">Idle</span>
-                    </div>
+                        <!-- Input 2: Ajio Data File -->
+                        <div class="merger-upload-card" style="margin-bottom: 1rem;">
+                            <h3><i class="fa-solid fa-database text-teal"></i> 2. Select Ajio Data File (.xlsx, .xls)</h3>
+                            <div class="mini-dropzone" id="aeDataDropzone">
+                                <input type="file" id="aeDataFileInput" accept=".xlsx,.xls" class="file-input-hidden">
+                                <div class="mini-dropzone-content">
+                                    <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                    <span class="filename-display" id="aeDataFileDisplay">Drag & drop or Click to choose</span>
+                                </div>
+                            </div>
+                        </div>
 
-                    <!-- Ajio Error Progress Bar -->
-                    <div class="progress-card hidden" id="aeProgressCard">
-                        <div class="overall-progress-bar-container">
-                            <div class="progress-bar-glow" id="aeProgressBar"></div>
-                        </div>
-                        <div class="progress-details">
-                            <span id="aeProgressPercent">0% Completed</span>
-                            <span id="aeProgressStepText">Analyzing files...</span>
-                        </div>
-                    </div>
+                        <!-- Run Ajio Error CTA -->
+                        <button class="btn btn-large btn-success btn-glow" id="aeBtn" disabled style="margin-top: 1rem; width: 100%; background: linear-gradient(135deg, #059669, #10b981);">
+                            <i class="fa-solid fa-bolt"></i> START SALE AJIO ERROR PROCESS
+                        </button>
+                    </section>
 
-                    <!-- Ajio Error Results Output Card -->
-                    <div class="processed-container empty" id="aeOutputContainer">
-                        <div class="empty-output-state">
-                            <i class="fa-solid fa-triangle-exclamation placeholder-icon"></i>
-                            <p>Upload files and click process to run Ajio Error logic.</p>
+                    <!-- Right Panel: Results & Stats (Sale) -->
+                    <section class="panel output-panel">
+                        <div class="panel-header">
+                            <h2><i class="fa-solid fa-square-poll-horizontal"></i> Sale Ajio Error Dashboard</h2>
+                            <span class="status-indicator idle" id="aeStatus">Idle</span>
                         </div>
-                    </div>
 
-                    <!-- Console / Logger for Ajio Error -->
-                    <div class="console-card">
-                        <div class="console-header">
-                            <h3><i class="fa-solid fa-terminal"></i> Ajio Error Log</h3>
-                            <button class="btn-clear text-btn" id="clearAeLogBtn"><i class="fa-solid fa-eraser"></i> Clear</button>
+                        <!-- Ajio Error Progress Bar -->
+                        <div class="progress-card hidden" id="aeProgressCard">
+                            <div class="overall-progress-bar-container">
+                                <div class="progress-bar-glow" id="aeProgressBar"></div>
+                            </div>
+                            <div class="progress-details">
+                                <span id="aeProgressPercent">0% Completed</span>
+                                <span id="aeProgressStepText">Analyzing files...</span>
+                            </div>
                         </div>
-                        <div class="console-log" id="aeConsoleLog">
-                            <div class="log-line info">[System] Ready. Please select files for Ajio Error.</div>
+
+                        <!-- Ajio Error Results Output Card -->
+                        <div class="processed-container empty" id="aeOutputContainer">
+                            <div class="empty-output-state">
+                                <i class="fa-solid fa-triangle-exclamation placeholder-icon"></i>
+                                <p>Upload files and click process to run Ajio Error logic.</p>
+                            </div>
                         </div>
-                    </div>
-                </section>
-            </main>
+
+                        <!-- Console / Logger for Ajio Error -->
+                        <div class="console-card">
+                            <div class="console-header">
+                                <h3><i class="fa-solid fa-terminal"></i> Ajio Error Log (Sale)</h3>
+                                <button class="btn-clear text-btn" id="clearAeLogBtn"><i class="fa-solid fa-eraser"></i> Clear</button>
+                            </div>
+                            <div class="console-log" id="aeConsoleLog">
+                                <div class="log-line info">[System] Ready. Please select files for Ajio Sale Error.</div>
+                            </div>
+                        </div>
+                    </section>
+                </main>
+            </div>
+
+            <!-- Subtab 2: PURCHASE Pane -->
+            <div id="ae-subtab-purchase" class="sub-tab-pane">
+                <main class="app-grid">
+                    <!-- Left Panel: Upload (Purchase) -->
+                    <section class="panel upload-panel">
+                        <div class="panel-header">
+                            <h2><i class="fa-solid fa-bag-shopping text-purple"></i> Upload Files for Purchase Error</h2>
+                            <span class="badge">Purchase Pipeline</span>
+                        </div>
+
+                        <!-- Input 1: Multiple Purchase Details Files Upload -->
+                        <div class="merger-upload-card" style="margin-bottom: 1rem;">
+                            <h3><i class="fa-solid fa-file-invoice text-purple"></i> 1. Select Purchase Details Files (Multi-file)</h3>
+                            <div class="mini-dropzone" id="aePurchaseDetailsDropzone" style="min-height: 95px; padding: 1.25rem 1rem;">
+                                <input type="file" id="aePurchaseDetailsFileInput" multiple accept=".xlsx,.xls,.csv" class="file-input-hidden">
+                                <div class="mini-dropzone-content">
+                                    <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                    <span class="filename-display" id="aePurchaseDetailsFileDisplay">Drag & drop or Click to choose multiple files</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Selected Purchase Details Files List Card -->
+                        <div class="file-list-card" id="aePurchaseDetailsFilesCard" style="max-height: 200px; margin-bottom: 1rem; flex-grow: 1;">
+                            <div class="card-header">
+                                <h3>Selected Details Files (<span id="aePurchaseDetailsSelectedCount">0</span>)</h3>
+                                <button class="btn-clear text-btn" id="clearAePurchaseDetailsFilesBtn"><i class="fa-solid fa-trash-can"></i> Clear</button>
+                            </div>
+                            <div class="file-list" id="aePurchaseDetailsUploadedFileList">
+                                <div class="empty-list-msg">No details files selected yet.</div>
+                            </div>
+                        </div>
+
+                        <!-- Input 2: Purchase Data File -->
+                        <div class="merger-upload-card" style="margin-bottom: 1rem;">
+                            <h3><i class="fa-solid fa-database text-teal"></i> 2. Select Purchase Data File (.xlsx, .xls)</h3>
+                            <div class="mini-dropzone" id="aePurchaseDataDropzone">
+                                <input type="file" id="aePurchaseDataFileInput" accept=".xlsx,.xls" class="file-input-hidden">
+                                <div class="mini-dropzone-content">
+                                    <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                    <span class="filename-display" id="aePurchaseDataFileDisplay">Drag & drop or Click to choose</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Run Purchase Error CTA -->
+                        <button class="btn btn-large btn-success btn-glow" id="aePurchaseBtn" disabled style="margin-top: 1rem; width: 100%; background: linear-gradient(135deg, #7b2cbf, #560bad);">
+                            <i class="fa-solid fa-bolt"></i> START PURCHASE ERROR PROCESS
+                        </button>
+                    </section>
+
+                    <!-- Right Panel: Results & Stats (Purchase) -->
+                    <section class="panel output-panel">
+                        <div class="panel-header">
+                            <h2><i class="fa-solid fa-square-poll-horizontal"></i> Purchase Error Dashboard</h2>
+                            <span class="status-indicator idle" id="aePurchaseStatus">Idle</span>
+                        </div>
+
+                        <!-- Purchase Progress Bar -->
+                        <div class="progress-card hidden" id="aePurchaseProgressCard">
+                            <div class="overall-progress-bar-container">
+                                <div class="progress-bar-glow" id="aePurchaseProgressBar"></div>
+                            </div>
+                            <div class="progress-details">
+                                <span id="aePurchaseProgressPercent">0% Completed</span>
+                                <span id="aePurchaseProgressStepText">Analyzing files...</span>
+                            </div>
+                        </div>
+
+                        <!-- Purchase Results Output Card -->
+                        <div class="processed-container empty" id="aePurchaseOutputContainer">
+                            <div class="empty-output-state">
+                                <i class="fa-solid fa-bag-shopping placeholder-icon" style="color: var(--color-primary);"></i>
+                                <p>Upload Purchase Details & Data files and click process to run Purchase Error logic.</p>
+                            </div>
+                        </div>
+
+                        <!-- Console / Logger for Purchase Error -->
+                        <div class="console-card">
+                            <div class="console-header">
+                                <h3><i class="fa-solid fa-terminal"></i> Purchase Error Log</h3>
+                                <button class="btn-clear text-btn" id="clearAePurchaseLogBtn"><i class="fa-solid fa-eraser"></i> Clear</button>
+                            </div>
+                            <div class="console-log" id="aePurchaseConsoleLog">
+                                <div class="log-line info">[System] Ready. Please upload Purchase Details and Data file.</div>
+                            </div>
+                        </div>
+                    </section>
+                </main>
+            </div>
         </div>
 
         <!-- Tab 8: Invoice Error Pane -->
@@ -930,7 +1037,98 @@
             </main>
         </div>
 
-        <!-- Tab 9: Error Tracker Pane -->
+        <!-- Tab 9: Loss Error Pane -->
+        <div id="tab-loss-error" class="tab-pane hidden-pane">
+            <main class="app-grid">
+                <!-- Left Panel: Upload (Loss Error) -->
+                <section class="panel upload-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-arrow-trend-down text-rose" style="color: #e11d48;"></i> Upload Loss Error Files</h2>
+                        <span class="badge" style="background: rgba(225, 29, 72, 0.1); color: #e11d48; border: 1px solid rgba(225, 29, 72, 0.2);">Loss Pipeline</span>
+                    </div>
+
+                    <!-- Input 1: Multiple Loss Details Files -->
+                    <div class="merger-upload-card" style="margin-bottom: 1rem;">
+                        <h3><i class="fa-solid fa-file-invoice text-rose" style="color: #e11d48;"></i> 1. Select Loss Details Files (Multi-file)</h3>
+                        <div class="mini-dropzone" id="leDetailsDropzone" style="min-height: 95px; padding: 1.25rem 1rem;">
+                            <input type="file" id="leDetailsFileInput" multiple accept=".xlsx,.xls,.csv" class="file-input-hidden">
+                            <div class="mini-dropzone-content">
+                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                <span class="filename-display" id="leDetailsFileDisplay">Drag & drop or Click to choose multiple files</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Selected Loss Details Files List Card -->
+                    <div class="file-list-card" id="leDetailsFilesCard" style="max-height: 180px; margin-bottom: 1rem; flex-grow: 1;">
+                        <div class="card-header">
+                            <h3>Selected Details Files (<span id="leDetailsSelectedCount">0</span>)</h3>
+                            <button class="btn-clear text-btn" id="clearLeDetailsFilesBtn"><i class="fa-solid fa-trash-can"></i> Clear</button>
+                        </div>
+                        <div class="file-list" id="leDetailsUploadedFileList">
+                            <div class="empty-list-msg">No loss details files selected yet.</div>
+                        </div>
+                    </div>
+
+                    <!-- Input 2: Data / Reference File -->
+                    <div class="merger-upload-card" style="margin-bottom: 1rem;">
+                        <h3><i class="fa-solid fa-database text-teal"></i> 2. Select Reference / Data File (.xlsx, .xls)</h3>
+                        <div class="mini-dropzone" id="leDataDropzone">
+                            <input type="file" id="leDataFileInput" accept=".xlsx,.xls" class="file-input-hidden">
+                            <div class="mini-dropzone-content">
+                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                <span class="filename-display" id="leDataFileDisplay">Drag & drop or Click to choose</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Run CTA -->
+                    <button class="btn btn-large btn-success btn-glow" id="leBtn" disabled style="margin-top: 1rem; width: 100%; background: linear-gradient(135deg, #e11d48, #be123c);">
+                        <i class="fa-solid fa-bolt"></i> START LOSS ERROR PROCESS
+                    </button>
+                </section>
+
+                <!-- Right Panel: Results & Stats (Loss Error) -->
+                <section class="panel output-panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-square-poll-horizontal"></i> Loss Error Dashboard</h2>
+                        <span class="status-indicator idle" id="leStatus">Idle</span>
+                    </div>
+
+                    <!-- Loss Progress Bar -->
+                    <div class="progress-card hidden" id="leProgressCard">
+                        <div class="overall-progress-bar-container">
+                            <div class="progress-bar-glow" id="leProgressBar" style="background: linear-gradient(90deg, #e11d48, #be123c);"></div>
+                        </div>
+                        <div class="progress-details">
+                            <span id="leProgressPercent">0% Completed</span>
+                            <span id="leProgressStepText">Analyzing files...</span>
+                        </div>
+                    </div>
+
+                    <!-- Loss Results Output Card -->
+                    <div class="processed-container empty" id="leOutputContainer">
+                        <div class="empty-output-state">
+                            <i class="fa-solid fa-arrow-trend-down placeholder-icon" style="color: #e11d48;"></i>
+                            <p>Upload Loss Details & Reference files and click process to run Loss Error logic.</p>
+                        </div>
+                    </div>
+
+                    <!-- Console / Logger for Loss Error -->
+                    <div class="console-card">
+                        <div class="console-header">
+                            <h3><i class="fa-solid fa-terminal"></i> Loss Error Log</h3>
+                            <button class="btn-clear text-btn" id="clearLeLogBtn"><i class="fa-solid fa-eraser"></i> Clear</button>
+                        </div>
+                        <div class="console-log" id="leConsoleLog">
+                            <div class="log-line info">[System] Ready. Please upload Loss Details and Data file.</div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <!-- Tab 10: Error Tracker Pane -->
         <div id="tab-error-tracker" class="tab-pane hidden-pane" style="width: 100%;">
             <section class="panel" style="width: 100%; box-shadow: var(--card-shadow); border-radius: 16px; background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(20px); border: 1px solid var(--border-color); padding: 1.5rem;">
                 <div class="panel-header" style="margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; width: 100%;">
@@ -978,8 +1176,10 @@
                     <div>
                         <select id="trackerSourceFilter" style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 2rem 0.4rem 0.75rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; height: 36px; cursor: pointer; outline: none; -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url('data:image/svg+xml;utf8,<svg fill=%22%236b7280%22 height=%2224%22 viewBox=%220 0 24 24%22 width=%2224%22 xmlns=%22http://www.w3.org/2000/svg%22><path d=%22M7 10l5 5 5-5z%22/></svg>'); background-repeat: no-repeat; background-position: right 8px center; background-size: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
                             <option value="all">All Pipelines</option>
-                            <option value="ajio">Ajio Error Only</option>
-                            <option value="invoice">Invoice Error Only</option>
+                            <option value="ajio">Ajio Sale Error</option>
+                            <option value="purchase">Ajio Purchase Error</option>
+                            <option value="invoice">Invoice Error</option>
+                            <option value="loss">Loss Error</option>
                         </select>
                     </div>
                     <!-- Clear All Button -->
@@ -1467,6 +1667,6 @@
     </div>
 
     <!-- Main JS Application -->
-    <script src="app.js?v=2.6"></script>
+    <script src="app.js?v=3.5"></script>
 </body>
 </html>
