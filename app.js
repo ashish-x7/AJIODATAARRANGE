@@ -4323,7 +4323,7 @@ function doPost(e) {
 
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 12000);
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 sec timeout for Google Sheets
 
             // Fetch via direct GET with action=getParties
             const response = await fetch(`${GOOGLE_SHEETS_SCRIPT_URL}?action=getParties`, {
@@ -12823,7 +12823,7 @@ function doPost(e) {
     async function fetchTrackedErrors() {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 4000); // 4 sec timeout
+            const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 sec timeout
             
             const response = await fetch(`${GOOGLE_SHEETS_SCRIPT_URL}?action=getTrackedErrors`, { signal: controller.signal });
             clearTimeout(timeoutId);
