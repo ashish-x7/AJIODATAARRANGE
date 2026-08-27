@@ -2813,7 +2813,6 @@ function jsonResponse(data) {
             }
 
             // 3. Duplicate Invoice File (only if duplicates found)
-            const duplicateCount = duplicateReport.length - 1;
             if (duplicateCount > 0) {
                 const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
                 const wbDuplicate = XLSX.utils.book_new();
