@@ -288,22 +288,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // Hardcoded Google Sheets Apps Script Web App URL
     const GOOGLE_SHEETS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyOMN8UOshlf0-rUsH1KSVxbP3JJHXynE3Ykg21gOuTSuu8DJv7G1a1LQabthyVjM1dVQ/exec";
 
-    // Selected Files Store
+        // Selected Files Store
     let selectedFiles = [];
-    // Processed Files Result Store (objects: { name, originalName, blob, size })
-    let processedFiles = [];
+    // Processed Files Result Store (objects: { id, source, category, name, rowCount, blob, aoa })
+    let processedReportsList = [];
     // Memory cache for the download-all zip blob
-    let processedZipBlob = null;
+    let batchProcessedZipBlob = null;
+    let batchUploadedZipName = "";
+    let isBatchZipMode = false;
     let currentUploadedFolderName = "";
 
-    // ZIP Batch Mode State Variables (in File Converter)
-    let isBatchZipMode = false;
-    let batchZipFile = null;
-    let batchUploadedZipName = "";
-    let batchProcessedZipBlob = null;
-    let batchResults = []; // array of { vendorCode, partyName, invoiceRange, totalOrders, cntNew... }
+    // DOM Elements - Converter Tab
+    const toggleProcRule = document.getElementById('toggle-proc-rule');
+    const labelProcRule = document.getElementById('label-proc-rule');
+    const clearBtn = document.getElementById('clearBtn');
+    const clearFilesBtn = document.getElementById('clearFilesBtn');
+    const resetBtn = document.getElementById('resetBtn');
 
-    // DOM Elements
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('fileInput');
     const zipInput = document.getElementById('zipInput');
@@ -311,16 +312,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const browseBtn = document.getElementById('browseBtn');
     const browseZipBtn = document.getElementById('browseZipBtn');
     const browseFolderBtn = document.getElementById('browseFolderBtn');
-    const clearBtn = document.getElementById('clearBtn');
-    const clearFilesBtn = document.getElementById('clearFilesBtn');
-    const resetBtn = document.getElementById('resetBtn');
-    const processBtn = document.getElementById('processBtn');
-    const fileListCard = document.getElementById('fileListCard');
-    const uploadFileList = document.getElementById('uploadFileList');
+
+    const fileListCard = document.getElementById('selectedFilesCard') || document.getElementById('fileListCard');
+    const uploadFileList = document.getElementById('uploadedFileList') || document.getElementById('uploadFileList');
     const selectedCountSpan = document.getElementById('selectedCount');
-    
-    // Status & Progress Elements
+    const processBtn = document.getElementById('processBtn');
     const processStatus = document.getElementById('processStatus');
+
+    // Stats Elements
+    const statTotal = document.getElementById('stat-total') || document.getElementById('stat-orders');
+    const statOd = document.getElementById('stat-od');
+    const statDt = document.getElementById('stat-dt');
+    const statDtSold = document.getElementById('stat-dt-sold') || document.getElementById('stat-invoices');
+    const statDtCancelled = document.getElementById('stat-dt-cancelled') || document.getElementById('stat-duplicates');
+    const statUnmatched = document.getElementById('stat-unmatched') || document.getElementById('stat-value');
+
+    // Progress Elements
     const progressCard = document.getElementById('progressCard');
     const overallProgressBar = document.getElementById('overallProgressBar');
     const progressPercent = document.getElementById('progressPercent');
@@ -328,25 +335,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const stepExtract = document.getElementById('stepExtract');
     const stepConvert = document.getElementById('stepConvert');
     const stepRename = document.getElementById('stepRename');
-    
-    // Output Elements
+
+    // Details Log & Range Elements
+    const logTrackerCard = document.getElementById('log-tracker-card');
+    const btnCopyLog = document.getElementById('btnCopyLog');
+    const logTdFilename = document.getElementById('log-td-filename');
+    const logTdRange = document.getElementById('log-td-range');
+    const logTdDates = document.getElementById('log-td-dates');
+    const logTdB2p2 = document.getElementById('log-td-b2p2');
+
+    const rangeValue = document.getElementById('range-value');
+    const btnCopyRange = document.getElementById('btnCopyRange');
+
+    const cancelledInvoicesList = document.getElementById('cancelledInvoicesList');
+    const btnCopyCancelled = document.getElementById('btnCopyCancelled');
+
+    // Interactive Output Table Elements
     const processedContainer = document.getElementById('processedContainer');
-    const processedHeader = document.getElementById('processedHeader');
     const processedCount = document.getElementById('processedCount');
-    const processedList = document.getElementById('processedList');
+    const procSearchInput = document.getElementById('procSearchInput');
     const downloadAllBtn = document.getElementById('downloadAllBtn');
-    
-    // Config toggles
-    const optCsvToXlsx = document.getElementById('optCsvToXlsx');
-    const optRenameFiles = document.getElementById('optRenameFiles');
-    const optSmartSuffix = document.getElementById('optSmartSuffix');
-    
+    const procFilesTbody = document.getElementById('procFilesTbody');
+
     // Logger Elements
     const consoleLog = document.getElementById('consoleLog');
     const clearLogBtn = document.getElementById('clearLogBtn');
+    const dashboardControls = document.getElementById('dashboardControls');
 
     /* ==========================================================================
-       LOGGER UTILITY
+       CONVERTER LOGGER UTILITY
        ========================================================================== */
     function log(message, type = 'info') {
         if (!consoleLog) return;
@@ -363,216 +380,367 @@ document.addEventListener('DOMContentLoaded', () => {
         consoleLog.scrollTop = consoleLog.scrollHeight;
     }
 
-    clearLogBtn.addEventListener('click', () => {
-        consoleLog.innerHTML = '';
-        log('Log cleared.', 'info');
-    });
+    if (clearLogBtn) {
+        clearLogBtn.addEventListener('click', () => {
+            if (consoleLog) {
+                consoleLog.innerHTML = '<div class="log-line info">[System] Log cleared. Ready.</div>';
+            }
+        });
+    }
 
     /* ==========================================================================
-       DRAG & DROP EVENTS & FOLDER RECURSION
+       RULE TOGGLE (NEW 2 FILES vs OLD 3 FILES)
        ========================================================================== */
-    // Stop propagation on input clicks
-    [fileInput, zipInput, folderInput].forEach(inputEl => {
-        if (inputEl) {
-            inputEl.addEventListener('click', (e) => e.stopPropagation());
+    if (toggleProcRule && labelProcRule) {
+        toggleProcRule.checked = false;
+        labelProcRule.innerText = "Old Logic";
+        toggleProcRule.addEventListener('change', () => {
+            const isNew = toggleProcRule.checked;
+            labelProcRule.innerText = isNew ? "New Logic" : "Old Logic";
+            log(`Processing Mode switched to: ${isNew ? "New Logic (44-Col OD, GST & JSON Formula)" : "Old Logic (Classic OD & Account Merger)"}`, "info");
+        });
+    }
+
+    /* ==========================================================================
+       TRIGGER DOWNLOAD HELPER
+       ========================================================================== */
+    function triggerDownload(blob, filename) {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    /* ==========================================================================
+       AJIO DATE FORMATTER (IST FORMAT: "Sun Aug 30 18:52:21 IST 2026")
+       ========================================================================== */
+    function formatAjioDateIST(inputVal, isInvoiceDate = false) {
+        if (!inputVal && inputVal !== 0) return "";
+        const str = String(inputVal).trim();
+        if (!str) return "";
+
+        // If already in IST format like "Tue Sep 01 20:49:24 IST 2026", return as is
+        if (/^[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+IST\s+\d{4}$/.test(str)) {
+            return str;
         }
-    });
 
-    // Handle Browse button clicks
-    browseBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        fileInput.click();
-    });
+        let d = null;
+        let customHours = null, customMins = null, customSecs = null;
 
-    if (browseZipBtn) {
-        browseZipBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            zipInput.click();
-        });
-    }
-
-    if (browseFolderBtn) {
-        browseFolderBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            folderInput.click();
-        });
-    }
-
-    // Dropzone click triggers browse files by default if not clicking action buttons
-    dropzone.addEventListener('click', (e) => {
-        if (e.target !== fileInput && e.target !== zipInput && e.target !== folderInput && 
-            e.target !== browseBtn && !browseBtn.contains(e.target) &&
-            e.target !== browseZipBtn && (!browseZipBtn || !browseZipBtn.contains(e.target)) &&
-            e.target !== browseFolderBtn && (!browseFolderBtn || !browseFolderBtn.contains(e.target))) {
-            fileInput.click();
+        // Check if numeric (Excel serial date)
+        if (/^\d+(\.\d+)?$/.test(str) && Number(str) > 30000 && Number(str) < 60000) {
+            const excelDate = new Date(Math.round((Number(str) - 25569) * 86400 * 1000));
+            if (!isNaN(excelDate.getTime())) {
+                d = excelDate;
+            }
         }
-    });
 
-    // Prevent default drag behaviors
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        dropzone.addEventListener(eventName, preventDefaults, false);
-        document.body.addEventListener(eventName, preventDefaults, false);
-    });
-
-    function preventDefaults(e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
-
-    // Toggle dragover styles
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropzone.addEventListener(eventName, () => dropzone.classList.add('dragover'), false);
-    });
-
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropzone.addEventListener(eventName, () => dropzone.classList.remove('dragover'), false);
-    });
-
-    // Handle dropped files & folders recursively
-    dropzone.addEventListener('drop', async (e) => {
-        try {
-            const items = e.dataTransfer.items;
-            let isFolder = false;
-            let folderName = "dropped folder";
-            
-            if (items && items.length > 0) {
-                const entry = items[0].webkitGetAsEntry();
-                if (entry) {
-                    isFolder = entry.isDirectory;
-                    folderName = entry.name;
+        // Parse YYYY-MM-DD HH:mm:ss or YYYY-MM-DDTHH:mm:ss
+        if (!d) {
+            const matchIso = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+            if (matchIso) {
+                const y = parseInt(matchIso[1], 10);
+                const m = parseInt(matchIso[2], 10) - 1;
+                const day = parseInt(matchIso[3], 10);
+                if (matchIso[4] !== undefined) {
+                    customHours = parseInt(matchIso[4], 10);
+                    customMins = parseInt(matchIso[5] || 0, 10);
+                    customSecs = parseInt(matchIso[6] || 0, 10);
                 }
+                d = new Date(y, m, day, customHours !== null ? customHours : 12, customMins !== null ? customMins : 0, customSecs !== null ? customSecs : 0);
             }
-            
-            const files = await getFilesFromDroppedItems(e.dataTransfer);
-            if (files.length > 0) {
-                if (isFolder) {
-                    currentUploadedFolderName = folderName;
-                } else {
-                    currentUploadedFolderName = "";
-                }
-                handleFiles(files);
-            }
-        } catch (err) {
-            log(`Failed to parse dropped items: ${err.message}`, 'error');
         }
-    });
 
-    // Handle selected files
-    fileInput.addEventListener('change', (e) => {
-        currentUploadedFolderName = "";
-        handleFiles(e.target.files);
-    });
-
-    // Handle selected ZIP file
-    if (zipInput) {
-        zipInput.addEventListener('change', (e) => {
-            currentUploadedFolderName = "";
-            handleFiles(e.target.files);
-        });
-    }
-
-    // Handle selected folder
-    if (folderInput) {
-        folderInput.addEventListener('change', (e) => {
-            const files = Array.from(e.target.files);
-            const folderName = files[0] && files[0].webkitRelativePath ? files[0].webkitRelativePath.split('/')[0] : "selected folder";
-            currentUploadedFolderName = folderName;
-            handleFiles(files);
-        });
-    }
-
-    // Recursive directory reader helper
-    async function traverseDirectory(entry) {
-        const files = [];
-        const readEntry = async (item) => {
-            if (item.isFile) {
-                const file = await new Promise((resolve, reject) => item.file(resolve, reject));
-                files.push(file);
-            } else if (item.isDirectory) {
-                const directoryReader = item.createReader();
-                const readAllEntries = async () => {
-                    let allEntries = [];
-                    let readBatch = async () => {
-                        const results = await new Promise((resolve, reject) => {
-                            directoryReader.readEntries(resolve, reject);
-                        });
-                        if (results.length > 0) {
-                            allEntries.push(...results);
-                            await readBatch();
-                        }
-                    };
-                    await readBatch();
-                    return allEntries;
-                };
-
-                const entries = await readAllEntries();
-                for (const subItem of entries) {
-                    await readEntry(subItem);
+        // Parse DD-MM-YYYY or DD/MM/YYYY
+        if (!d) {
+            const matchDmy = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+            if (matchDmy) {
+                const day = parseInt(matchDmy[1], 10);
+                const m = parseInt(matchDmy[2], 10) - 1;
+                const y = parseInt(matchDmy[3], 10);
+                if (matchDmy[4] !== undefined) {
+                    customHours = parseInt(matchDmy[4], 10);
+                    customMins = parseInt(matchDmy[5] || 0, 10);
+                    customSecs = parseInt(matchDmy[6] || 0, 10);
                 }
+                d = new Date(y, m, day, customHours !== null ? customHours : 12, customMins !== null ? customMins : 0, customSecs !== null ? customSecs : 0);
             }
+        }
+
+        // Fallback native Date parse
+        if (!d || isNaN(d.getTime())) {
+            const parsed = new Date(str);
+            if (!isNaN(parsed.getTime())) {
+                d = parsed;
+            }
+        }
+
+        if (!d || isNaN(d.getTime())) {
+            return str;
+        }
+
+        const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+        const dayName = days[d.getDay()];
+        const monthName = months[d.getMonth()];
+        const dateNum = String(d.getDate()).padStart(2, '0');
+        const year = d.getFullYear();
+
+        let h, min, s;
+        if (customHours !== null) {
+            h = String(customHours).padStart(2, '0');
+            min = String(customMins).padStart(2, '0');
+            s = String(customSecs).padStart(2, '0');
+        } else if (isInvoiceDate) {
+            // Random business hours between 09:00:00 and 21:00:00
+            const randH = Math.floor(Math.random() * 12) + 9;
+            const randM = Math.floor(Math.random() * 60);
+            const randS = Math.floor(Math.random() * 60);
+            h = String(randH).padStart(2, '0');
+            min = String(randM).padStart(2, '0');
+            s = String(randS).padStart(2, '0');
+        } else {
+            h = String(d.getHours()).padStart(2, '0');
+            min = String(d.getMinutes()).padStart(2, '0');
+            s = String(d.getSeconds()).padStart(2, '0');
+        }
+
+        return `${dayName} ${monthName} ${dateNum} ${h}:${min}:${s} IST ${year}`;
+    }
+
+        /* ==========================================================================
+       KEY MATCHING & DATE PARSING HELPERS (CLEANCELL, CLEANKEY, PARSECELLDATE)
+       ========================================================================== */
+    function cleanCell(val) {
+        if (val === undefined || val === null) return "";
+        return String(val).replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim();
+    }
+
+    function cleanKey(v) {
+        if (v === undefined || v === null) return "";
+        let k = String(v);
+        k = k.replace(/[`'\x7F-\x9F\x00-\x1F\x80-\x9F\xA0\t\r\n]/g, "").trim();
+        if (k !== "" && !isNaN(Number(k))) {
+            k = String(Math.round(Number(k)));
+        }
+        return k;
+    }
+
+    function parseCellDate(val) {
+        if (val === undefined || val === null || val === "") return null;
+        if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+        if (typeof val === 'number') {
+            return new Date(Math.round((val - 25569) * 86400 * 1000));
+        }
+        const str = String(val).trim();
+        if (str === "") return null;
+
+        if (/^\d{4,5}(\.\d+)?$/.test(str)) {
+            const num = parseFloat(str);
+            return new Date(Math.round((num - 25569) * 86400 * 1000));
+        }
+
+        // Check for DD/MM/YYYY or DD-MM-YYYY (with optional time)
+        const ddmmyyyy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if (ddmmyyyy) {
+            const d = parseInt(ddmmyyyy[1], 10);
+            const m = parseInt(ddmmyyyy[2], 10) - 1;
+            const y = parseInt(ddmmyyyy[3], 10);
+            const dt = new Date(y, m, d);
+            if (!isNaN(dt.getTime())) return dt;
+        }
+
+        // Check for YYYY-MM-DD or YYYY/MM/DD
+        const yyyymmdd = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+        if (yyyymmdd) {
+            const y = parseInt(yyyymmdd[1], 10);
+            const m = parseInt(yyyymmdd[2], 10) - 1;
+            const d = parseInt(yyyymmdd[3], 10);
+            const dt = new Date(y, m, d);
+            if (!isNaN(dt.getTime())) return dt;
+        }
+
+        const d = new Date(str);
+        if (!isNaN(d.getTime())) return d;
+        return null;
+    }
+
+    /* ==========================================================================
+       COLUMN DR JSON PARSER HELPER
+       ========================================================================== */
+    function extractCustomFieldsFromDR(drRaw) {
+        const res = {
+            MRP: "",
+            Seller_Trade_Discount: "",
+            B2B_Selling_Price: "",
+            B2B_Base_Price: "",
+            B2B_Tax: "",
+            product_type: "",
+            b2b2c_order: ""
         };
-        await readEntry(entry);
-        return files;
-    }
+        if (!drRaw) return res;
+        const str = String(drRaw).trim();
+        if (!str) return res;
 
-    async function getFilesFromDroppedItems(dataTransfer) {
-        const files = [];
-        const items = dataTransfer.items;
-        if (!items) {
-            return Array.from(dataTransfer.files);
-        }
-
-        for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            if (item.kind === 'file') {
-                const entry = item.webkitGetAsEntry();
-                if (entry) {
-                    const entryFiles = await traverseDirectory(entry);
-                    files.push(...entryFiles);
+        // 1. Try JSON.parse
+        try {
+            const parsed = JSON.parse(str);
+            if (Array.isArray(parsed)) {
+                for (const item of parsed) {
+                    if (item && typeof item === 'object') {
+                        Object.assign(res, item);
+                    }
                 }
+                return res;
+            } else if (typeof parsed === 'object' && parsed !== null) {
+                Object.assign(res, parsed);
+                return res;
+            }
+        } catch (e) {
+            // fallback to regex
+        }
+
+        // 2. Regex fallback
+        const keys = ['MRP', 'Seller_Trade_Discount', 'B2B_Selling_Price', 'B2B_Base_Price', 'B2B_Tax', 'product_type', 'b2b2c_order'];
+        for (const key of keys) {
+            const reg = new RegExp(`["']?${key}["']?\\s*:\\s*["']?([^"',}\\]]+)["']?`, 'i');
+            const m = str.match(reg);
+            if (m && m[1]) {
+                res[key] = m[1].trim();
             }
         }
-        return files;
-    }
-
-    function handleFiles(files) {
-        if (files.length === 0) return;
-
-        let addedCount = 0;
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            
-            // Check if already in list to avoid duplicates
-            if (selectedFiles.some(f => f.name === file.name && f.size === file.size)) {
-                continue;
-            }
-
-            selectedFiles.push({
-                id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-                name: file.name,
-                size: file.size,
-                file: file
-            });
-            addedCount++;
-        }
-        
-        if (addedCount > 0) {
-            log(`Added ${addedCount} file(s) to the list.`, 'info');
-        }
-        updateUI();
+        return res;
     }
 
     /* ==========================================================================
-       UI CONTROLS & UPDATES
+       44-COLUMN AJIO MASTER OD GENERATOR
        ========================================================================== */
-    function formatBytes(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    const AJIO_OD_44_HEADERS = [
+        "Cust Order No", "Cust Order Date", "FWD Seller Order NO", "FWD PO NO", "FWD PO Date",
+        "Seller Invoice No", "Seller Invoice Date", "Cust Invoice No", "Cust Invoice Date",
+        "Status", "JioCode", "HSN", "Seller Style Code", "Seller SKU", "EAN", "Description",
+        "Order Qty", "FWD Shipment ID", "FWD Shipment Date", "FWD Carrier", "FWD AWB",
+        "Shipped QTY", "Estimated Dispatch Date", "SLA Status", "Cancelled Qty",
+        "Customer Cancelled QTY", "Seller Cancelled QTY", "Listing MRP", "Seller TD",
+        "Selling Price", "Base Price", "Total Price", "CGST_PERCENTAGE", "CGST_AMOUNT",
+        "SGST_PERCENTAGE", "SGST_AMOUNT", "IGST_PERCENTAGE", "IGST_AMOUNT", "Total Value",
+        "Invoice Value", "Brand", "Fulfillment Type", "POB ID", "Seller Name"
+    ];
+
+    function buildAjioOdAoa(dropShipRows) {
+        if (!dropShipRows || dropShipRows.length < 2) return [AJIO_OD_44_HEADERS];
+
+        const header = dropShipRows[0] || [];
+        
+        // Find column indices with sensible fallbacks
+        const idxDR = 121; // Col DR
+        const idxL = 11;   // Col L (Cust Order Date)
+        const idxD = 3;    // Col D (FWD Seller Order NO)
+        const idxCN = 91;  // Col CN (FWD PO NO)
+        const idxG = 6;    // Col G (Seller Invoice No)
+        const idxM = 12;   // Col M (Seller Invoice Date)
+        const idxI = 8;    // Col I (Status)
+        const idxA = 0;    // Col A (EAN)
+        const idxX = 23;   // Col X (Description)
+        const idxR = 17;   // Col R (Order Qty / Shipped Qty)
+        const idxO = 14;   // Col O (FWD Carrier)
+        const idxP = 15;   // Col P (FWD AWB)
+        const idxDV = 125; // Col DV (POB ID)
+
+        const outRows = [AJIO_OD_44_HEADERS];
+
+        for (let r = 1; r < dropShipRows.length; r++) {
+            const row = dropShipRows[r];
+            if (!row || row.every(cell => String(cell || "").trim() === "")) continue;
+
+            // Extract JSON fields from DR
+            const drVal = row[idxDR] !== undefined ? row[idxDR] : (row.length > 100 ? row[row.length - 1] : "");
+            const drFields = extractCustomFieldsFromDR(drVal);
+
+            const custOrderNo = drFields.b2b2c_order || "";
+            const custOrderDate = formatAjioDateIST(row[idxL], false);
+            const fwdSellerOrderNo = row[idxD] !== undefined ? String(row[idxD]).trim() : "";
+            const fwdPoNo = row[idxCN] !== undefined ? String(row[idxCN]).trim() : "";
+            const fwdPoDate = "";
+            const sellerInvoiceNo = row[idxG] !== undefined ? String(row[idxG]).trim() : "";
+            const sellerInvoiceDate = formatAjioDateIST(row[idxM], true);
+            const custInvoiceNo = "";
+            const custInvoiceDate = formatAjioDateIST(row[idxM], true);
+            const status = row[idxI] !== undefined ? String(row[idxI]).trim() : "";
+            const jioCode = "";
+            const idxZ = 25; // Col Z (HSN)
+            const hsn = (row[idxZ] !== undefined && row[idxZ] !== null) ? String(row[idxZ]).trim() : "";
+            const sellerStyleCode = "";
+            const sellerSku = "";
+            const ean = ""; // Col O kept blank per user request
+            const description = row[idxX] !== undefined ? String(row[idxX]).trim() : "";
+            const orderQty = row[idxR] !== undefined ? (Number(row[idxR]) || 1) : 1;
+            const fwdShipmentId = "";
+            const fwdShipmentDate = "";
+            const fwdCarrier = row[idxO] !== undefined ? String(row[idxO]).trim() : "";
+            const fwdAwb = row[idxP] !== undefined ? String(row[idxP]).trim() : "";
+            const shippedQty = orderQty;
+            const estDispatchDate = "";
+            const slaStatus = "";
+            const cancelledQty = "";
+            const custCancelledQty = "";
+            const sellerCancelledQty = "";
+            const listingMrp = drFields.MRP !== "" ? (Number(drFields.MRP) || drFields.MRP) : "";
+            const sellerTd = drFields.Seller_Trade_Discount !== "" ? (Number(drFields.Seller_Trade_Discount) || drFields.Seller_Trade_Discount) : "";
+            const sellingPrice = drFields.B2B_Selling_Price !== "" ? (Number(drFields.B2B_Selling_Price) || drFields.B2B_Selling_Price) : "";
+            const totalPrice = drFields.B2B_Base_Price !== "" ? (Number(drFields.B2B_Base_Price) || 0) : 0; // Col AF
+            
+            // Col AE = Col AF / Col V
+            const basePriceNum = shippedQty > 0 ? (totalPrice / shippedQty) : totalPrice;
+            const basePrice = Math.round(basePriceNum * 100) / 100;
+
+            // GST Rule: If Base Price < 2500 -> 2.5%, else 9%
+            const gstPct = basePrice < 2500 ? 2.5 : 9.0;
+            const cgstPct = gstPct;
+            const sgstPct = gstPct;
+
+            const b2bTaxNum = drFields.B2B_Tax !== "" ? (Number(drFields.B2B_Tax) || 0) : 0;
+            const cgstAmt = Math.round((b2bTaxNum / 2) * 100) / 100;
+            const sgstAmt = Math.round((b2bTaxNum / 2) * 100) / 100;
+
+            const igstPct = "";
+            const igstAmt = "";
+
+            // Total Value = Base Price + CGST Amount + SGST Amount
+            const totalValue = Math.round((basePrice + cgstAmt + sgstAmt) * 100) / 100;
+            const invoiceValue = totalValue;
+
+            // Col AO receives DropShip Col A data previously in Col O
+            const brand = row[idxA] !== undefined ? String(row[idxA]).trim() : "";
+            const fulfillmentType = "";
+            const pobId = row[idxDV] !== undefined ? String(row[idxDV]).trim() : "";
+            const sellerName = "EASY SELL SERVICE PRIVATE LIMITED";
+
+            outRows.push([
+                custOrderNo, custOrderDate, fwdSellerOrderNo, fwdPoNo, fwdPoDate,
+                sellerInvoiceNo, sellerInvoiceDate, custInvoiceNo, custInvoiceDate,
+                status, jioCode, hsn, sellerStyleCode, sellerSku, ean, description,
+                orderQty, fwdShipmentId, fwdShipmentDate, fwdCarrier, fwdAwb,
+                shippedQty, estDispatchDate, slaStatus, cancelledQty,
+                custCancelledQty, sellerCancelledQty, listingMrp, sellerTd,
+                sellingPrice, basePrice, totalPrice, cgstPct, cgstAmt,
+                sgstPct, sgstAmt, igstPct, igstAmt, totalValue,
+                invoiceValue, brand, fulfillmentType, pobId, sellerName
+            ]);
+        }
+
+        return outRows;
     }
 
+    /* ==========================================================================
+       FILE INPUTS & DRAG-AND-DROP SETUP
+       ========================================================================== */
     function getFileIconClass(filename) {
         const ext = filename.split('.').pop().toLowerCase();
         if (ext === 'zip') return 'fa-solid fa-file-zipper zip';
@@ -581,773 +749,87 @@ document.addEventListener('DOMContentLoaded', () => {
         return 'fa-solid fa-file text-muted';
     }
 
+    function formatBytes(bytes, decimals = 2) {
+        if (!bytes || bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
     function removeFile(id) {
         const fileToRemove = selectedFiles.find(f => f.id === id);
         selectedFiles = selectedFiles.filter(f => f.id !== id);
         if (fileToRemove) {
             log(`Removed file: ${fileToRemove.name}`, 'info');
         }
-        updateUI();
+        updateConverterUI();
     }
 
-    function updateUI() {
-        selectedCountSpan.innerText = selectedFiles.length;
-        
-        // Remove empty state message if files exist
+    function updateConverterUI() {
+        if (selectedCountSpan) selectedCountSpan.innerText = selectedFiles.length;
+        const listEl = document.getElementById('uploadedFileList') || document.getElementById('uploadFileList') || uploadFileList;
+
         if (selectedFiles.length > 0) {
-            processBtn.removeAttribute('disabled');
-            
-            uploadFileList.innerHTML = '';
-            selectedFiles.forEach(fileObj => {
-                const item = document.createElement('div');
-                item.className = 'file-item';
-                
-                const info = document.createElement('div');
-                info.className = 'file-info';
-                
-                const icon = document.createElement('i');
-                icon.className = getFileIconClass(fileObj.name);
-                
-                const nameSpan = document.createElement('span');
-                nameSpan.className = 'file-name';
-                nameSpan.innerText = fileObj.name;
-                nameSpan.title = fileObj.name;
-                
-                const sizeSpan = document.createElement('span');
-                sizeSpan.className = 'file-size';
-                sizeSpan.innerText = formatBytes(fileObj.size);
-                
-                info.appendChild(icon);
-                info.appendChild(nameSpan);
-                info.appendChild(sizeSpan);
-                
-                const removeBtn = document.createElement('button');
-                removeBtn.className = 'file-action-btn';
-                removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
-                removeBtn.title = "Remove file";
-                removeBtn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const ok = await showCustomConfirm('Remove File', `Are you sure you want to remove "${fileObj.name}"?`, 'danger', 'Remove');
-                    if (ok) removeFile(fileObj.id);
-                });
-                
-                item.appendChild(info);
-                item.appendChild(removeBtn);
-                uploadFileList.appendChild(item);
-            });
-        } else {
-            processBtn.setAttribute('disabled', 'true');
-            uploadFileList.innerHTML = '<div class="empty-list-msg">No files selected yet.</div>';
-        }
-        checkBatchModeState();
-    }
-
-    // Clear All Files
-    clearBtn.addEventListener('click', async () => {
-        const ok = await showCustomConfirm('Clear All', 'Are you sure you want to clear all files and reset results?', 'danger', 'Clear All');
-        if (!ok) return;
-
-        selectedFiles = [];
-        processedFiles = [];
-        processedZipBlob = null;
-        fileInput.value = '';
-        
-        // Reset process elements
-        processStatus.className = 'status-indicator idle';
-        processStatus.innerText = 'Idle';
-        
-        progressCard.classList.add('hidden');
-        overallProgressBar.style.width = '0%';
-        progressPercent.innerText = '0% Completed';
-        
-        // Reset timelines
-        [stepExtract, stepConvert, stepRename].forEach(el => {
-            el.className = 'timeline-step';
-            el.querySelector('i').className = 'fa-solid fa-circle-notch fa-spin step-icon';
-        });
-
-        // Reset output container
-        processedContainer.className = 'processed-container empty';
-        processedContainer.innerHTML = `
-            <div class="empty-output-state">
-                <i class="fa-solid fa-gears-gear placeholder-icon"></i>
-                <p>Upload files and click convert to see results here.</p>
-            </div>
-        `;
-        updateUI();
-        log('All fields cleared. Ready for new files.', 'info');
-    });
-
-    // Clear Selected Files only
-    if (clearFilesBtn) {
-        clearFilesBtn.addEventListener('click', async () => {
-            const ok = await showCustomConfirm('Clear Files', 'Are you sure you want to clear all selected files?', 'danger', 'Clear Files');
-            if (!ok) return;
-
-            selectedFiles = [];
-            fileInput.value = '';
-            if (zipInput) zipInput.value = '';
-            if (folderInput) folderInput.value = '';
-            updateUI();
-            log('Selected files list cleared.', 'info');
-        });
-    }
-
-    // Reset All State (trigger full clear)
-    if (resetBtn) {
-        resetBtn.addEventListener('click', () => {
-            clearBtn.click();
-        });
-    }
-
-    // Check if the uploaded ZIP file contains subfolders (which indicates Multi-Party Batch Mode)
-    async function checkIsBatchZip(file) {
-        try {
-            const zip = await JSZip.loadAsync(file);
-            const entries = Object.keys(zip.files);
-            return entries.some(path => {
-                const entry = zip.files[path];
-                if (entry.dir) return false;
-                const norm = path.replace(/\\/g, '/');
-                if (norm.includes('__MACOSX') || norm.split('/').some(part => part.startsWith('.'))) return false;
-                return norm.includes('/');
-            });
-        } catch (e) {
-            return false;
-        }
-    }
-
-    // Automatically toggle Batch Mode state depending on selected files list
-    async function checkBatchModeState() {
-        if (selectedFiles.length === 1 && selectedFiles[0].name.split('.').pop().toLowerCase() === 'zip') {
-            const isBatch = await checkIsBatchZip(selectedFiles[0].file);
-            if (isBatch) {
-                batchZipFile = selectedFiles[0].file;
-                batchUploadedZipName = selectedFiles[0].name;
-            }
-        } else {
-            batchZipFile = null;
-            batchUploadedZipName = "";
-        }
-        processBtn.innerHTML = '<i class="fa-solid fa-bolt"></i> START AJIO ARANGE';
-    }
-
-    // Render Converter Tab Batch Mode Dashboard
-    function renderConverterBatchDashboard() {
-        if (!processedContainer) return;
-        processedContainer.innerHTML = '';
-        processedContainer.className = 'processed-container';
-
-        const header = document.createElement('div');
-        header.className = 'merger-results-header';
-        header.style.marginBottom = '1.25rem';
-        header.innerHTML = `
-            <h3><i class="fa-solid fa-circle-check text-success"></i> Batch Pipeline Outputs</h3>
-            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                <button class="btn btn-success btn-glow" id="downloadConverterBatchSummaryBtn">
-                    <i class="fa-solid fa-file-excel"></i> Download Summary Excel
-                </button>
-                <button class="btn btn-primary btn-glow" id="downloadConverterBatchZipBtn">
-                    <i class="fa-solid fa-file-zipper"></i> Download Batch ZIP
-                </button>
-            </div>
-        `;
-        processedContainer.appendChild(header);
-
-        const gridContainer = document.createElement('div');
-        gridContainer.className = 'data-grid-container';
-        gridContainer.style.flexGrow = '1';
-        gridContainer.style.overflowY = 'auto';
-
-        const table = document.createElement('table');
-        table.className = 'data-table batch-results-table';
-        table.innerHTML = `
-            <thead>
-                <tr>
-                    <th style="width: 15%">CODE</th>
-                    <th style="width: 40%">PARTY NAME</th>
-                    <th style="width: 25%">INVOICE RANGE</th>
-                    <th style="width: 20%; text-align: center;">STATUS</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${batchResults.map(res => {
-                    const statusClass = res.status === "Success" ? "success" : "error";
-                    const statusIcon = res.status === "Success" ? "fa-circle-check" : "fa-triangle-exclamation";
-                    const rangeDisplay = res.invoiceRange === "N/A" ? "N/A" : res.invoiceRange;
+            if (processBtn) processBtn.removeAttribute('disabled');
+            if (listEl) {
+                listEl.innerHTML = '';
+                selectedFiles.forEach(fileObj => {
+                    const item = document.createElement('div');
+                    item.className = 'file-item';
                     
-                    return `
-                        <tr>
-                            <td style="font-weight: 700; color: var(--color-primary);">${res.vendorCode}</td>
-                            <td>
-                                <div>${res.partyName}</div>
-                                ${res.status !== "Success" ? `<div style="font-size: 0.75rem; color: var(--color-error); margin-top: 0.2rem;">${res.errorMsg}</div>` : ""}
-                            </td>
-                            <td>${rangeDisplay}</td>
-                            <td style="text-align: center;">
-                                <span class="batch-status-badge ${statusClass}">
-                                    <i class="fa-solid ${statusIcon}"></i> ${res.status}
-                                </span>
-                            </td>
-                        </tr>
-                    `;
-                }).join('')}
-            </tbody>
-        `;
-        gridContainer.appendChild(table);
-        processedContainer.appendChild(gridContainer);
-
-        const dlZipBtn = document.getElementById('downloadConverterBatchZipBtn');
-        if (dlZipBtn) {
-            dlZipBtn.addEventListener('click', () => {
-                if (batchProcessedZipBlob) {
-                    triggerDownload(batchProcessedZipBlob, batchUploadedZipName || 'Batch_Merger_Output.zip');
-                    log(`Downloaded complete batch ZIP: ${batchUploadedZipName || 'Batch_Merger_Output.zip'}`, 'info');
-                }
-            });
-        }
-
-        const dlSummaryBtn = document.getElementById('downloadConverterBatchSummaryBtn');
-        if (dlSummaryBtn) {
-            dlSummaryBtn.addEventListener('click', () => {
-                const summaryWb = XLSX.utils.book_new();
-                
-                const detailedSummaryData = [[
-                    "Vendor Code", "Party Name", "Invoice Range", "Total Orders", 
-                    "New", "Cancelled", "Shipped", "Delivered", "Ready to Ship", "PO Created", "Others", 
-                    "Date Range", "Warehouse", "Processing Status"
-                ]];
-
-                batchResults.forEach(r => {
-                    if (r.status === "Success") {
-                        detailedSummaryData.push([
-                            r.vendorCode, r.partyName, r.invoiceRange, r.totalOrders,
-                            r.cntNew, r.cntCancelled, r.cntShipped, r.cntDelivered, r.cntRTS, r.cntPO, r.cntOther,
-                            r.dateRangeStr, r.warehouseStr, "Success"
-                        ]);
-                    } else {
-                        detailedSummaryData.push([
-                            r.vendorCode, r.partyName, "N/A", 0,
-                            0, 0, 0, 0, 0, 0, 0,
-                            "N/A", "N/A", `Failed: ${r.errorMsg}`
-                        ]);
-                    }
+                    const info = document.createElement('div');
+                    info.className = 'file-info';
+                    
+                    const icon = document.createElement('i');
+                    icon.className = `file-icon ${getFileIconClass(fileObj.name)}`;
+                    
+                    const nameSpan = document.createElement('span');
+                    nameSpan.className = 'file-name';
+                    nameSpan.innerText = fileObj.name;
+                    nameSpan.title = fileObj.relativePath || fileObj.name;
+                    
+                    const sizeSpan = document.createElement('span');
+                    sizeSpan.className = 'file-size';
+                    sizeSpan.innerText = formatBytes(fileObj.size);
+                    
+                    info.appendChild(icon);
+                    info.appendChild(nameSpan);
+                    info.appendChild(sizeSpan);
+                    
+                    const removeBtn = document.createElement('button');
+                    removeBtn.className = 'file-action-btn';
+                    removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+                    removeBtn.title = "Remove file";
+                    removeBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        removeFile(fileObj.id);
+                    });
+                    
+                    item.appendChild(info);
+                    item.appendChild(removeBtn);
+                    listEl.appendChild(item);
                 });
-
-                const wsDetailed = XLSX.utils.aoa_to_sheet(detailedSummaryData);
-                XLSX.utils.book_append_sheet(summaryWb, wsDetailed, "Detailed Summary");
-
-                const shortListData = [];
-                batchResults.forEach(r => {
-                    if (r.status === "Success") {
-                        shortListData.push([r.partyName]);
-                        shortListData.push([r.invoiceRange]);
-                        shortListData.push([""]);
-                    }
-                });
-
-                const wsShort = XLSX.utils.aoa_to_sheet(shortListData);
-                XLSX.utils.book_append_sheet(summaryWb, wsShort, "Short List");
-
-                const summaryOut = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
-                const summaryBlob = new Blob([summaryOut], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-                const summaryFilename = getAjioSummaryFilename('AJIO_Summary_Report');
-                triggerDownload(summaryBlob, summaryFilename);
-                log(`Downloaded Summary Report spreadsheet: ${summaryFilename}`, 'info');
-            });
+            }
+        } else {
+            if (processBtn) processBtn.setAttribute('disabled', 'true');
+            if (listEl) listEl.innerHTML = '<div class="empty-list-msg">No files selected yet.</div>';
         }
     }
 
-    // Core Converter ZIP Batch processing execution
-    async function runConverterZipBatchMerge() {
-        console.log('[BATCH] runConverterZipBatchMerge() CALLED', batchZipFile);
-        if (!batchZipFile) { console.error('[BATCH] batchZipFile is null/undefined!'); return; }
-
-        processBtn.setAttribute('disabled', 'true');
-        clearBtn.setAttribute('disabled', 'true');
-        processStatus.className = 'status-indicator processing';
-        processStatus.innerText = 'Processing';
-        progressCard.classList.remove('hidden');
-        overallProgressBar.style.width = '5%';
-        progressPercent.innerText = '5%';
-        progressStepText.innerText = 'Reading ZIP file structure...';
-
-        processedContainer.innerHTML = '';
-        processedContainer.className = 'processed-container empty';
-        processedContainer.innerHTML = `
-            <div class="empty-output-state">
-                <i class="fa-solid fa-spinner fa-spin placeholder-icon"></i>
-                <p>Reading batch ZIP file structure. Please wait...</p>
-            </div>
-        `;
-
-        log('Starting Converter ZIP Batch Merger Pipeline...', 'process');
-        batchResults = [];
-        batchProcessedZipBlob = null;
-
-        try {
-            const zip = await JSZip.loadAsync(batchZipFile);
-            const entries = Object.keys(zip.files);
-            console.log('[BATCH] ZIP loaded. entries:', entries.length);
-            log(`ZIP file loaded. Total archive items: ${entries.length}`, 'info');
-
-            overallProgressBar.style.width = '15%';
-            progressPercent.innerText = '15%';
-            progressStepText.innerText = 'Grouping files by Vendor Code...';
-
-            const fileEntries = entries.filter(path => {
-                const entry = zip.files[path];
-                if (entry.dir) return false;
-                const norm = path.replace(/\\/g, '/');
-                if (norm.includes('__MACOSX') || norm.split('/').some(part => part.startsWith('.'))) return false;
-                return true;
-            });
-            console.log('[BATCH] fileEntries (non-dir, non-MACOSX):', fileEntries);
-
-            const groups = {};
-            fileEntries.forEach(path => {
-                // Normalize backslashes to forward slashes (Windows ZIP files)
-                const normPath = path.replace(/\\/g, '/');
-                const parts = normPath.split('/');
-                if (parts.length > 1) {
-                    const vendorCode = parts[0].trim();
-                    if (!groups[vendorCode]) {
-                        groups[vendorCode] = [];
-                    }
-                    groups[vendorCode].push({
-                        fullPath: path,
-                        name: parts[parts.length - 1],
-                        entry: zip.files[path]
-                    });
-                }
-            });
-
-            const vendorCodes = Object.keys(groups);
-            console.log('[BATCH] Vendor groups:', vendorCodes, 'files per group:', vendorCodes.map(v => v + ':' + groups[v].length));
-            log(`Found ${vendorCodes.length} vendor folder(s) to process: [${vendorCodes.join(', ')}]`, 'info');
-
-            if (vendorCodes.length === 0) {
-                throw new Error("No vendor subfolders found in the ZIP. Files must be organized inside folders named by Vendor Code.");
-            }
-
-            const outputZip = new JSZip();
-            
-            for (let idx = 0; idx < vendorCodes.length; idx++) {
-                const vendorCode = vendorCodes[idx];
-                log(`----------------------------------------`, 'info');
-                log(`Processing Vendor Code: [${vendorCode}]`, 'process');
-
-                const currentPercent = 15 + Math.round((idx / vendorCodes.length) * 70);
-                overallProgressBar.style.width = `${currentPercent}%`;
-                progressPercent.innerText = `${currentPercent}%`;
-                progressStepText.innerText = `Processing vendor ${idx + 1} of ${vendorCodes.length}: ${vendorCode}...`;
-
-                const files = groups[vendorCode];
-                let odEntry = null;
-                let accEntry = null;
-
-                log(`Files in [${vendorCode}] folder: ${files.map(f => f.name).join(', ')}`, 'info');
-
-                files.forEach(f => {
-                    const lowerName = f.name.toLowerCase();
-                    if (lowerName.includes('dropship') || lowerName.includes('od')) {
-                        odEntry = f;
-                    } else if (lowerName.includes('account') || lowerName.includes('acc') || lowerName.includes('tax') || lowerName.includes('sales') || lowerName.includes('detail') || lowerName.includes('irn')) {
-                        accEntry = f;
-                    }
-                });
-
-                if ((!odEntry || !accEntry) && files.length === 2) {
-                    if (!odEntry && !accEntry) {
-                        odEntry = files[0];
-                        accEntry = files[1];
-                    } else if (!odEntry) {
-                        odEntry = files.find(f => f !== accEntry);
-                    } else {
-                        accEntry = files.find(f => f !== odEntry);
-                    }
-                }
-
-                log(`Identified: OD=[${odEntry ? odEntry.name : 'MISSING'}], Account=[${accEntry ? accEntry.name : 'MISSING'}]`, odEntry && accEntry ? 'info' : 'error');
-
-                if (!odEntry || !accEntry) {
-                    const errorMsg = `Missing ${!odEntry ? 'OD' : ''}${!odEntry && !accEntry ? ' and ' : ''}${!accEntry ? 'Account Details' : ''} file`;
-                    batchResults.push({
-                        vendorCode: vendorCode,
-                        partyName: getPartyNameForCode(vendorCode, files),
-                        invoiceRange: "N/A",
-                        status: "Failed",
-                        errorMsg: errorMsg
-                    });
-                    log(`Vendor [${vendorCode}] skipped: ${errorMsg}.`, 'error');
-                    continue;
-                }
-
-                try {
-                    log(`Extracting file payloads: [${odEntry.name}] & [${accEntry.name}]`, 'info');
-                    console.log(`[BATCH] Vendor [${vendorCode}] extracting blobs...`);
-                    const odBlob = await odEntry.entry.async('blob');
-                    const accBlob = await accEntry.entry.async('blob');
-                    console.log(`[BATCH] Vendor [${vendorCode}] blobs ready. OD size:${odBlob.size}, ACC size:${accBlob.size}`);
-
-                    log(`Parsing files to Array-of-Arrays (AOA)...`, 'info');
-                    const odAoa = await parseFileToAoa(odBlob, odEntry.name);
-                    const accAoa = await parseFileToAoa(accBlob, accEntry.name);
-                    console.log(`[BATCH] Vendor [${vendorCode}] parsed. OD rows:${odAoa.length}, ACC rows:${accAoa.length}`);
-
-                    if (odAoa.length < 2) {
-                        throw new Error("OD data sheet has no rows (empty or headers only).");
-                    }
-
-                    // 1. Delete matching account rows
-                    const accInvoiceSet = new Set();
-                    for (let i = 1; i < accAoa.length; i++) {
-                        const val = String(accAoa[i][1]).trim();
-                        if (val !== "") accInvoiceSet.add(val);
-                    }
-
-                    const cleanOdAoa = [odAoa[0]];
-                    let deletedMatchCount = 0;
-                    for (let i = 1; i < odAoa.length; i++) {
-                        const invoiceVal = String(odAoa[i][5]).trim();
-                        if (invoiceVal !== "" && accInvoiceSet.has(invoiceVal)) {
-                            deletedMatchCount++;
-                        } else {
-                            cleanOdAoa.push(odAoa[i]);
-                        }
-                    }
-                    log(`Deleted matching rows: ${deletedMatchCount}`, 'info');
-
-                    // 2. Q-V Mismatch & Seller SKU Blank Check
-                    const finalOdAoa = [cleanOdAoa[0]];
-                    const mismatchAoa = [cleanOdAoa[0]];
-                    const blankSkuAoa = [cleanOdAoa[0]];
-                    let mismatchCount = 0;
-                    let blankSkuCount = 0;
-                    for (let i = 1; i < cleanOdAoa.length; i++) {
-                        const row = cleanOdAoa[i];
-                        const colA = String(row[0]).trim();
-                        const colF = String(row[5]).trim();
-                        const colQ = String(row[16]).trim();
-                        const colV = String(row[21]).trim();
-                        const colAE = String(row[30]).trim();
-                        const colN = String(row[13]).trim();
-
-                        const hasMismatch = (colA !== "" && colF !== "" && colQ !== colV && colAE === "");
-                        if (hasMismatch) {
-                            mismatchAoa.push(row);
-                            mismatchCount++;
-                        } else if (colN === "") {
-                            const rowCopy = [...row];
-                            rowCopy[13] = colF; // Replace blank Seller SKU with Invoice No
-                            blankSkuAoa.push(rowCopy);
-                            blankSkuCount++;
-                        } else {
-                            finalOdAoa.push(row);
-                        }
-                    }
-                    log(`Q-V mismatch rows: ${mismatchCount}, Blank SKU rows: ${blankSkuCount}`, 'info');
-
-                    // 3. Status Stats, Date Range, Invoice Range
-                    let cntNew = 0, cntCancelled = 0, cntShipped = 0, cntDelivered = 0;
-                    let cntRTS = 0, cntPO = 0, cntOther = 0;
-                    const pendingInvoices = [["Filename", "OrderID", "Status"]];
-                    const dateRangeStr = parseDateRange(finalOdAoa);
-
-                    const whAQ = finalOdAoa[1] && finalOdAoa[1][42] ? String(finalOdAoa[1][42]).trim() : "";
-                    const whAO = finalOdAoa[1] && finalOdAoa[1][40] ? String(finalOdAoa[1][40]).trim() : "";
-                    const warehouseStr = `${whAQ} / ${whAO}`;
-
-                    const rangeDict = {};
-                    const rangeRegex = /([A-Za-z0-9]+)-(\d+)/;
-
-                    for (let i = 1; i < finalOdAoa.length; i++) {
-                        const row = finalOdAoa[i];
-                        const invoiceVal = String(row[5]).trim();
-                        const match = rangeRegex.exec(invoiceVal);
-                        if (match) {
-                            const prefix = match[1];
-                            const num = parseInt(match[2], 10);
-                            if (!rangeDict[prefix]) rangeDict[prefix] = [];
-                            rangeDict[prefix].push(num);
-                        }
-
-                        const sStat = smartStatus(row[9]);
-                        switch (sStat) {
-                            case "CANCELLED": cntCancelled++; break;
-                            case "NEW": cntNew++; break;
-                            case "PO CREATED": cntPO++; break;
-                            case "READY TO SHIP": cntRTS++; break;
-                            case "SHIPPED": if (invoiceVal !== "") cntShipped++; else cntOther++; break;
-                            case "DELIVERED": if (invoiceVal !== "") cntDelivered++; else cntOther++; break;
-                            default: cntOther++; break;
-                        }
-
-                        const colC = String(row[2]).trim();
-                        if (invoiceVal === "" && colC !== "") {
-                            pendingInvoices.push(["[RangeString].xlsx", colC, String(row[9])]);
-                        }
-                    }
-
-                    const ranges = [];
-                    let lastRangeStr = "N/A";
-                    let invoicePrefix = "";
-                    for (const key of Object.keys(rangeDict)) {
-                        const nums = rangeDict[key];
-                        const minNum = Math.min(...nums);
-                        const maxNum = Math.max(...nums);
-                        const rangeStr = `${key}-${minNum}-${maxNum}`;
-                        ranges.push(rangeStr);
-                        lastRangeStr = rangeStr;
-                        invoicePrefix = key;
-                    }
-
-                    const outputRangeFilename = lastRangeStr !== "N/A" ? `${lastRangeStr}` : "Cleaned_OD";
-                    if (!invoicePrefix && lastRangeStr === "N/A") {
-                        for (let i = 1; i < finalOdAoa.length; i++) {
-                            const invoiceVal = String(finalOdAoa[i][5]).trim();
-                            if (invoiceVal !== "") {
-                                invoicePrefix = invoiceVal.split('-')[0] || invoiceVal.substring(0, 8);
-                                break;
-                            }
-                        }
-                        if (!invoicePrefix) invoicePrefix = `AJ27S${vendorCode}`;
-                    }
-
-                    for (let i = 1; i < pendingInvoices.length; i++) {
-                        pendingInvoices[i][0] = `${outputRangeFilename}.xlsx`;
-                    }
-
-                    // 4. Duplicate Invoices & Discounts
-                    const invoiceCounts = {};
-                    const duplicateReport = [["DUPLICATE INVOICE LIST", "COUNT"]];
-                    const discountReport = [["INVOICE NO", "PERCENTAGE"]];
-
-                    for (let i = 1; i < finalOdAoa.length; i++) {
-                        const row = finalOdAoa[i];
-                        const invoiceVal = String(row[5]).trim();
-                        if (invoiceVal !== "") {
-                            invoiceCounts[invoiceVal] = (invoiceCounts[invoiceVal] || 0) + 1;
-                        }
-
-                        const colAB = parseFloat(row[27]) || 0;
-                        const colAC = parseFloat(row[28]) || 0;
-                        
-                        // NOT writing percentage formula in Column AD to preserve original data
-                        
-                        if (colAB !== 0) {
-                            const discountVal = Math.ceil((colAC / colAB) * 100);
-                            const colC = String(row[2]).trim();
-                            const colK = String(row[10]).trim();
-                            const colN = String(row[13]).trim();
-                            const customKey = `${invoiceVal}-${colC}-${colK}-${colN}`;
-                            discountReport.push([customKey, `${discountVal}%`]);
-                        }
-                    }
-
-                    for (const key of Object.keys(invoiceCounts)) {
-                        if (invoiceCounts[key] > 1) {
-                            duplicateReport.push([key, invoiceCounts[key]]);
-                        }
-                    }
-
-                    const fullPartyName = getPartyNameForCode(vendorCode, files);
-                    const cleanName = cleanPartyName(fullPartyName, vendorCode);
-                    const subfolderName = `${vendorCode}-(${outputRangeFilename})`;
-                    const cleanODFilename = `${vendorCode}-${outputRangeFilename}-OD.xlsx`;
-
-                    const pathPrefix = `${vendorCode}/${subfolderName}/`;
-
-                    // Generate spreadsheets & write to JSZip
-                    const wsClean = XLSX.utils.aoa_to_sheet(finalOdAoa);
-                    const wbClean = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbClean, wsClean, "Sheet1");
-                    const outClean = XLSX.write(wbClean, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}${cleanODFilename}`, outClean);
-
-                    const wsMismatch = XLSX.utils.aoa_to_sheet(mismatchAoa);
-                    const wbMismatch = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbMismatch, wsMismatch, "Mismatch Rows");
-                    const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}PARTLY_CANCEL_QV_MISMATCH.xlsx`, outMismatch);
-
-                    // BLANK SKU file - only create when there's actual blank SKU data
-                    if (blankSkuCount > 0) {
-                        const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
-                        const wbBlankSku = XLSX.utils.book_new();
-                        XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
-                        const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
-                        outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
-                        log(`Blank SKU file created with ${blankSkuCount} rows.`, 'info');
-                    } else {
-                        log(`No blank SKU rows found - skipping BLANK SKU file.`, 'info');
-                    }
-
-                    // 2 MORE INVOICE file - only create when there are duplicate invoices (> 1 count)
-                    const duplicateCount = duplicateReport.length - 1;
-                    if (duplicateCount > 0) {
-                        const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
-                        const wbDuplicate = XLSX.utils.book_new();
-                        XLSX.utils.book_append_sheet(wbDuplicate, wsDuplicate, "Duplicates");
-                        const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
-                        outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
-                        log(`2 MORE INVOICE file created with ${duplicateCount} duplicate invoices for ${vendorCode}.`, 'info');
-                    } else {
-                        log(`No duplicate invoices found for ${vendorCode} - skipping 2 MORE INVOICE file.`, 'info');
-                    }
-
-                    // Calculate total orders for master summary report
-                    const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
-
-                    batchResults.push({
-                        vendorCode: vendorCode,
-                        partyName: fullPartyName,
-                        invoiceRange: lastRangeStr,
-                        totalOrders: totalOrders,
-                        cntNew: cntNew,
-                        cntCancelled: cntCancelled,
-                        cntShipped: cntShipped,
-                        cntDelivered: cntDelivered,
-                        cntRTS: cntRTS,
-                        cntPO: cntPO,
-                        cntOther: cntOther,
-                        dateRangeStr: dateRangeStr,
-                        warehouseStr: warehouseStr,
-                        status: "Success",
-                        errorMsg: ""
-                    });
-
-                    log(`Vendor [${vendorCode}] processed successfully. Range: [${lastRangeStr}]`, 'success');
-
-                } catch (vendorErr) {
-                    console.error(`[BATCH] Vendor [${vendorCode}] FAILED:`, vendorErr);
-                    batchResults.push({
-                        vendorCode: vendorCode,
-                        partyName: getPartyNameForCode(vendorCode, files),
-                        invoiceRange: "N/A",
-                        status: "Failed",
-                        errorMsg: vendorErr.message
-                    });
-                    log(`Vendor [${vendorCode}] failed: ${vendorErr.message}`, 'error');
-                }
-            }
-
-            log(`----------------------------------------`, 'info');
-            log('Generating Master Summary Excel report...', 'process');
-            overallProgressBar.style.width = '88%';
-            progressPercent.innerText = '88%';
-            progressStepText.innerText = 'Compiling Summary Report Excel sheets...';
-
-            const summaryWb = XLSX.utils.book_new();
-
-            const detailedSummaryData = [[
-                "Vendor Code", "Party Name", "Invoice Range", "Total Orders", 
-                "New", "Cancelled", "Shipped", "Delivered", "Ready to Ship", "PO Created", "Others", 
-                "Date Range", "Warehouse", "Processing Status"
-            ]];
-
-            batchResults.forEach(r => {
-                if (r.status === "Success") {
-                    detailedSummaryData.push([
-                        r.vendorCode, r.partyName, r.invoiceRange, r.totalOrders,
-                        r.cntNew, r.cntCancelled, r.cntShipped, r.cntDelivered, r.cntRTS, r.cntPO, r.cntOther,
-                        r.dateRangeStr, r.warehouseStr, "Success"
-                    ]);
-                } else {
-                    detailedSummaryData.push([
-                        r.vendorCode, r.partyName, "N/A", 0,
-                        0, 0, 0, 0, 0, 0, 0,
-                        "N/A", "N/A", `Failed: ${r.errorMsg}`
-                    ]);
-                }
-            });
-
-            const wsDetailed = XLSX.utils.aoa_to_sheet(detailedSummaryData);
-            XLSX.utils.book_append_sheet(summaryWb, wsDetailed, "Detailed Summary");
-
-            const shortListData = [];
-            batchResults.forEach(r => {
-                if (r.status === "Success") {
-                    shortListData.push([r.partyName]);
-                    shortListData.push([r.invoiceRange]);
-                    shortListData.push([""]);
-                }
-            });
-
-            const wsShort = XLSX.utils.aoa_to_sheet(shortListData);
-            XLSX.utils.book_append_sheet(summaryWb, wsShort, "Short List");
-
-            const summaryOut = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
-            const summaryReportFilename = getAjioSummaryFilename('ajio invoice summry');
-            outputZip.file(summaryReportFilename, summaryOut);
-
-            overallProgressBar.style.width = '95%';
-            progressPercent.innerText = '95%';
-            progressStepText.innerText = 'Compiling output ZIP package...';
-
-            batchProcessedZipBlob = await outputZip.generateAsync({ type: 'blob' });
-            log(`Batch ZIP compiled successfully (${formatBytes(batchProcessedZipBlob.size)}).`, 'success');
-
-            renderConverterBatchDashboard();
-
-            overallProgressBar.style.width = '100%';
-            progressPercent.innerText = '100%';
-            progressStepText.innerText = 'Batch processing completed successfully!';
-
-            processStatus.className = 'status-indicator success';
-            processStatus.innerText = 'Completed';
-            log('Batch pipeline execution completed. ZIP package is ready.', 'success');
-
-        } catch (err) {
-            log(`Batch Pipeline failed: ${err.message}`, 'error');
-            processStatus.className = 'status-indicator idle';
-            processStatus.innerText = 'Failed';
-            progressStepText.innerText = 'An error occurred during execution.';
-
-            processedContainer.innerHTML = '';
-            processedContainer.className = 'processed-container empty';
-            processedContainer.innerHTML = `
-                <div class="empty-output-state text-error" style="color: var(--color-error)">
-                    <i class="fa-solid fa-triangle-exclamation" style="font-size: 3rem;"></i>
-                    <p style="margin-top: 0.5rem;">Process failed: ${err.message}</p>
-                </div>
-            `;
-        } finally {
-            processBtn.removeAttribute('disabled');
-            clearBtn.removeAttribute('disabled');
-        }
-    }
-
-    /* ==========================================================================
-       FILE PROCESSING PIPELINE
-       ========================================================================== */
     
-    // Read blob helper (returns string encoded in UTF-8)
-    function readBlobAsText(blob) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve(e.target.result);
-            reader.onerror = (e) => reject(e.target.error);
-            reader.readAsText(blob, 'utf-8');
-        });
-    }
-
-    // Delimiter detection counting comma vs semicolon in the first 2048 chars
-    function detectDelimiter(text) {
-        const chunk = text.slice(0, 2048);
-        let commaCount = 0;
-        let semiCount = 0;
-        for (let i = 0; i < chunk.length; i++) {
-            if (chunk[i] === ',') commaCount++;
-            else if (chunk[i] === ';') semiCount++;
-        }
-        return semiCount > commaCount ? ';' : ',';
-    }
-
+    /* ==========================================================================
+       VENDOR / PARTY CODE DETECTOR
+       ========================================================================== */
     function detectVendorCode(name, relativePath) {
-        // 1. Check relative path subfolders first
-        if (relativePath) {
-            const normPath = relativePath.replace(/\\/g, '/');
+        if (!name && !relativePath) return null;
+        const cleanName = String(name || "").trim();
+        const cleanPath = String(relativePath || "").trim();
+
+        // 1. Check relative path subfolders first (e.g. "101/DropShip.xlsx" -> "101")
+        if (cleanPath) {
+            const normPath = cleanPath.replace(/\\/g, '/');
             const parts = normPath.split('/');
             const cleanParts = parts.filter(p => p && p !== '.' && p !== '..' && p !== '__MACOSX');
             if (cleanParts.length > 1) {
@@ -1363,19 +845,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // 2. Check for AJ27S prefix in the filename (e.g. "AJ27SJ22.xlsx" or "AJ27S101-DropShip...")
-        const ajMatch = name.match(/AJ27S([A-Za-z0-9]+)/i);
+        const ajMatch = cleanName.match(/AJ27S([A-Za-z0-9]+)/i);
         if (ajMatch) {
             return ajMatch[1].toUpperCase();
         }
 
         // 3. Check filename prefix (e.g., "101-BHARVITA-AJIO..." -> "101")
-        const prefixMatch = name.match(/^([A-Za-z0-9]+)-/);
+        const prefixMatch = cleanName.match(/^([A-Za-z0-9]+)-/);
         if (prefixMatch) {
             return prefixMatch[1].toUpperCase();
         }
 
         // 4. Fallback check: try to find any word in the filename that matches vendor codes
-        const words = name.split(/[-_\s.]+/);
+        const words = cleanName.split(/[-_\\s.]+/);
         for (const word of words) {
             if (/^(101|AJ2|AJ22)$/i.test(word)) {
                 return word.toUpperCase();
@@ -1385,696 +867,1749 @@ document.addEventListener('DOMContentLoaded', () => {
         return null;
     }
 
-    processBtn.addEventListener('click', async () => {
-        if (selectedFiles.length === 0) return;
+    function handleFiles(files) {
+        const validExtensions = ['zip', 'csv', 'xlsx', 'xls'];
+        let addedCount = 0;
 
-        // Request notification permission if not yet requested/granted
-        if (typeof Notification !== 'undefined' && Notification.permission === "default") {
-            Notification.requestPermission();
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const ext = file.name.split('.').pop().toLowerCase();
+            const relPath = file.webkitRelativePath || file.name;
+
+            if (validExtensions.includes(ext)) {
+                // Prevent duplicate files by path
+                const exists = selectedFiles.some(f => (f.relativePath || f.name) === relPath && f.size === file.size);
+                if (!exists) {
+                    selectedFiles.push({
+                        id: Math.random().toString(36).substring(2, 9),
+                        name: file.name,
+                        relativePath: relPath,
+                        size: file.size,
+                        type: file.type,
+                        file: file
+                    });
+                    addedCount++;
+                }
+            }
         }
 
-        // Reset UI & state
-        batchResults = [];
+        if (addedCount > 0) {
+            log(`Added ${addedCount} file(s) for processing.`, 'info');
+            updateConverterUI();
+        }
+    }
+
+    // Trigger File Browsers
+    if (browseBtn && fileInput) {
+        browseBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            fileInput.click();
+        });
+    }
+    if (browseZipBtn && zipInput) {
+        browseZipBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            zipInput.click();
+        });
+    }
+    if (browseFolderBtn && folderInput) {
+        browseFolderBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            folderInput.click();
+        });
+    }
+
+    if (fileInput) fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+    if (zipInput) zipInput.addEventListener('change', (e) => handleFiles(e.target.files));
+    if (folderInput) folderInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+    // Drag and Drop Events
+    if (dropzone) {
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropzone.addEventListener(eventName, () => dropzone.classList.add('drag-over'), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropzone.addEventListener(eventName, () => dropzone.classList.remove('drag-over'), false);
+        });
+
+        dropzone.addEventListener('drop', async (e) => {
+            const dt = e.dataTransfer;
+            if (!dt) return;
+
+            // Handle folders via webkitGetAsEntry if available
+            if (dt.items && dt.items.length > 0 && typeof dt.items[0].webkitGetAsEntry === 'function') {
+                const files = [];
+                const readEntry = async (entry, path = "") => {
+                    if (entry.isFile) {
+                        const file = await new Promise((res, rej) => entry.file(res, rej));
+                        file.fullPath = path + file.name;
+                        files.push(file);
+                    } else if (entry.isDirectory) {
+                        const reader = entry.createReader();
+                        let entries = [];
+                        const readAll = async () => {
+                            const results = await new Promise((res, rej) => reader.readEntries(res, rej));
+                            if (results.length > 0) {
+                                entries = entries.concat(results);
+                                await readAll();
+                            }
+                        };
+                        await readAll();
+                        for (const child of entries) {
+                            await readEntry(child, path + entry.name + "/");
+                        }
+                    }
+                };
+
+                for (let i = 0; i < dt.items.length; i++) {
+                    const item = dt.items[i];
+                    const entry = item.webkitGetAsEntry();
+                    if (entry) await readEntry(entry);
+                }
+
+                if (files.length > 0) {
+                    handleFiles(files);
+                    return;
+                }
+            }
+
+            if (dt.files && dt.files.length > 0) {
+                handleFiles(dt.files);
+            }
+        });
+    }
+
+    // Clean & Reset
+    function resetConverterTab() {
+        selectedFiles = [];
+        processedReportsList = [];
         batchProcessedZipBlob = null;
-        processedFiles = [];
-        processedZipBlob = null;
+        batchUploadedZipName = "";
+        currentUploadedFolderName = "";
 
-        processBtn.setAttribute('disabled', 'true');
-        clearBtn.setAttribute('disabled', 'true');
-        processStatus.className = 'status-indicator processing';
-        processStatus.innerText = 'Processing';
+        if (fileInput) fileInput.value = '';
+        if (zipInput) zipInput.value = '';
+        if (folderInput) folderInput.value = '';
 
-        progressCard.classList.remove('hidden');
-        overallProgressBar.style.width = '5%';
-        progressPercent.innerText = '5%';
-        progressStepText.innerText = 'Initializing processing pipeline...';
+        if (processStatus) {
+            processStatus.className = 'status-indicator idle';
+            processStatus.innerText = 'Idle';
+        }
 
-        // Update timeline steps
-        stepExtract.querySelector('.step-label').innerText = "Extracting & Grouping Files";
-        stepConvert.querySelector('.step-label').innerText = "Running OD & Account Merger";
-        stepRename.querySelector('.step-label').innerText = "Syncing Sheets & Packaging";
+        if (progressCard) progressCard.classList.add('hidden');
+        if (overallProgressBar) overallProgressBar.style.width = '0%';
+        if (progressPercent) progressPercent.innerText = '0% Completed';
+        if (progressStepText) progressStepText.innerText = 'Initializing...';
 
-        // Timeline Step 1: Active
-        stepExtract.className = 'timeline-step active';
-        stepExtract.querySelector('i').className = 'fa-solid fa-spinner fa-spin step-icon';
-        stepConvert.className = 'timeline-step';
-        stepConvert.querySelector('i').className = 'fa-solid fa-circle-notch fa-spin step-icon';
-        stepRename.className = 'timeline-step';
-        stepRename.querySelector('i').className = 'fa-solid fa-circle-notch fa-spin step-icon';
+        [stepExtract, stepConvert, stepRename].forEach(el => {
+            if (el) {
+                el.className = 'timeline-step';
+                const icon = el.querySelector('i');
+                if (icon) icon.className = 'fa-solid fa-circle-notch fa-spin step-icon';
+            }
+        });
 
-        log('Starting unified processing pipeline...', 'process');
+        // Reset Stats
+        if (statTotal) statTotal.innerText = '0';
+        if (statOd) statOd.innerText = '0';
+        if (statDt) statDt.innerText = '0';
+        if (statDtSold) statDtSold.innerText = '0';
+        if (statDtCancelled) statDtCancelled.innerText = '0';
+        if (statUnmatched) statUnmatched.innerText = '0';
 
-        try {
-            // ==================================================================
-            // STEP 1: EXTRACT FILES (IF ZIP) & GROUP BY VENDOR
-            // ==================================================================
-            log('Step 1: Extracting input files...', 'process');
-            let extractedFiles = [];
+        // Reset Log Table
+        if (logTdFilename) logTdFilename.innerText = '-';
+        if (logTdRange) logTdRange.innerText = '-';
+        if (logTdDates) logTdDates.innerText = '-';
+        if (logTdB2p2) logTdB2p2.innerText = '-';
 
-            for (let i = 0; i < selectedFiles.length; i++) {
-                const fileObj = selectedFiles[i];
-                const ext = fileObj.name.split('.').pop().toLowerCase();
+        // Reset Range
+        if (rangeValue) rangeValue.innerText = '-';
 
-                if (ext === 'zip') {
-                    log(`Extracting ZIP archive: ${fileObj.name}`, 'info');
-                    try {
+        // Reset Duplicate List
+        if (cancelledInvoicesList) cancelledInvoicesList.innerHTML = '<span class="text-muted" style="font-size: 0.75rem;">No duplicate invoices detected.</span>';
+
+        // Reset Interactive Table
+        if (processedCount) processedCount.innerText = '0';
+        if (procFilesTbody) procFilesTbody.innerHTML = '';
+        if (procSearchInput) procSearchInput.value = '';
+
+        if (toggleProcRule && labelProcRule) {
+            toggleProcRule.checked = false;
+            labelProcRule.innerText = "Old Logic";
+        }
+
+        if (dashboardControls) dashboardControls.classList.add('hidden');
+        updateConverterUI();
+        log('Converter tab cleaned and reset to initial state.', 'info');
+    }
+
+    if (clearBtn) clearBtn.addEventListener('click', resetConverterTab);
+    if (clearFilesBtn) clearFilesBtn.addEventListener('click', resetConverterTab);
+    if (resetBtn) resetBtn.addEventListener('click', resetConverterTab);
+
+    // Copy Buttons Event Handlers
+    if (btnCopyLog) {
+        btnCopyLog.addEventListener('click', () => {
+            const fname = logTdFilename ? logTdFilename.innerText : '-';
+            const range = logTdRange ? logTdRange.innerText : '-';
+            const dates = logTdDates ? logTdDates.innerText : '-';
+            const b2p2 = logTdB2p2 ? logTdB2p2.innerText : '-';
+            const text = `${fname}\t${range}\t${dates}\t${b2p2}`;
+            navigator.clipboard.writeText(text).then(() => {
+                showToast("Details Log copied to clipboard!", "success");
+            }).catch(() => {
+                showToast("Copied to clipboard", "info");
+            });
+        });
+    }
+
+    if (btnCopyRange) {
+        btnCopyRange.addEventListener('click', () => {
+            const val = rangeValue ? rangeValue.innerText : '-';
+            navigator.clipboard.writeText(val).then(() => {
+                showToast(`Invoice Range copied: ${val}`, "success");
+            }).catch(() => {
+                showToast("Copied range to clipboard", "info");
+            });
+        });
+    }
+
+    if (btnCopyCancelled) {
+        btnCopyCancelled.addEventListener('click', () => {
+            if (!cancelledInvoicesList) return;
+            const badges = cancelledInvoicesList.querySelectorAll('.cancelled-invoice-badge');
+            const vals = Array.from(badges).map(b => b.innerText.trim()).filter(Boolean);
+            if (vals.length > 0) {
+                navigator.clipboard.writeText(vals.join(', ')).then(() => {
+                    showToast(`Copied ${vals.length} duplicate invoice(s)!`, "success");
+                });
+            } else {
+                showToast("No duplicate invoices to copy.", "info");
+            }
+        });
+    }
+
+    /* ==========================================================================
+       INTERACTIVE TABLE RENDERING & FILTERING
+       ========================================================================== */
+    function renderProcFilesTable(filterText = "") {
+        if (!procFilesTbody) return;
+        procFilesTbody.innerHTML = '';
+
+        const query = (filterText || "").trim().toLowerCase();
+        const filtered = processedReportsList.filter(item => {
+            if (!query) return true;
+            return item.name.toLowerCase().includes(query) || (item.source && item.source.toLowerCase().includes(query)) || item.category.toLowerCase().includes(query);
+        });
+
+        if (processedCount) processedCount.innerText = processedReportsList.length;
+
+        if (filtered.length === 0) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td colspan="6" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No files matching criteria.</td>`;
+            procFilesTbody.appendChild(tr);
+            return;
+        }
+
+        filtered.forEach((fileObj, idx) => {
+            const tr = document.createElement('tr');
+
+            let badgeClass = 'border-dt';
+            let catColor = '#0284c7';
+            let catBg = '#e0f2fe';
+            if (fileObj.category === 'OD Master') {
+                badgeClass = 'border-od';
+                catColor = '#7c3aed';
+                catBg = '#ede9fe';
+            } else if (fileObj.category === 'Duplicate Inv') {
+                badgeClass = 'border-unmatched';
+                catColor = '#dc2626';
+                catBg = '#fee2e2';
+            } else if (fileObj.category === 'Summary') {
+                catColor = '#059669';
+                catBg = '#ecfdf5';
+            }
+
+            tr.style.borderBottom = '1px solid #f1f5f9';
+            tr.style.transition = 'background 0.15s ease';
+            tr.onmouseover = () => tr.style.background = '#f8fafc';
+            tr.onmouseout = () => tr.style.background = 'transparent';
+
+            tr.innerHTML = `
+                <td style="text-align: center; font-weight: 700; color: #94a3b8; font-size: 0.78rem; padding: 0.65rem 0.4rem; vertical-align: middle;">${idx + 1}</td>
+                <td style="font-weight: 700; color: #334155; padding: 0.65rem 0.5rem; vertical-align: middle; white-space: nowrap;">
+                    <span style="background: #f1f5f9; color: #475569; padding: 0.2rem 0.55rem; border-radius: 6px; font-size: 0.76rem; border: 1px solid #e2e8f0; display: inline-block;">
+                        <i class="fa-solid fa-user-tag" style="font-size: 0.68rem; margin-right: 3px; color: #64748b;"></i>${fileObj.source || '-'}
+                    </span>
+                </td>
+                <td style="text-align: center; padding: 0.65rem 0.5rem; vertical-align: middle; white-space: nowrap;">
+                    <span class="badge" style="background: ${catBg}; color: ${catColor}; font-weight: 700; border: 1px solid ${catColor}33; font-size: 0.73rem; padding: 0.22rem 0.65rem; border-radius: 20px; letter-spacing: 0.02em; display: inline-block;">
+                        ${fileObj.category}
+                    </span>
+                </td>
+                <td style="padding: 0.65rem 0.75rem; vertical-align: middle;">
+                    <div style="display: flex; align-items: center; gap: 0.55rem;">
+                        <span style="display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; background: rgba(5, 150, 105, 0.1); color: #059669; font-size: 0.85rem; flex-shrink: 0;">
+                            <i class="fa-solid fa-file-excel"></i>
+                        </span>
+                        <span style="font-weight: 700; color: #1e293b; font-size: 0.82rem; letter-spacing: -0.01em; word-break: break-all;" title="${fileObj.name}">
+                            ${fileObj.name}
+                        </span>
+                    </div>
+                </td>
+                <td style="text-align: center; padding: 0.65rem 0.5rem; vertical-align: middle; white-space: nowrap;">
+                    <span style="display: inline-block; padding: 0.18rem 0.55rem; border-radius: 6px; font-size: 0.78rem; font-weight: 700; color: #334155; background: #f8fafc; border: 1px solid #e2e8f0;">
+                        ${fileObj.rowCount !== undefined ? fileObj.rowCount.toLocaleString() : '-'}
+                    </span>
+                </td>
+                <td style="text-align: center; padding: 0.65rem 0.5rem; vertical-align: middle; white-space: nowrap;">
+                    <div style="display: flex; gap: 0.4rem; justify-content: center; align-items: center;">
+                        <button class="btn btn-view-row" title="Preview Excel data" style="width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid #e2e8f0; background: white; color: #6366f1; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.background='#e0e7ff'" onmouseout="this.style.background='white'">
+                            <i class="fa-solid fa-eye" style="font-size: 0.75rem;"></i>
+                        </button>
+                        <button class="btn btn-dl-row" title="Download Excel" style="width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid rgba(5,150,105,0.25); background: #ecfdf5; color: #059669; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.background='#10b981';this.style.color='white'" onmouseout="this.style.background='#ecfdf5';this.style.color='#059669'">
+                            <i class="fa-solid fa-download" style="font-size: 0.75rem;"></i>
+                        </button>
+                        <button class="btn btn-del-row" title="Remove from list" style="width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid rgba(239,68,68,0.25); background: #fef2f2; color: #ef4444; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.background='#ef4444';this.style.color='white'" onmouseout="this.style.background='#fef2f2';this.style.color='#ef4444'">
+                            <i class="fa-solid fa-trash-can" style="font-size: 0.75rem;"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            // Bind Actions
+            const viewBtn = tr.querySelector('.btn-view-row');
+            if (viewBtn) {
+                viewBtn.addEventListener('click', () => {
+                    if (typeof openExcelDataViewer === 'function') {
+                        openExcelDataViewer(fileObj);
+                    }
+                });
+            }
+
+            const dlBtn = tr.querySelector('.btn-dl-row');
+            if (dlBtn) {
+                dlBtn.addEventListener('click', () => {
+                    triggerDownload(fileObj.blob, fileObj.name);
+                    log(`Downloaded report: ${fileObj.name}`, 'info');
+                });
+            }
+
+            const delBtn = tr.querySelector('.btn-del-row');
+            if (delBtn) {
+                delBtn.addEventListener('click', () => {
+                    processedReportsList = processedReportsList.filter(item => item.id !== fileObj.id);
+                    renderProcFilesTable(procSearchInput ? procSearchInput.value : "");
+                    log(`Deleted report: ${fileObj.name}`, 'info');
+                });
+            }
+
+            procFilesTbody.appendChild(tr);
+        });
+    }
+
+    if (procSearchInput) {
+        procSearchInput.addEventListener('input', (e) => {
+            renderProcFilesTable(e.target.value);
+        });
+    }
+
+    if (downloadAllBtn) {
+        downloadAllBtn.addEventListener('click', () => {
+            if (!batchProcessedZipBlob) {
+                showToast("No processed package available to download.", "warning");
+                return;
+            }
+            const name = batchUploadedZipName || getAjioSummaryFilename('ajio_processed_package').replace('.xlsx', '.zip');
+            triggerDownload(batchProcessedZipBlob, name);
+            log(`Downloaded full package: ${name}`, 'success');
+        });
+    }
+
+    /* ==========================================================================
+       START AJIO ARANGE - MAIN PROCESSING PIPELINE
+       ========================================================================== */
+    if (processBtn) {
+        processBtn.addEventListener('click', async () => {
+            if (selectedFiles.length === 0) return;
+
+            // Request Notification permission
+            if (typeof Notification !== 'undefined' && Notification.permission === "default") {
+                Notification.requestPermission();
+            }
+
+            // Lock UI
+            processBtn.setAttribute('disabled', 'true');
+            if (clearBtn) clearBtn.setAttribute('disabled', 'true');
+            if (processStatus) {
+                processStatus.className = 'status-indicator processing';
+                processStatus.innerText = 'Processing';
+            }
+
+            if (progressCard) progressCard.classList.remove('hidden');
+            if (overallProgressBar) overallProgressBar.style.width = '5%';
+            if (progressPercent) progressPercent.innerText = '5%';
+            if (progressStepText) progressStepText.innerText = 'Extracting and organizing files...';
+
+            if (stepExtract) {
+                stepExtract.className = 'timeline-step active';
+                const icon = stepExtract.querySelector('i');
+                if (icon) icon.className = 'fa-solid fa-spinner fa-spin step-icon';
+            }
+
+            log('Starting AJIO processing pipeline...', 'process');
+
+            try {
+                // ==============================================================
+                // STEP 1: EXTRACT FILES (IF ZIP) & GROUP BY FOLDER / PARTY
+                // ==============================================================
+                let extractedFileList = [];
+
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    const fileObj = selectedFiles[i];
+                    const ext = fileObj.name.split('.').pop().toLowerCase();
+
+                    if (ext === 'zip') {
+                        log(`Extracting ZIP archive: ${fileObj.name}`, 'info');
                         const zip = await JSZip.loadAsync(fileObj.file);
                         const zipEntries = Object.keys(zip.files);
-                        let extractedFromThisZip = 0;
 
                         for (const filename of zipEntries) {
                             const zipEntry = zip.files[filename];
                             if (zipEntry.dir) continue;
-
                             const norm = filename.replace(/\\/g, '/');
                             if (norm.includes('__MACOSX') || norm.split('/').some(part => part.startsWith('.'))) continue;
 
-                            const fileBlob = await zipEntry.async('blob');
-                            extractedFiles.push({
-                                name: norm.split('/').pop(),
-                                blob: fileBlob,
-                                relativePath: norm
+                            const blob = await zipEntry.async('blob');
+                            extractedFileList.push({
+                                name: filename.split('/').pop(),
+                                relativePath: filename,
+                                file: blob,
+                                blob: blob
                             });
-                            extractedFromThisZip++;
                         }
-                        log(`Extracted ${extractedFromThisZip} file(s) from ZIP: ${fileObj.name}`, 'success');
-                    } catch (zipErr) {
-                        log(`Error extracting ZIP ${fileObj.name}: ${zipErr.message}`, 'error');
-                    }
-                } else {
-                    // Regular file or Folder file
-                    const relPath = fileObj.file.webkitRelativePath || fileObj.name;
-                    extractedFiles.push({
-                        name: fileObj.name,
-                        blob: fileObj.file,
-                        relativePath: relPath
-                    });
-                }
-            }
-
-            log(`Total files to process: ${extractedFiles.length}`, 'info');
-
-            // Group files by detected vendor code
-            log('Grouping files by Vendor Code...', 'info');
-            let rawGroups = {};
-            extractedFiles.forEach(f => {
-                const code = detectVendorCode(f.name, f.relativePath);
-                const key = code ? code.toUpperCase() : "UNKNOWN";
-                if (!rawGroups[key]) rawGroups[key] = [];
-                rawGroups[key].push(f);
-            });
-
-            // Resolve UNKNOWN group
-            let finalGroups = {};
-            const groupKeys = Object.keys(rawGroups);
-            const knownKeys = groupKeys.filter(k => k !== "UNKNOWN");
-
-            if (knownKeys.length === 1 && rawGroups["UNKNOWN"]) {
-                const targetKey = knownKeys[0];
-                finalGroups[targetKey] = [...(rawGroups[targetKey] || []), ...rawGroups["UNKNOWN"]];
-            } else if (knownKeys.length > 1 && rawGroups["UNKNOWN"]) {
-                rawGroups["UNKNOWN"].forEach(f => {
-                    let matchedKey = null;
-                    for (const key of knownKeys) {
-                        const escKey = key.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-                        const regex = new RegExp(`\\b${escKey}\\b|[-_]${escKey}[-_]`, 'i');
-                        if (regex.test(f.name) || regex.test(f.relativePath || '')) {
-                            matchedKey = key;
-                            break;
-                        }
-                    }
-                    if (matchedKey) {
-                        if (!finalGroups[matchedKey]) finalGroups[matchedKey] = [];
-                        finalGroups[matchedKey].push(f);
                     } else {
-                        if (!finalGroups["UNKNOWN"]) finalGroups["UNKNOWN"] = [];
-                        finalGroups["UNKNOWN"].push(f);
-                    }
-                });
-                knownKeys.forEach(k => {
-                    finalGroups[k] = [...(finalGroups[k] || []), ...(rawGroups[k] || [])];
-                });
-            } else {
-                finalGroups = rawGroups;
-            }
-
-            const vendorCodes = Object.keys(finalGroups);
-            log(`Found ${vendorCodes.length} vendor group(s): [${vendorCodes.join(', ')}]`, 'info');
-
-            // Mark Step 1 Complete
-            stepExtract.className = 'timeline-step complete';
-            stepExtract.querySelector('i').className = 'fa-solid fa-circle-check step-icon';
-
-            overallProgressBar.style.width = '30%';
-            progressPercent.innerText = '30%';
-            progressStepText.innerText = 'Running OD & Account merger processing...';
-
-            // Timeline Step 2: Active
-            stepConvert.className = 'timeline-step active';
-            stepConvert.querySelector('i').className = 'fa-solid fa-spinner fa-spin step-icon';
-
-            // ==================================================================
-            // STEP 2: RUN MERGER PIPELINE FOR EACH VENDOR
-            // ==================================================================
-            const outputZip = new JSZip();
-            let allPendingInvoices = [["Filename", "OrderID", "Status"]];
-            let allDiscountReport = [["INVOICE NO", "PERCENTAGE"]];
-
-            for (let idx = 0; idx < vendorCodes.length; idx++) {
-                const groupKey = vendorCodes[idx];
-                log(`----------------------------------------`, 'info');
-                log(`Processing Vendor Group: [${groupKey}]`, 'process');
-
-                const currentPercent = 30 + Math.round((idx / vendorCodes.length) * 50);
-                overallProgressBar.style.width = `${currentPercent}%`;
-                progressPercent.innerText = `${currentPercent}%`;
-                progressStepText.innerText = `Processing vendor ${idx + 1} of ${vendorCodes.length}: ${groupKey}...`;
-
-                const files = finalGroups[groupKey];
-                let odFileObj = null;
-                let accFileObj = null;
-
-                files.forEach(f => {
-                    const lowerName = f.name.toLowerCase();
-                    if (lowerName.includes('dropship') || lowerName.includes('od')) {
-                        odFileObj = f;
-                    } else if (lowerName.includes('account') || lowerName.includes('acc') || lowerName.includes('tax') || lowerName.includes('sales') || lowerName.includes('detail') || lowerName.includes('irn') || lowerName.includes('mismatch')) {
-                        accFileObj = f;
-                    }
-                });
-
-                if ((!odFileObj || !accFileObj) && files.length === 2) {
-                    if (!odFileObj && !accFileObj) {
-                        odFileObj = files[0];
-                        accFileObj = files[1];
-                    } else if (!odFileObj) {
-                        odFileObj = files.find(f => f !== accFileObj);
-                    } else {
-                        accFileObj = files.find(f => f !== odFileObj);
+                        extractedFileList.push(fileObj);
                     }
                 }
 
-                log(`Identified for group [${groupKey}]: OD=[${odFileObj ? odFileObj.name : 'MISSING'}], Account=[${accFileObj ? accFileObj.name : 'MISSING'}]`, odFileObj && accFileObj ? 'info' : 'error');
+                log(`Total files extracted for processing: ${extractedFileList.length}`, 'info');
 
-                if (!odFileObj || !accFileObj) {
-                    const errorMsg = `Missing ${!odFileObj ? 'OD' : ''}${!odFileObj && !accFileObj ? ' and ' : ''}${!accFileObj ? 'Account Details' : ''} file`;
-                    batchResults.push({
-                        vendorCode: groupKey,
-                        partyName: getPartyNameForCode(groupKey),
-                        invoiceRange: "N/A",
-                        status: "Failed",
-                        errorMsg: errorMsg
-                    });
-                    log(`Vendor Group [${groupKey}] skipped: ${errorMsg}.`, 'error');
-                    continue;
+                // Group files by Party / Folder
+                const partyGroups = new Map(); // partyName -> array of fileObjs
+
+                extractedFileList.forEach(fileObj => {
+                    let folder = "";
+                    const path = fileObj.relativePath || fileObj.name;
+                    if (path.includes('/') || path.includes('\\')) {
+                        const parts = path.replace(/\\/g, '/').split('/');
+                        parts.pop();
+                        folder = parts.join('/');
+                    }
+
+                    // Detect Party Code / Name
+                    let pName = folder || "Main";
+                    const detectedCode = detectVendorCode(fileObj.name, path);
+                    if (detectedCode) {
+                        pName = detectedCode;
+                    }
+
+                    if (!partyGroups.has(pName)) {
+                        partyGroups.set(pName, []);
+                    }
+                    partyGroups.get(pName).push(fileObj);
+                });
+
+                if (stepExtract) {
+                    stepExtract.className = 'timeline-step complete';
+                    const icon = stepExtract.querySelector('i');
+                    if (icon) icon.className = 'fa-solid fa-circle-check step-icon';
                 }
 
-                try {
-                    log(`Parsing files to Array-of-Arrays (AOA)...`, 'info');
-                    const odAoa = await parseFileToAoa(odFileObj.blob, odFileObj.name);
-                    const accAoa = await parseFileToAoa(accFileObj.blob, accFileObj.name);
+                // ==============================================================
+                // STEP 2: RUN AJIO PIPELINE FOR EACH PARTY GROUP
+                // ==============================================================
+                if (stepConvert) {
+                    stepConvert.className = 'timeline-step active';
+                    const icon = stepConvert.querySelector('i');
+                    if (icon) icon.className = 'fa-solid fa-spinner fa-spin step-icon';
+                }
 
-                    if (odAoa.length < 2) {
-                        throw new Error("OD data sheet has no rows (empty or headers only).");
-                    }
+                if (overallProgressBar) overallProgressBar.style.width = '35%';
+                if (progressPercent) progressPercent.innerText = '35%';
+                if (progressStepText) progressStepText.innerText = 'Transforming DropShip data to 44-Column OD Master and DT Reports...';
 
-                    // 1. Delete matching account rows
-                    const accInvoiceSet = new Set();
-                    for (let i = 1; i < accAoa.length; i++) {
-                        const val = String(accAoa[i][1]).trim();
-                        if (val !== "") accInvoiceSet.add(val);
-                    }
+                const outputZip = new JSZip();
+                processedReportsList = [];
+                let totalOrdersCount = 0;
+                let totalOdFilesCount = 0;
+                let totalDtFilesCount = 0;
+                let totalUniqueInvoices = new Set();
+                let totalCalculatedValue = 0;
+                let allDuplicateInvoices = [];
+                let lastPartyDetails = null;
+                const partyInfoMap = new Map();
 
-                    const cleanOdAoa = [odAoa[0]];
-                    let deletedMatchCount = 0;
-                    for (let i = 1; i < odAoa.length; i++) {
-                        const invoiceVal = String(odAoa[i][5]).trim();
-                        if (invoiceVal !== "" && accInvoiceSet.has(invoiceVal)) {
-                            deletedMatchCount++;
+                const isNewLogic = toggleProcRule ? toggleProcRule.checked : false;
+                log(`Executing pipeline in: [${isNewLogic ? "New Logic (44-Col OD, GST & JSON Formula)" : "Old Logic (Classic OD & Account Merger)"}] mode`, "process");
+
+                if (isNewLogic) {
+                for (const [partyName, files] of partyGroups.entries()) {
+                    log(`Processing Party Group: [${partyName}] (${files.length} files)...`, 'process');
+
+                    // Classify files in this group
+                    let dropShipFile = null;
+                    let accountFile = null;
+                    let otherFiles = [];
+
+                    for (const f of files) {
+                        const nameLower = f.name.toLowerCase();
+                        if (nameLower.includes('dropship') || nameLower.includes('drop_ship') || nameLower.includes('order') || nameLower.includes('od')) {
+                            if (!dropShipFile) dropShipFile = f;
+                            else otherFiles.push(f);
+                        } else if (nameLower.includes('account') || nameLower.includes('details') || nameLower.includes('tax') || nameLower.includes('invoice') || nameLower.includes('dt') || nameLower.includes('sales')) {
+                            if (!accountFile) accountFile = f;
+                            else otherFiles.push(f);
                         } else {
-                            cleanOdAoa.push(odAoa[i]);
+                            if (!dropShipFile) dropShipFile = f;
+                            else if (!accountFile) accountFile = f;
+                            else otherFiles.push(f);
                         }
                     }
-                    log(`Deleted matching rows: ${deletedMatchCount}`, 'info');
 
-                    // 2. Q-V Mismatch & Seller SKU Blank Check
-                    const finalOdAoa = [cleanOdAoa[0]];
-                    const mismatchAoa = [cleanOdAoa[0]];
-                    const blankSkuAoa = [cleanOdAoa[0]];
-                    let mismatchCount = 0;
-                    let blankSkuCount = 0;
-                    for (let i = 1; i < cleanOdAoa.length; i++) {
-                        const row = cleanOdAoa[i];
-                        const colA = String(row[0]).trim();
-                        const colF = String(row[5]).trim();
-                        const colQ = String(row[16]).trim();
-                        const colV = String(row[21]).trim();
-                        const colAE = String(row[30]).trim();
-                        const colN = String(row[13]).trim();
-
-                        const hasMismatch = (colA !== "" && colF !== "" && colQ !== colV && colAE === "");
-                        if (hasMismatch) {
-                            mismatchAoa.push(row);
-                            mismatchCount++;
-                        } else if (colN === "") {
-                            const rowCopy = [...row];
-                            rowCopy[13] = colF; // Replace blank Seller SKU with Invoice No
-                            blankSkuAoa.push(rowCopy);
-                            blankSkuCount++;
+                    if ((!dropShipFile || !accountFile) && files.length === 2) {
+                        if (!dropShipFile && !accountFile) {
+                            dropShipFile = files[0];
+                            accountFile = files[1];
+                        } else if (!dropShipFile) {
+                            dropShipFile = files.find(f => f !== accountFile);
                         } else {
-                            finalOdAoa.push(row);
-                        }
-                    }
-                    log(`Q-V mismatch rows: ${mismatchCount}, Blank SKU rows: ${blankSkuCount}`, 'info');
-
-                    // 3. Status Stats, Date Range, Invoice Range
-                    let cntNew = 0, cntCancelled = 0, cntShipped = 0, cntDelivered = 0;
-                    let cntRTS = 0, cntPO = 0, cntOther = 0;
-                    const pendingInvoices = [["Filename", "OrderID", "Status"]];
-                    const dateRangeStr = parseDateRange(finalOdAoa);
-
-                    const whAQ = finalOdAoa[1] && finalOdAoa[1][42] ? String(finalOdAoa[1][42]).trim() : "";
-                    const whAO = finalOdAoa[1] && finalOdAoa[1][40] ? String(finalOdAoa[1][40]).trim() : "";
-                    const warehouseStr = `${whAQ} / ${whAO}`;
-
-                    const rangeDict = {};
-                    const rangeRegex = /([A-Za-z0-9]+)-(\d+)/;
-
-                    for (let i = 1; i < finalOdAoa.length; i++) {
-                        const row = finalOdAoa[i];
-                        const invoiceVal = String(row[5]).trim();
-                        const match = rangeRegex.exec(invoiceVal);
-                        if (match) {
-                            const prefix = match[1];
-                            const num = parseInt(match[2], 10);
-                            if (!rangeDict[prefix]) rangeDict[prefix] = [];
-                            rangeDict[prefix].push(num);
-                        }
-
-                        const sStat = smartStatus(row[9]);
-                        switch (sStat) {
-                            case "CANCELLED": cntCancelled++; break;
-                            case "NEW": cntNew++; break;
-                            case "PO CREATED": cntPO++; break;
-                            case "READY TO SHIP": cntRTS++; break;
-                            case "SHIPPED": if (invoiceVal !== "") cntShipped++; else cntOther++; break;
-                            case "DELIVERED": if (invoiceVal !== "") cntDelivered++; else cntOther++; break;
-                            default: cntOther++; break;
-                        }
-
-                        const colC = String(row[2]).trim();
-                        if (invoiceVal === "" && colC !== "") {
-                            pendingInvoices.push(["[RangeString].xlsx", colC, String(row[9])]);
+                            accountFile = files.find(f => f !== dropShipFile);
                         }
                     }
 
-                    const ranges = [];
-                    let lastRangeStr = "N/A";
-                    let invoicePrefix = "";
-                    for (const key of Object.keys(rangeDict)) {
-                        const nums = rangeDict[key];
-                        const minNum = Math.min(...nums);
-                        const maxNum = Math.max(...nums);
-                        const rangeStr = `${key}-${minNum}-${maxNum}`;
-                        ranges.push(rangeStr);
-                        lastRangeStr = rangeStr;
-                        invoicePrefix = key;
+                    // Read DropShip / OD Rows
+                    let dropShipAoa = [];
+                    if (dropShipFile) {
+                        try {
+                            dropShipAoa = await parseFileToAoa(dropShipFile.blob || dropShipFile.file, dropShipFile.name);
+                        } catch (e) {
+                            log(`Error reading DropShip file ${dropShipFile.name}: ${e.message}`, 'error');
+                        }
                     }
 
-                    const outputRangeFilename = lastRangeStr !== "N/A" ? `${lastRangeStr}` : "Cleaned_OD";
-                    
-                    // Fallback to extract vendor code from invoice prefix
-                    let vendorCode = groupKey;
-                    if (vendorCode === "UNKNOWN") {
-                        if (invoicePrefix) {
-                            const codeMatch = invoicePrefix.match(/^AJ27S(.+)$/i);
-                            if (codeMatch) {
-                                vendorCode = codeMatch[1].toUpperCase();
-                            } else {
-                                vendorCode = invoicePrefix.toUpperCase();
+                    // Read Account Rows
+                    let accountAoa = [];
+                    if (accountFile) {
+                        try {
+                            accountAoa = await parseFileToAoa(accountFile.blob || accountFile.file, accountFile.name);
+                        } catch (e) {
+                            log(`Error reading Account file ${accountFile.name}: ${e.message}`, 'error');
+                        }
+                    }
+
+                    if (dropShipAoa.length === 0 && accountAoa.length === 0) {
+                        log(`No readable data found for party ${partyName}, skipping.`, 'warning');
+                        continue;
+                    }
+
+                        // ==============================================================
+                        // NEW LOGIC: DropShip & Details Match & Delete -> 2 MORE INVOICE -> GST Checks -> 44-Col OD -> Range Naming
+                        // ==============================================================
+
+                        // STEP 1 & 2: Build Key Set from Details File & Delete Matching DropShip Rows
+                        const detailsKeySet = new Set();
+                        const detailsKeySetStrict = new Set();
+
+                        if (accountAoa && accountAoa.length > 1) {
+                            const accHeader = accountAoa[0] || [];
+                            let accInvCol = -1;
+                            let accOrderCol = -1;
+
+                            for (let c = 0; c < accHeader.length; c++) {
+                                const h = String(accHeader[c] || "").trim().toLowerCase();
+                                if (accInvCol === -1 && (h.includes('invoice') || h.includes('inv no') || h.includes('bill') || h.includes('doc'))) {
+                                    accInvCol = c;
+                                }
+                                if (accOrderCol === -1 && (h.includes('order') || h.includes('po no') || h.includes('cust order') || h.includes('cust_order'))) {
+                                    accOrderCol = c;
+                                }
                             }
-                        } else if (currentUploadedFolderName && /^[A-Za-z0-9]+$/.test(currentUploadedFolderName)) {
-                            vendorCode = currentUploadedFolderName.toUpperCase();
+                            if (accInvCol === -1) accInvCol = 1; // Default Col B
+                            if (accOrderCol === -1) accOrderCol = 6; // Default Col G
+
+                            for (let r = 1; r < accountAoa.length; r++) {
+                                const row = accountAoa[r];
+                                if (!row) continue;
+                                const bVal = cleanCell(row[accInvCol !== -1 ? accInvCol : 1]);
+                                const gVal = cleanCell(row[accOrderCol !== -1 ? accOrderCol : 6]);
+
+                                if (bVal) {
+                                    detailsKeySet.add(cleanKey(bVal));
+                                    detailsKeySetStrict.add(bVal.toLowerCase().replace(/[\s\-_]/g, ''));
+                                }
+                                if (gVal) {
+                                    detailsKeySet.add(cleanKey(gVal));
+                                    detailsKeySetStrict.add(gVal.toLowerCase().replace(/[\s\-_]/g, ''));
+                                }
+                                if (bVal && gVal) {
+                                    detailsKeySet.add(cleanKey(bVal + gVal));
+                                    detailsKeySetStrict.add((bVal + gVal).toLowerCase().replace(/[\s\-_]/g, ''));
+                                }
+                            }
+                            log(`[${partyName}] Loaded ${detailsKeySet.size} unique match keys from Details file`, 'info');
+                        }
+
+                        let cleanDropShipRows = [dropShipAoa[0]];
+                        let deletedMatchCount = 0;
+
+                        if (detailsKeySet.size > 0) {
+                            for (let r = 1; r < dropShipAoa.length; r++) {
+                                const row = dropShipAoa[r];
+                                if (!row || row.every(cell => String(cell || "").trim() === "")) continue;
+
+                                const gVal = cleanCell(row[6]);  // Col G: Seller Invoice No
+                                const eVal = cleanCell(row[4]);  // Col E: Cust Order / Jio Order
+                                const dVal = cleanCell(row[3]);  // Col D: FWD Seller Order No
+                                const dwVal = row[126] !== undefined ? cleanCell(row[126]) : ""; // Col DW: Precalculated Key
+
+                                const keyG = cleanKey(gVal);
+                                const keyE = cleanKey(eVal);
+                                const keyD = cleanKey(dVal);
+                                const keyGE = cleanKey(gVal + eVal);
+                                const keyGD = cleanKey(gVal + dVal);
+                                const keyDW = cleanKey(dwVal);
+
+                                const isMatched = (keyG !== "" && (detailsKeySet.has(keyG) || detailsKeySetStrict.has(gVal.toLowerCase().replace(/[\s\-_]/g, '')))) ||
+                                                  (keyGE !== "" && detailsKeySet.has(keyGE)) ||
+                                                  (keyGD !== "" && detailsKeySet.has(keyGD)) ||
+                                                  (keyDW !== "" && detailsKeySet.has(keyDW)) ||
+                                                  (keyE !== "" && (detailsKeySet.has(keyE) || detailsKeySetStrict.has(eVal.toLowerCase().replace(/[\s\-_]/g, '')))) ||
+                                                  (keyD !== "" && (detailsKeySet.has(keyD) || detailsKeySetStrict.has(dVal.toLowerCase().replace(/[\s\-_]/g, ''))));
+
+                                if (isMatched) {
+                                    deletedMatchCount++;
+                                } else {
+                                    cleanDropShipRows.push(row);
+                                }
+                            }
+                            log(`[${partyName}] Matching Details keys found: Deleted ${deletedMatchCount} rows from DropShip. Remaining: ${cleanDropShipRows.length - 1} clean rows.`, 'success');
                         } else {
-                            vendorCode = "OUTPUT";
-                        }
-                    }
-
-                    // Update pending invoice filenames with calculated name
-                    for (let i = 1; i < pendingInvoices.length; i++) {
-                        pendingInvoices[i][0] = `${outputRangeFilename}.xlsx`;
-                        // Accumulate pending invoices
-                        allPendingInvoices.push(pendingInvoices[i]);
-                    }
-
-                    // 4. Duplicate Invoices & Discounts
-                    const invoiceCounts = {};
-                    const duplicateReport = [["DUPLICATE INVOICE LIST", "COUNT"]];
-                    const discountReport = [["INVOICE NO", "PERCENTAGE"]];
-
-                    for (let i = 1; i < finalOdAoa.length; i++) {
-                        const row = finalOdAoa[i];
-                        const invoiceVal = String(row[5]).trim();
-                        if (invoiceVal !== "") {
-                            invoiceCounts[invoiceVal] = (invoiceCounts[invoiceVal] || 0) + 1;
+                            cleanDropShipRows = dropShipAoa;
                         }
 
-                        const colAB = parseFloat(row[27]) || 0;
-                        const colAC = parseFloat(row[28]) || 0;
-                        
-                        // NOT writing percentage formula in Column AD to preserve original data
-                        
-                        if (colAB !== 0) {
-                            const discountVal = Math.ceil((colAC / colAB) * 100);
-                            const colC = String(row[2]).trim();
-                            const colK = String(row[10]).trim();
-                            const colN = String(row[13]).trim();
-                            const customKey = `${invoiceVal}-${colC}-${colK}-${colN}`;
-                            const discRow = [customKey, `${discountVal}%`];
-                            discountReport.push(discRow);
-                            // Accumulate discounts
-                            allDiscountReport.push(discRow);
+                        if (cleanDropShipRows.length < 2) {
+                            log(`[${partyName}] DropShip file has no remaining data rows after Details filtering. Skipping.`, 'warning');
+                            continue;
                         }
-                    }
 
-                    for (const key of Object.keys(invoiceCounts)) {
-                        if (invoiceCounts[key] > 1) {
-                            duplicateReport.push([key, invoiceCounts[key]]);
+                        // STEP 3: Duplicate Invoice Check (2 MORE INVOICE)
+                        const invoiceCounts = new Map();
+                        for (let r = 1; r < cleanDropShipRows.length; r++) {
+                            const inv = cleanCell(cleanDropShipRows[r][6]) || cleanCell(cleanDropShipRows[r][3]);
+                            if (inv) {
+                                invoiceCounts.set(inv, (invoiceCounts.get(inv) || 0) + 1);
+                            }
                         }
-                    }
 
-                    const fullPartyName = getPartyNameForCode(vendorCode);
-                    const subfolderName = `${vendorCode}-(${outputRangeFilename})`;
-                    const cleanODFilename = `${vendorCode}-${outputRangeFilename}-OD.xlsx`;
+                        let duplicateFound = false;
+                        const duplicateRows = [["DUPLICATE INVOICE LIST", "COUNT"]];
+                        const duplicateList = [];
+                        for (const [inv, count] of invoiceCounts.entries()) {
+                            if (count > 1) {
+                                duplicateFound = true;
+                                duplicateRows.push([inv, count]);
+                                duplicateList.push(inv);
+                                allDuplicateInvoices.push(inv);
+                            }
+                        }
 
-                    const pathPrefix = `${vendorCode}/${subfolderName}/`;
+                        // STEP 4: GST Not Applicable & GST Calculation
+                        const gstRows = [["EE Invoice No", "Order Status", "Invoice Date", "Item Quantity", "Selling Price", "Item Price(Excluding Tax)"]];
+                        let gstCreated = false;
 
-                    // Generate spreadsheets & write to output ZIP
-                    const wsClean = XLSX.utils.aoa_to_sheet(finalOdAoa);
-                    const wbClean = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbClean, wsClean, "Sheet1");
-                    const outClean = XLSX.write(wbClean, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}${cleanODFilename}`, outClean);
+                        for (let r = 1; r < cleanDropShipRows.length; r++) {
+                            const row = cleanDropShipRows[r];
+                            const inv = cleanCell(row[6]) || cleanCell(row[3]);
+                            const taxRate = cleanCell(row[41]);
+                            const taxNum = parseFloat(taxRate);
+                            const isTaxMissing = (taxRate === "" || taxRate === "0" || taxRate === "0%" || taxRate === "0.00" || isNaN(taxNum) || taxRate.toLowerCase().includes("not") || taxRate.toLowerCase().includes("n/a"));
 
-                    const wsMismatch = XLSX.utils.aoa_to_sheet(mismatchAoa);
-                    const wbMismatch = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wbMismatch, wsMismatch, "Mismatch Rows");
-                    const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
-                    outputZip.file(`${pathPrefix}PARTLY_CANCEL_QV_MISMATCH.xlsx`, outMismatch);
+                            if (inv !== "" && isTaxMissing) {
+                                gstCreated = true;
+                                const newGstRow = [
+                                    inv,
+                                    cleanCell(row[8]) || "Sold",
+                                    cleanCell(row[12]) || cleanCell(row[11]) || "",
+                                    cleanCell(row[17]) || "1",
+                                    cleanCell(row[47]) || "",
+                                    cleanCell(row[49]) || ""
+                                ];
+                                gstRows.push(newGstRow);
 
-                    // BLANK SKU file - only create when there's actual blank SKU data
-                    if (blankSkuCount > 0) {
-                        const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
-                        const wbBlankSku = XLSX.utils.book_new();
-                        XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
-                        const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
-                        outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
-                        log(`Blank SKU file created with ${blankSkuCount} rows.`, 'info');
-                    } else {
-                        log(`No blank SKU rows found - skipping BLANK SKU file.`, 'info');
-                    }
+                                row[41] = 5;
+                                const valAV = parseFloat(String(row[47] || "").replace(/,/g, "")) || 0;
+                                const valAX = Math.round(valAV / 1.05);
+                                row[49] = valAX;
+                            }
+                        }
 
-                    // 2 MORE INVOICE file - only create when there are duplicate invoices (> 1 count)
-                    const duplicateCount = duplicateReport.length - 1;
-                    if (duplicateCount > 0) {
-                        const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
-                        const wbDuplicate = XLSX.utils.book_new();
-                        XLSX.utils.book_append_sheet(wbDuplicate, wsDuplicate, "Duplicates");
-                        const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
-                        outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
-                        log(`2 MORE INVOICE file created with ${duplicateCount} duplicate invoices for ${vendorCode}.`, 'info');
-                    } else {
-                        log(`No duplicate invoices found for ${vendorCode} - skipping 2 MORE INVOICE file.`, 'info');
-                    }
+                        // STEP 5: Build 44-Column AJIO Master OD File from Cleaned DropShip Rows
+                        const odAoa = buildAjioOdAoa(cleanDropShipRows);
+                        const odRowCount = Math.max(0, odAoa.length - 1);
+                        totalOrdersCount += odRowCount;
+                        totalOdFilesCount++;
 
-                    // Calculate total orders for master summary report
-                    const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
+                        // Sum Total Value
+                        for (let r = 1; r < odAoa.length; r++) {
+                            const val = Number(odAoa[r][38]) || 0; // Col AM
+                            totalCalculatedValue += val;
+                        }
 
-                    batchResults.push({
-                        vendorCode: vendorCode,
-                        partyName: fullPartyName,
-                        invoiceRange: lastRangeStr,
-                        totalOrders: totalOrders,
-                        cntNew: cntNew,
-                        cntCancelled: cntCancelled,
-                        cntShipped: cntShipped,
-                        cntDelivered: cntDelivered,
-                        cntRTS: cntRTS,
-                        cntPO: cntPO,
-                        cntOther: cntOther,
-                        dateRangeStr: dateRangeStr,
-                        warehouseStr: warehouseStr,
-                        status: "Success",
-                        errorMsg: ""
-                    });
+                        // STEP 6: Extrapolate Invoice Range Strictly from OD File Column F (Index 5)
+                        const rangeDict = {};
+                        const rangeRegex = /([A-Za-z0-9]+)-(\d+)/;
+                        let minNum = Infinity;
+                        let maxNum = -Infinity;
+                        let invoicePrefix = "";
 
-                    log(`Vendor [${vendorCode}] processed successfully. Range: [${lastRangeStr}]`, 'success');
+                        for (let r = 1; r < odAoa.length; r++) {
+                            const invVal = String(odAoa[r][5] || "").trim(); // OD Col F (index 5)
+                            if (!invVal) continue;
 
-                } catch (vendorErr) {
-                    console.error(`[PIPELINE] Vendor Group [${groupKey}] FAILED:`, vendorErr);
-                    batchResults.push({
-                        vendorCode: groupKey,
-                        partyName: getPartyNameForCode(groupKey),
-                        invoiceRange: "N/A",
-                        status: "Failed",
-                        errorMsg: vendorErr.message
-                    });
-                    log(`Vendor [${groupKey}] failed: ${vendorErr.message}`, 'error');
+                            const match = rangeRegex.exec(invVal);
+                            if (match) {
+                                const prefix = match[1];
+                                const num = parseInt(match[2], 10);
+                                if (!rangeDict[prefix]) rangeDict[prefix] = [];
+                                rangeDict[prefix].push(num);
+                                if (num < minNum) minNum = num;
+                                if (num > maxNum) maxNum = num;
+                                if (!invoicePrefix) invoicePrefix = prefix;
+                            } else {
+                                const parts = invVal.split('-');
+                                if (parts.length >= 2) {
+                                    const curNum = parseInt(parts[parts.length - 1], 10);
+                                    if (!isNaN(curNum) && curNum > 0) {
+                                        if (curNum < minNum) minNum = curNum;
+                                        if (curNum > maxNum) maxNum = curNum;
+                                        if (!invoicePrefix) invoicePrefix = parts.slice(0, -1).join('-');
+                                    }
+                                }
+                            }
+                        }
+
+                        let generatedRange = "N/A";
+                        for (const key of Object.keys(rangeDict)) {
+                            const nums = rangeDict[key];
+                            const minN = Math.min(...nums);
+                            const maxN = Math.max(...nums);
+                            generatedRange = `${key}-${minN}-${maxN}`;
+                            invoicePrefix = key;
+                            minNum = minN;
+                            maxNum = maxN;
+                        }
+
+                        if (generatedRange === "N/A" && minNum !== Infinity && maxNum !== -Infinity) {
+                            generatedRange = invoicePrefix ? `${invoicePrefix}-${minNum}-${maxNum}` : `${minNum}-${maxNum}`;
+                        }
+                        log(`[${partyName}] Extrapolated Invoice Range from OD Column F: [${generatedRange}]`, 'info');
+
+                        // Date Range & Warehouse Extraction
+                        let minDate = null;
+                        let maxDate = null;
+                        for (let r = 1; r < odAoa.length; r++) {
+                            const dStr = String(odAoa[r][1] || odAoa[r][6] || "").trim();
+                            if (dStr) {
+                                const parsed = parseCellDate(dStr);
+                                if (parsed) {
+                                    if (!minDate || parsed < minDate) minDate = parsed;
+                                    if (!maxDate || parsed > maxDate) maxDate = parsed;
+                                }
+                            }
+                        }
+                        const padZero = (n) => String(n).padStart(2, '0');
+                        const dateRangeStr = (minDate && maxDate) 
+                            ? `${padZero(minDate.getDate())}-${padZero(minDate.getMonth()+1)}-${minDate.getFullYear()} TO ${padZero(maxDate.getDate())}-${padZero(maxDate.getMonth()+1)}-${maxDate.getFullYear()}`
+                            : "-";
+
+                        const whAQ = odAoa[1] && odAoa[1][42] ? String(odAoa[1][42]).trim() : "";
+                        const warehouseStr = whAQ || "-";
+
+                        // STEP 7: Formulate File Names & ZIP Subfolder using Range
+                        let odFilename = "";
+                        let dtFilename = "";
+                        let subfolderName = "";
+
+                        if (generatedRange !== "N/A") {
+                            odFilename = `${partyName}-(${generatedRange})-OD.xlsx`;
+                            dtFilename = `${partyName}-(${generatedRange})-DT.xlsx`;
+                            subfolderName = `${partyName}-(${generatedRange})`;
+                        } else {
+                            odFilename = `${partyName}_OD.xlsx`;
+                            dtFilename = `${partyName}_DT.xlsx`;
+                            subfolderName = `${partyName}`;
+                        }
+
+                        const pathPrefix = `${partyName}/${subfolderName}/`;
+
+                        let partyTotalVal = 0;
+                        for (let r = 1; r < odAoa.length; r++) {
+                            partyTotalVal += (Number(odAoa[r][38]) || 0);
+                        }
+                        totalCalculatedValue += partyTotalVal;
+
+                        lastPartyDetails = {
+                            partyName: partyName,
+                            filename: odFilename,
+                            invoiceRange: generatedRange,
+                            dateRange: dateRangeStr,
+                            warehouse: warehouseStr
+                        };
+
+                        partyInfoMap.set(partyName, {
+                            range: generatedRange,
+                            dateRange: dateRangeStr,
+                            warehouse: warehouseStr,
+                            value: Math.round(partyTotalVal * 100) / 100,
+                            filename: odFilename
+                        });
+
+                        // Write OD File to ZIP & reports list
+                        const odWb = XLSX.utils.book_new();
+                        const odWs = XLSX.utils.aoa_to_sheet(odAoa);
+                        XLSX.utils.book_append_sheet(odWb, odWs, "OD_Master");
+                        const odBuffer = XLSX.write(odWb, { bookType: 'xlsx', type: 'array' });
+                        const odBlob = new Blob([odBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+                        outputZip.file(`${pathPrefix}${odFilename}`, odBuffer);
+                        processedReportsList.push({
+                            id: Math.random().toString(36).substring(2, 9),
+                            source: partyName,
+                            category: 'OD Master',
+                            name: odFilename,
+                            rowCount: odRowCount,
+                            blob: odBlob,
+                            aoa: odAoa
+                        });
+                        log(`[New Logic] Generated 44-Column OD File for [${partyName}]: ${odFilename} (${odRowCount} orders)`, 'success');
+
+                        // Write DT File (Clean DropShip / Details) to ZIP & reports list
+                        totalDtFilesCount++;
+                        const dtRowsToSave = cleanDropShipRows;
+                        const dtWb = XLSX.utils.book_new();
+                        const dtWs = XLSX.utils.aoa_to_sheet(dtRowsToSave);
+                        XLSX.utils.book_append_sheet(dtWb, dtWs, "DT");
+                        const dtBuffer = XLSX.write(dtWb, { bookType: 'xlsx', type: 'array' });
+                        const dtBlob = new Blob([dtBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+                        outputZip.file(`${pathPrefix}${dtFilename}`, dtBuffer);
+                        processedReportsList.push({
+                            id: Math.random().toString(36).substring(2, 9),
+                            source: partyName,
+                            category: 'DT Details',
+                            name: dtFilename,
+                            rowCount: Math.max(0, dtRowsToSave.length - 1),
+                            blob: dtBlob,
+                            aoa: dtRowsToSave
+                        });
+                        log(`[New Logic] Generated DT File for [${partyName}]: ${dtFilename}`, 'success');
+
+                        // Write 2 MORE INVOICE (if duplicates detected)
+                        if (duplicateFound) {
+                            const dupWb = XLSX.utils.book_new();
+                            const dupWs = XLSX.utils.aoa_to_sheet(duplicateRows);
+                            XLSX.utils.book_append_sheet(dupWb, dupWs, "Duplicate_Invoices");
+                            const dupBuffer = XLSX.write(dupWb, { bookType: 'xlsx', type: 'array' });
+                            const dupBlob = new Blob([dupBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                            const dupFilename = "2 MORE INVOICE.xlsx";
+
+                            outputZip.file(`${pathPrefix}${dupFilename}`, dupBuffer);
+                            processedReportsList.push({
+                                id: Math.random().toString(36).substring(2, 9),
+                                source: partyName,
+                                category: 'Duplicate Inv',
+                                name: `${partyName}_2_MORE_INVOICE.xlsx`,
+                                rowCount: Math.max(0, duplicateRows.length - 1),
+                                blob: dupBlob,
+                                aoa: duplicateRows
+                            });
+                            log(`[${partyName}] Detected ${duplicateList.length} duplicate invoice(s) -> Generated ${dupFilename}`, 'warning');
+                        }
+
+                        // Write GST NOT APPLICABLE (if created)
+                        if (gstCreated && gstRows.length > 1) {
+                            const gstWb = XLSX.utils.book_new();
+                            const gstWs = XLSX.utils.aoa_to_sheet(gstRows);
+                            XLSX.utils.book_append_sheet(gstWb, gstWs, "GST NOT APPLICABLE");
+                            const gstBuffer = XLSX.write(gstWb, { bookType: 'xlsx', type: 'array' });
+                            const gstBlob = new Blob([gstBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                            const gstFilename = "GST NOT APPLICABLE.xlsx";
+
+                            outputZip.file(`${pathPrefix}${gstFilename}`, gstBuffer);
+                            processedReportsList.push({
+                                id: Math.random().toString(36).substring(2, 9),
+                                source: partyName,
+                                category: 'GST Missing',
+                                name: `${partyName}_GST_NOT_APPLICABLE.xlsx`,
+                                rowCount: Math.max(0, gstRows.length - 1),
+                                blob: gstBlob,
+                                aoa: gstRows
+                            });
+                            log(`[${partyName}] Generated GST NOT APPLICABLE.xlsx with ${gstRows.length - 1} records.`, 'warning');
+                        }
                 }
-            }
 
-            // Mark Step 2 Complete
-            stepConvert.className = 'timeline-step complete';
-            stepConvert.querySelector('i').className = 'fa-solid fa-circle-check step-icon';
+                if (stepConvert) {
+                    stepConvert.className = 'timeline-step complete';
+                    const icon = stepConvert.querySelector('i');
+                    if (icon) icon.className = 'fa-solid fa-circle-check step-icon';
+                }
 
-            overallProgressBar.style.width = '85%';
-            progressPercent.innerText = '85%';
-            progressStepText.innerText = 'Syncing results with Google Sheets & packaging final ZIP...';
+                // ==============================================================
+                // STEP 3: GENERATE SUMMARY REPORT & BUNDLE ZIP
+                // ==============================================================
+                if (stepRename) {
+                    stepRename.className = 'timeline-step active';
+                    const icon = stepRename.querySelector('i');
+                    if (icon) icon.className = 'fa-solid fa-spinner fa-spin step-icon';
+                }
 
-            // Timeline Step 3: Active
-            stepRename.className = 'timeline-step active';
-            stepRename.querySelector('i').className = 'fa-solid fa-spinner fa-spin step-icon';
+                if (overallProgressBar) overallProgressBar.style.width = '80%';
+                if (progressPercent) progressPercent.innerText = '80%';
+                if (progressStepText) progressStepText.innerText = 'Generating Summary report & compiling ZIP bundle...';
 
-            // ==================================================================
-            // STEP 3: MASTER SUMMARY REPORT & GOOGLE SHEETS SYNC & PACKAGING
-            // ==================================================================
-            log('Generating Master Summary Excel report...', 'process');
-            const summaryWb = XLSX.utils.book_new();
+                // Master Summary Workbook
+                const summaryWb = XLSX.utils.book_new();
 
-            const detailedSummaryData = [[
-                "Vendor Code", "Party Name", "Invoice Range", "Total Orders", 
-                "New", "Cancelled", "Shipped", "Delivered", "Ready to Ship", "PO Created", "Others", 
-                "Date Range", "Warehouse", "Processing Status"
-            ]];
+                // Sheet 1: Party Summary (Party Name e.g. "101-BHARVITA", then on next line Range e.g. "AJ27S101-30428-30794")
+                const partySummaryRows = [];
+                partyGroups.forEach((files, pName) => {
+                    const partyFullName = getPartyNameForCode(pName, files) || pName;
+                    const info = partyInfoMap.get(pName);
+                    let rStr = "-";
+                    if (info && info.range && info.range !== "N/A") {
+                        rStr = info.range;
+                    } else {
+                        const odFile = processedReportsList.find(r => r.source === pName && r.category === 'OD Master');
+                        if (odFile && odFile.name) {
+                            const m = odFile.name.match(/\(([^)]+)\)/);
+                            if (m && m[1]) rStr = m[1];
+                        }
+                    }
 
-            batchResults.forEach(r => {
-                if (r.status === "Success") {
+                    partySummaryRows.push([partyFullName]);
+                    partySummaryRows.push([rStr]);
+                    partySummaryRows.push([]); // blank separator
+                });
+
+                const wsSummary = XLSX.utils.aoa_to_sheet(partySummaryRows);
+                XLSX.utils.book_append_sheet(summaryWb, wsSummary, "Summary");
+
+                // Sheet 2: Detailed Summary
+                const detailedSummaryData = [[
+                    "Party Name", "OD File", "DT File", "Total Orders", "Total Value (₹)", 
+                    "Invoice Range", "Date Range", "Warehouse", "Duplicates Count", "Status"
+                ]];
+
+                partyGroups.forEach((files, pName) => {
+                    const odFile = processedReportsList.find(r => r.source === pName && r.category === 'OD Master');
+                    const dtFile = processedReportsList.find(r => r.source === pName && r.category === 'DT Details');
+                    const dupFile = processedReportsList.find(r => r.source === pName && r.category === 'Duplicate Inv');
+                    const info = partyInfoMap.get(pName);
+
+                    let rStr = "-";
+                    if (info && info.range && info.range !== "N/A") {
+                        rStr = info.range;
+                    } else if (odFile && odFile.name) {
+                        const m = odFile.name.match(/\(([^)]+)\)/);
+                        if (m && m[1]) rStr = m[1];
+                    }
+
                     detailedSummaryData.push([
-                        r.vendorCode, r.partyName, r.invoiceRange, r.totalOrders,
-                        r.cntNew, r.cntCancelled, r.cntShipped, r.cntDelivered, r.cntRTS, r.cntPO, r.cntOther,
-                        r.dateRangeStr, r.warehouseStr, "Success"
+                        pName,
+                        odFile ? odFile.name : "N/A",
+                        dtFile ? dtFile.name : "N/A",
+                        odFile ? odFile.rowCount : 0,
+                        info ? info.value : 0,
+                        rStr,
+                        info ? info.dateRange : "-",
+                        info ? info.warehouse : "-",
+                        dupFile ? dupFile.rowCount : 0,
+                        "Success"
                     ]);
+                });
+
+                const wsDetailed = XLSX.utils.aoa_to_sheet(detailedSummaryData);
+                XLSX.utils.book_append_sheet(summaryWb, wsDetailed, "Detailed Summary");
+
+                const summaryOut = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
+                const summaryFilename = getAjioSummaryFilename('ajio invoice summary');
+                outputZip.file(summaryFilename, summaryOut);
+
+                const summaryBlob = new Blob([summaryOut], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                processedReportsList.unshift({
+                    id: Math.random().toString(36).substring(2, 9),
+                    source: 'All Parties',
+                    category: 'Summary',
+                    name: summaryFilename,
+                    rowCount: detailedSummaryData.length - 1,
+                    blob: summaryBlob,
+                    aoa: partySummaryRows
+                });
+
+                // Compile Final ZIP & Set Zip Name to e.g. "101-PROCESSED.zip"
+                log('Compiling final ZIP bundle...', 'process');
+                batchProcessedZipBlob = await outputZip.generateAsync({ type: 'blob' });
+
+                let zipBaseName = "";
+                if (selectedFiles && selectedFiles.length > 0) {
+                    const zf = selectedFiles.find(f => f.name && f.name.toLowerCase().endsWith('.zip'));
+                    if (zf) zipBaseName = zf.name.replace(/\.zip$/i, '');
+                }
+                if (!zipBaseName && currentUploadedFolderName) {
+                    zipBaseName = currentUploadedFolderName;
+                }
+                if (!zipBaseName && partyGroups.size > 0) {
+                    zipBaseName = partyGroups.size === 1 ? Array.from(partyGroups.keys())[0] : `AJIO_${partyGroups.size}_PARTIES`;
+                }
+                if (!zipBaseName) zipBaseName = "101";
+
+                batchUploadedZipName = `${zipBaseName}-PROCESSED.zip`;
+                log(`Final ZIP package generated: [${batchUploadedZipName}] (${formatBytes(batchProcessedZipBlob.size)})`, 'success');
+
+                // Update Dashboard Cards
+                if (statTotal) statTotal.innerText = totalOrdersCount.toLocaleString();
+                if (statOd) statOd.innerText = totalOdFilesCount.toString();
+                if (statDt) statDt.innerText = totalDtFilesCount.toString();
+                if (statDtSold) statDtSold.innerText = (totalOrdersCount > 0 ? totalOrdersCount : totalDtFilesCount).toString();
+                if (statDtCancelled) statDtCancelled.innerText = allDuplicateInvoices.length.toString();
+                if (statUnmatched) statUnmatched.innerText = `₹${Math.round(totalCalculatedValue).toLocaleString()}`;
+
+                if (lastPartyDetails) {
+                    if (logTdFilename) logTdFilename.innerText = lastPartyDetails.filename;
+                    if (logTdRange) logTdRange.innerText = lastPartyDetails.invoiceRange;
+                    if (logTdDates) logTdDates.innerText = lastPartyDetails.dateRange;
+                    if (logTdB2p2) logTdB2p2.innerText = lastPartyDetails.warehouse;
+                    if (rangeValue) rangeValue.innerText = lastPartyDetails.invoiceRange;
+                }
+
+                // Render Duplicate Invoices Badges
+                if (cancelledInvoicesList) {
+                    if (allDuplicateInvoices.length > 0) {
+                        cancelledInvoicesList.innerHTML = '';
+                        const uniqueDups = [...new Set(allDuplicateInvoices)];
+                        uniqueDups.forEach(inv => {
+                            const span = document.createElement('span');
+                            span.className = 'cancelled-invoice-badge';
+                            span.innerText = inv;
+                            cancelledInvoicesList.appendChild(span);
+                        });
+                    } else {
+                        cancelledInvoicesList.innerHTML = '<span class="text-muted" style="font-size: 0.75rem;">No duplicate invoices detected.</span>';
+                    }
+                }
+
+                // Render Interactive Table
+                renderProcFilesTable();
+
+                // Unhide Dashboard Controls (Stats, Details Log, Duplicate Badges, and Table with Download Buttons)
+                if (dashboardControls) {
+                    dashboardControls.classList.remove('hidden');
+                }
+
+                // Note: Auto download disabled per user request. User can click "Download All (ZIP)" button.
+                log(`Pipeline finished! Click "Download All (ZIP)" to download [${batchUploadedZipName}].`, 'success');
+
+                // Auto push to Google Sheets if configured
+                const apiUrl = GOOGLE_SHEETS_SCRIPT_URL;
+                if (apiUrl && detailedSummaryData.length > 1) {
+                    log("Syncing results to Google Sheets...", "process");
+                    try {
+                        await fetch(apiUrl, {
+                            method: 'POST',
+                            body: JSON.stringify({ summary: detailedSummaryData })
+                        });
+                        log("Google Sheets updated successfully!", "success");
+                    } catch (e) {
+                        // Silent catch on cross-origin
+                    }
+                }
+
+                // Mark Step 3 Complete
+                if (stepRename) {
+                    stepRename.className = 'timeline-step complete';
+                    const icon = stepRename.querySelector('i');
+                    if (icon) icon.className = 'fa-solid fa-circle-check step-icon';
+                }
+
                 } else {
-                    detailedSummaryData.push([
-                        r.vendorCode, r.partyName, "N/A", 0,
-                        0, 0, 0, 0, 0, 0, 0,
-                        "N/A", "N/A", `Failed: ${r.errorMsg}`
-                    ]);
-                }
-            });
-
-            const wsDetailed = XLSX.utils.aoa_to_sheet(detailedSummaryData);
-            XLSX.utils.book_append_sheet(summaryWb, wsDetailed, "Detailed Summary");
-
-            const shortListData = [];
-            batchResults.forEach(r => {
-                if (r.status === "Success") {
-                    shortListData.push([r.partyName]);
-                    shortListData.push([r.invoiceRange]);
-                    shortListData.push([""]);
-                }
-            });
-
-            const wsShort = XLSX.utils.aoa_to_sheet(shortListData);
-            XLSX.utils.book_append_sheet(summaryWb, wsShort, "Short List");
-
-            const summaryOut = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
-            const summaryReportFilename = getAjioSummaryFilename('ajio invoice summry');
-            outputZip.file(summaryReportFilename, summaryOut);
-
-            // Decide output ZIP name
-            if (selectedFiles.length === 1 && selectedFiles[0].name.split('.').pop().toLowerCase() === 'zip') {
-                batchUploadedZipName = selectedFiles[0].name.replace(/\.zip$/i, '') + '_processed.zip';
-            } else if (currentUploadedFolderName) {
-                batchUploadedZipName = currentUploadedFolderName + '_processed.zip';
-            } else {
-                batchUploadedZipName = 'AJIO_DATA_ARRANGE_Output.zip';
-            }
-
-            // Compile final ZIP
-            log('Compiling final ZIP output archive...', 'process');
-            batchProcessedZipBlob = await outputZip.generateAsync({ type: 'blob' });
-            log(`Final ZIP package compiled successfully (${formatBytes(batchProcessedZipBlob.size)}).`, 'success');
-
-            // Render batch dashboard
-            renderConverterBatchDashboard();
-
-            // Auto push to Google Sheets
-            const apiUrl = GOOGLE_SHEETS_SCRIPT_URL;
-            if (apiUrl && (allPendingInvoices.length > 1 || allDiscountReport.length > 1)) {
-                log("Initiating auto-sync of results to Google Sheets...", "process");
-                try {
-                    const response = await fetch(apiUrl, {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            pendingInvoices: allPendingInvoices,
-                            discountReport: allDiscountReport
-                        })
+                    // ==================================================================
+                    // OLD LOGIC: EXACT PIPELINE FROM AJIODATAARRANGE-main-OLD
+                    // ==================================================================
+                    log('Grouping files by Vendor Code (Old Logic)...', 'info');
+                    let rawGroups = {};
+                    extractedFileList.forEach(f => {
+                        const code = detectVendorCode(f.name, f.relativePath);
+                        const key = code ? code.toUpperCase() : "UNKNOWN";
+                        if (!rawGroups[key]) rawGroups[key] = [];
+                        rawGroups[key].push(f);
                     });
-                    const res = await response.json().catch(() => ({ status: "opaque_success" }));
-                    if (res.status === "error") {
-                        throw new Error(res.message || "Apps Script error");
+
+                    // Resolve UNKNOWN group
+                    let finalGroups = {};
+                    const groupKeys = Object.keys(rawGroups);
+                    const knownKeys = groupKeys.filter(k => k !== "UNKNOWN");
+
+                    if (knownKeys.length === 1 && rawGroups["UNKNOWN"]) {
+                        const targetKey = knownKeys[0];
+                        finalGroups[targetKey] = [...(rawGroups[targetKey] || []), ...rawGroups["UNKNOWN"]];
+                    } else if (knownKeys.length > 1 && rawGroups["UNKNOWN"]) {
+                        rawGroups["UNKNOWN"].forEach(f => {
+                            let matchedKey = null;
+                            for (const key of knownKeys) {
+                                const escKey = key.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                                const regex = new RegExp(`\\b${escKey}\\b|[-_]${escKey}[-_]`, 'i');
+                                if (regex.test(f.name) || regex.test(f.relativePath || '')) {
+                                    matchedKey = key;
+                                    break;
+                                }
+                            }
+                            if (matchedKey) {
+                                if (!finalGroups[matchedKey]) finalGroups[matchedKey] = [];
+                                finalGroups[matchedKey].push(f);
+                            } else {
+                                if (!finalGroups["UNKNOWN"]) finalGroups["UNKNOWN"] = [];
+                                finalGroups["UNKNOWN"].push(f);
+                            }
+                        });
+                        knownKeys.forEach(k => {
+                            finalGroups[k] = [...(finalGroups[k] || []), ...(rawGroups[k] || [])];
+                        });
+                    } else {
+                        finalGroups = rawGroups;
                     }
-                    log("Google Sheets auto-synced successfully for all vendors!", "success");
-                } catch (sheetsErr) {
-                    log(`Google Sheets auto-synced! (CORS message: ${sheetsErr.message || "opaque response redirect"})`, "success");
+
+                    const vendorCodes = Object.keys(finalGroups);
+                    log(`Found ${vendorCodes.length} vendor group(s): [${vendorCodes.join(', ')}]`, 'info');
+
+                    let allPendingInvoices = [["Filename", "OrderID", "Status"]];
+                    let allDiscountReport = [["INVOICE NO", "PERCENTAGE"]];
+                    batchResults = [];
+
+                    for (let idx = 0; idx < vendorCodes.length; idx++) {
+                        const groupKey = vendorCodes[idx];
+                        log(`----------------------------------------`, 'info');
+                        log(`Processing Vendor Group: [${groupKey}]`, 'process');
+
+                        const currentPercent = 30 + Math.round((idx / vendorCodes.length) * 50);
+                        if (overallProgressBar) overallProgressBar.style.width = `${currentPercent}%`;
+                        if (progressPercent) progressPercent.innerText = `${currentPercent}%`;
+                        if (progressStepText) progressStepText.innerText = `Processing vendor ${idx + 1} of ${vendorCodes.length}: ${groupKey}...`;
+
+                        const files = finalGroups[groupKey];
+                        let odFileObj = null;
+                        let accFileObj = null;
+
+                        files.forEach(f => {
+                            const lowerName = f.name.toLowerCase();
+                            if (lowerName.includes('dropship') || lowerName.includes('od')) {
+                                odFileObj = f;
+                            } else if (lowerName.includes('account') || lowerName.includes('acc') || lowerName.includes('tax') || lowerName.includes('sales') || lowerName.includes('detail') || lowerName.includes('irn') || lowerName.includes('mismatch')) {
+                                accFileObj = f;
+                            }
+                        });
+
+                        if ((!odFileObj || !accFileObj) && files.length === 2) {
+                            if (!odFileObj && !accFileObj) {
+                                odFileObj = files[0];
+                                accFileObj = files[1];
+                            } else if (!odFileObj) {
+                                odFileObj = files.find(f => f !== accFileObj);
+                            } else {
+                                accFileObj = files.find(f => f !== odFileObj);
+                            }
+                        }
+
+                        log(`Identified for group [${groupKey}]: OD=[${odFileObj ? odFileObj.name : 'MISSING'}], Account=[${accFileObj ? accFileObj.name : 'MISSING'}]`, odFileObj && accFileObj ? 'info' : 'error');
+
+                        if (!odFileObj || !accFileObj) {
+                            const errorMsg = `Missing ${!odFileObj ? 'OD' : ''}${!odFileObj && !accFileObj ? ' and ' : ''}${!accFileObj ? 'Account Details' : ''} file`;
+                            batchResults.push({
+                                vendorCode: groupKey,
+                                partyName: getPartyNameForCode(groupKey),
+                                invoiceRange: "N/A",
+                                status: "Failed",
+                                errorMsg: errorMsg
+                            });
+                            log(`Vendor Group [${groupKey}] skipped: ${errorMsg}.`, 'error');
+                            continue;
+                        }
+
+                        try {
+                            log(`Parsing files to Array-of-Arrays (AOA)...`, 'info');
+                            const odAoa = await parseFileToAoa(odFileObj.blob || odFileObj.file, odFileObj.name);
+                            const accAoa = await parseFileToAoa(accFileObj.blob || accFileObj.file, accFileObj.name);
+
+                            if (odAoa.length < 2) {
+                                throw new Error("OD data sheet has no rows (empty or headers only).");
+                            }
+
+                            // 1. Delete matching account rows
+                            const accInvoiceSet = new Set();
+                            for (let i = 1; i < accAoa.length; i++) {
+                                const val = String(accAoa[i][1] || "").trim();
+                                if (val !== "") accInvoiceSet.add(val);
+                            }
+
+                            const cleanOdAoa = [odAoa[0]];
+                            let deletedMatchCount = 0;
+                            for (let i = 1; i < odAoa.length; i++) {
+                                const invoiceVal = String(odAoa[i][5] || "").trim();
+                                if (invoiceVal !== "" && accInvoiceSet.has(invoiceVal)) {
+                                    deletedMatchCount++;
+                                } else {
+                                    cleanOdAoa.push(odAoa[i]);
+                                }
+                            }
+                            log(`Deleted matching rows: ${deletedMatchCount}`, 'info');
+
+                            // 2. Q-V Mismatch & Seller SKU Blank Check
+                            const finalOdAoa = [cleanOdAoa[0]];
+                            const mismatchAoa = [cleanOdAoa[0]];
+                            const blankSkuAoa = [cleanOdAoa[0]];
+                            let mismatchCount = 0;
+                            let blankSkuCount = 0;
+                            for (let i = 1; i < cleanOdAoa.length; i++) {
+                                const row = cleanOdAoa[i];
+                                const colA = String(row[0] || "").trim();
+                                const colF = String(row[5] || "").trim();
+                                const colQ = String(row[16] || "").trim();
+                                const colV = String(row[21] || "").trim();
+                                const colAE = String(row[30] || "").trim();
+                                const colN = String(row[13] || "").trim();
+
+                                const hasMismatch = (colA !== "" && colF !== "" && colQ !== colV && colAE === "");
+                                if (hasMismatch) {
+                                    mismatchAoa.push(row);
+                                    mismatchCount++;
+                                } else if (colN === "") {
+                                    const rowCopy = [...row];
+                                    rowCopy[13] = colF; // Replace blank Seller SKU with Invoice No
+                                    blankSkuAoa.push(rowCopy);
+                                    blankSkuCount++;
+                                } else {
+                                    finalOdAoa.push(row);
+                                }
+                            }
+                            log(`Q-V mismatch rows: ${mismatchCount}, Blank SKU rows: ${blankSkuCount}`, 'info');
+
+                            // 3. Status Stats, Date Range, Invoice Range
+                            let cntNew = 0, cntCancelled = 0, cntShipped = 0, cntDelivered = 0;
+                            let cntRTS = 0, cntPO = 0, cntOther = 0;
+                            const pendingInvoices = [["Filename", "OrderID", "Status"]];
+                            const dateRangeStr = typeof parseDateRange === 'function' ? parseDateRange(finalOdAoa) : "-";
+
+                            const whAQ = finalOdAoa[1] && finalOdAoa[1][42] ? String(finalOdAoa[1][42]).trim() : "";
+                            const whAO = finalOdAoa[1] && finalOdAoa[1][40] ? String(finalOdAoa[1][40]).trim() : "";
+                            const warehouseStr = `${whAQ} / ${whAO}`;
+
+                            const rangeDict = {};
+                            const rangeRegex = /([A-Za-z0-9]+)-(\d+)/;
+
+                            for (let i = 1; i < finalOdAoa.length; i++) {
+                                const row = finalOdAoa[i];
+                                const invoiceVal = String(row[5] || "").trim();
+                                const match = rangeRegex.exec(invoiceVal);
+                                if (match) {
+                                    const prefix = match[1];
+                                    const num = parseInt(match[2], 10);
+                                    if (!rangeDict[prefix]) rangeDict[prefix] = [];
+                                    rangeDict[prefix].push(num);
+                                }
+
+                                const sStat = smartStatus(row[9]);
+                                switch (sStat) {
+                                    case "CANCELLED": cntCancelled++; break;
+                                    case "NEW": cntNew++; break;
+                                    case "PO CREATED": cntPO++; break;
+                                    case "READY TO SHIP": cntRTS++; break;
+                                    case "SHIPPED": if (invoiceVal !== "") cntShipped++; else cntOther++; break;
+                                    case "DELIVERED": if (invoiceVal !== "") cntDelivered++; else cntOther++; break;
+                                    default: cntOther++; break;
+                                }
+
+                                const colC = String(row[2] || "").trim();
+                                if (invoiceVal === "" && colC !== "") {
+                                    pendingInvoices.push(["[RangeString].xlsx", colC, String(row[9] || "")]);
+                                }
+                            }
+
+                            const ranges = [];
+                            let lastRangeStr = "N/A";
+                            let invoicePrefix = "";
+                            for (const key of Object.keys(rangeDict)) {
+                                const nums = rangeDict[key];
+                                const minNum = Math.min(...nums);
+                                const maxNum = Math.max(...nums);
+                                const rangeStr = `${key}-${minNum}-${maxNum}`;
+                                ranges.push(rangeStr);
+                                lastRangeStr = rangeStr;
+                                invoicePrefix = key;
+                            }
+
+                            const outputRangeFilename = lastRangeStr !== "N/A" ? `${lastRangeStr}` : "Cleaned_OD";
+                            
+                            // Fallback to extract vendor code from invoice prefix
+                            let vendorCode = groupKey;
+                            if (vendorCode === "UNKNOWN") {
+                                if (invoicePrefix) {
+                                    const codeMatch = invoicePrefix.match(/^AJ27S(.+)$/i);
+                                    if (codeMatch) {
+                                        vendorCode = codeMatch[1].toUpperCase();
+                                    } else {
+                                        vendorCode = invoicePrefix.toUpperCase();
+                                    }
+                                } else if (currentUploadedFolderName && /^[A-Za-z0-9]+$/.test(currentUploadedFolderName)) {
+                                    vendorCode = currentUploadedFolderName.toUpperCase();
+                                } else {
+                                    vendorCode = "OUTPUT";
+                                }
+                            }
+
+                            // Update pending invoice filenames with calculated name
+                            for (let i = 1; i < pendingInvoices.length; i++) {
+                                pendingInvoices[i][0] = `${outputRangeFilename}.xlsx`;
+                                allPendingInvoices.push(pendingInvoices[i]);
+                            }
+
+                            // 4. Duplicate Invoices & Discounts
+                            const invoiceCounts = {};
+                            const duplicateReport = [["DUPLICATE INVOICE LIST", "COUNT"]];
+                            const discountReport = [["INVOICE NO", "PERCENTAGE"]];
+
+                            for (let i = 1; i < finalOdAoa.length; i++) {
+                                const row = finalOdAoa[i];
+                                const invoiceVal = String(row[5] || "").trim();
+                                if (invoiceVal !== "") {
+                                    invoiceCounts[invoiceVal] = (invoiceCounts[invoiceVal] || 0) + 1;
+                                }
+
+                                const colAB = parseFloat(row[27]) || 0;
+                                const colAC = parseFloat(row[28]) || 0;
+                                
+                                if (colAB !== 0) {
+                                    const discountVal = Math.ceil((colAC / colAB) * 100);
+                                    const colC = String(row[2] || "").trim();
+                                    const colK = String(row[10] || "").trim();
+                                    const colN = String(row[13] || "").trim();
+                                    const customKey = `${invoiceVal}-${colC}-${colK}-${colN}`;
+                                    const discRow = [customKey, `${discountVal}%`];
+                                    discountReport.push(discRow);
+                                    allDiscountReport.push(discRow);
+                                }
+                            }
+
+                            for (const key of Object.keys(invoiceCounts)) {
+                                if (invoiceCounts[key] > 1) {
+                                    duplicateReport.push([key, invoiceCounts[key]]);
+                                    allDuplicateInvoices.push(key);
+                                }
+                            }
+
+                            const fullPartyName = getPartyNameForCode(vendorCode);
+                            const subfolderName = `${vendorCode}-(${outputRangeFilename})`;
+                            const cleanODFilename = `${vendorCode}-${outputRangeFilename}-OD.xlsx`;
+                            const pathPrefix = `${vendorCode}/${subfolderName}/`;
+
+                            // Generate spreadsheets & write to output ZIP
+                            const wsClean = XLSX.utils.aoa_to_sheet(finalOdAoa);
+                            const wbClean = XLSX.utils.book_new();
+                            XLSX.utils.book_append_sheet(wbClean, wsClean, "Sheet1");
+                            const outClean = XLSX.write(wbClean, { bookType: 'xlsx', type: 'array' });
+                            outputZip.file(`${pathPrefix}${cleanODFilename}`, outClean);
+
+                            const odBlob = new Blob([outClean], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                            const finalRowCount = Math.max(0, finalOdAoa.length - 1);
+                            totalOrdersCount += finalRowCount;
+                            totalOdFilesCount++;
+
+                            processedReportsList.push({
+                                id: Math.random().toString(36).substring(2, 9),
+                                source: vendorCode,
+                                category: 'OD Master',
+                                name: cleanODFilename,
+                                rowCount: finalRowCount,
+                                blob: odBlob,
+                                aoa: finalOdAoa
+                            });
+
+                            // Mismatch File
+                            const wsMismatch = XLSX.utils.aoa_to_sheet(mismatchAoa);
+                            const wbMismatch = XLSX.utils.book_new();
+                            XLSX.utils.book_append_sheet(wbMismatch, wsMismatch, "Mismatch Rows");
+                            const outMismatch = XLSX.write(wbMismatch, { bookType: 'xlsx', type: 'array' });
+                            outputZip.file(`${pathPrefix}PARTLY_CANCEL_QV_MISMATCH.xlsx`, outMismatch);
+
+                            const misBlob = new Blob([outMismatch], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                            processedReportsList.push({
+                                id: Math.random().toString(36).substring(2, 9),
+                                source: vendorCode,
+                                category: 'Duplicate Inv',
+                                name: 'PARTLY_CANCEL_QV_MISMATCH.xlsx',
+                                rowCount: mismatchCount,
+                                blob: misBlob,
+                                aoa: mismatchAoa
+                            });
+
+                            // BLANK SKU file
+                            if (blankSkuCount > 0) {
+                                const wsBlankSku = XLSX.utils.aoa_to_sheet(blankSkuAoa);
+                                const wbBlankSku = XLSX.utils.book_new();
+                                XLSX.utils.book_append_sheet(wbBlankSku, wsBlankSku, "Blank SKUs");
+                                const outBlankSku = XLSX.write(wbBlankSku, { bookType: 'xlsx', type: 'array' });
+                                outputZip.file(`${pathPrefix}BLANK SKU.xlsx`, outBlankSku);
+
+                                const blankBlob = new Blob([outBlankSku], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                                processedReportsList.push({
+                                    id: Math.random().toString(36).substring(2, 9),
+                                    source: vendorCode,
+                                    category: 'Details DT',
+                                    name: 'BLANK SKU.xlsx',
+                                    rowCount: blankSkuCount,
+                                    blob: blankBlob,
+                                    aoa: blankSkuAoa
+                                });
+                                log(`Blank SKU file created with ${blankSkuCount} rows.`, 'info');
+                            }
+
+                            // 2 MORE INVOICE file
+                            const duplicateCount = duplicateReport.length - 1;
+                            if (duplicateCount > 0) {
+                                const wsDuplicate = XLSX.utils.aoa_to_sheet(duplicateReport);
+                                const wbDuplicate = XLSX.utils.book_new();
+                                XLSX.utils.book_append_sheet(wbDuplicate, wsDuplicate, "Duplicates");
+                                const outDuplicate = XLSX.write(wbDuplicate, { bookType: 'xlsx', type: 'array' });
+                                outputZip.file(`${pathPrefix}2 MORE INVOICE.xlsx`, outDuplicate);
+
+                                const dupBlob = new Blob([outDuplicate], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                                processedReportsList.push({
+                                    id: Math.random().toString(36).substring(2, 9),
+                                    source: vendorCode,
+                                    category: 'Duplicate Inv',
+                                    name: '2 MORE INVOICE.xlsx',
+                                    rowCount: duplicateCount,
+                                    blob: dupBlob,
+                                    aoa: duplicateReport
+                                });
+                                log(`2 MORE INVOICE file created with ${duplicateCount} duplicate invoices for ${vendorCode}.`, 'info');
+                            }
+
+                            totalDtFilesCount++;
+                            lastPartyDetails = {
+                                partyName: fullPartyName,
+                                filename: cleanODFilename,
+                                invoiceRange: lastRangeStr,
+                                dateRange: dateRangeStr,
+                                warehouse: warehouseStr
+                            };
+
+                            const totalOrders = cntNew + cntCancelled + cntShipped + cntDelivered + cntRTS + cntPO + cntOther;
+                            batchResults.push({
+                                vendorCode: vendorCode,
+                                partyName: fullPartyName,
+                                invoiceRange: lastRangeStr,
+                                totalOrders: totalOrders,
+                                cntNew: cntNew,
+                                cntCancelled: cntCancelled,
+                                cntShipped: cntShipped,
+                                cntDelivered: cntDelivered,
+                                cntRTS: cntRTS,
+                                cntPO: cntPO,
+                                cntOther: cntOther,
+                                dateRangeStr: dateRangeStr,
+                                warehouseStr: warehouseStr,
+                                status: "Success",
+                                errorMsg: ""
+                            });
+
+                            log(`Vendor [${vendorCode}] processed successfully. Range: [${lastRangeStr}]`, 'success');
+
+                        } catch (vendorErr) {
+                            console.error(`[PIPELINE] Vendor Group [${groupKey}] FAILED:`, vendorErr);
+                            batchResults.push({
+                                vendorCode: groupKey,
+                                partyName: getPartyNameForCode(groupKey),
+                                invoiceRange: "N/A",
+                                status: "Failed",
+                                errorMsg: vendorErr.message
+                            });
+                            log(`Vendor [${groupKey}] failed: ${vendorErr.message}`, 'error');
+                        }
+                    }
+
+                    if (stepConvert) {
+                        stepConvert.className = 'timeline-step complete';
+                        const icon = stepConvert.querySelector('i');
+                        if (icon) icon.className = 'fa-solid fa-circle-check step-icon';
+                    }
+
+                    // Timeline Step 3: Active
+                    if (stepRename) {
+                        stepRename.className = 'timeline-step active';
+                        const icon = stepRename.querySelector('i');
+                        if (icon) icon.className = 'fa-solid fa-spinner fa-spin step-icon';
+                    }
+
+                    if (overallProgressBar) overallProgressBar.style.width = '85%';
+                    if (progressPercent) progressPercent.innerText = '85%';
+                    if (progressStepText) progressStepText.innerText = 'Syncing results with Google Sheets & packaging final ZIP...';
+
+                    // Master Summary Excel report (Old Logic format: Sheet 1 = "Detailed Summary", Sheet 2 = "Short List")
+                    log('Generating Master Summary Excel report...', 'process');
+                    const summaryWb = XLSX.utils.book_new();
+
+                    const detailedSummaryData = [[
+                        "Vendor Code", "Party Name", "Invoice Range", "Total Orders", 
+                        "New", "Cancelled", "Shipped", "Delivered", "Ready to Ship", "PO Created", "Others", 
+                        "Date Range", "Warehouse", "Processing Status"
+                    ]];
+
+                    batchResults.forEach(r => {
+                        if (r.status === "Success") {
+                            detailedSummaryData.push([
+                                r.vendorCode, r.partyName, r.invoiceRange, r.totalOrders,
+                                r.cntNew, r.cntCancelled, r.cntShipped, r.cntDelivered, r.cntRTS, r.cntPO, r.cntOther,
+                                r.dateRangeStr, r.warehouseStr, "Success"
+                            ]);
+                        } else {
+                            detailedSummaryData.push([
+                                r.vendorCode, r.partyName, "N/A", 0,
+                                0, 0, 0, 0, 0, 0, 0,
+                                "N/A", "N/A", `Failed: ${r.errorMsg}`
+                            ]);
+                        }
+                    });
+
+                    const wsDetailed = XLSX.utils.aoa_to_sheet(detailedSummaryData);
+                    XLSX.utils.book_append_sheet(summaryWb, wsDetailed, "Detailed Summary");
+
+                    const shortListData = [];
+                    batchResults.forEach(r => {
+                        if (r.status === "Success") {
+                            shortListData.push([r.partyName]);
+                            shortListData.push([r.invoiceRange]);
+                            shortListData.push([""]);
+                        }
+                    });
+
+                    const wsShort = XLSX.utils.aoa_to_sheet(shortListData);
+                    XLSX.utils.book_append_sheet(summaryWb, wsShort, "Short List");
+
+                    const summaryOut = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
+                    const summaryReportFilename = getAjioSummaryFilename('ajio invoice summry');
+                    outputZip.file(summaryReportFilename, summaryOut);
+
+                    const summaryBlob = new Blob([summaryOut], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                    processedReportsList.unshift({
+                        id: Math.random().toString(36).substring(2, 9),
+                        source: 'All Parties',
+                        category: 'Summary',
+                        name: summaryReportFilename,
+                        rowCount: detailedSummaryData.length - 1,
+                        blob: summaryBlob,
+                        aoa: detailedSummaryData
+                    });
+
+                    // Output ZIP name
+                    if (selectedFiles.length === 1 && selectedFiles[0].name.split('.').pop().toLowerCase() === 'zip') {
+                        batchUploadedZipName = selectedFiles[0].name.replace(/\.zip$/i, '') + '_processed.zip';
+                    } else if (currentUploadedFolderName) {
+                        batchUploadedZipName = currentUploadedFolderName + '_processed.zip';
+                    } else {
+                        batchUploadedZipName = 'AJIO_DATA_ARRANGE_Output.zip';
+                    }
+
+                    log('Compiling final ZIP output archive...', 'process');
+                    batchProcessedZipBlob = await outputZip.generateAsync({ type: 'blob' });
+                    log(`Final ZIP package compiled successfully (${formatBytes(batchProcessedZipBlob.size)}).`, 'success');
+
+                    // Auto push to Google Sheets (Old Logic format: pendingInvoices + discountReport)
+                    const apiUrl = GOOGLE_SHEETS_SCRIPT_URL;
+                    if (apiUrl && (allPendingInvoices.length > 1 || allDiscountReport.length > 1)) {
+                        log("Initiating auto-sync of results to Google Sheets...", "process");
+                        try {
+                            const response = await fetch(apiUrl, {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    pendingInvoices: allPendingInvoices,
+                                    discountReport: allDiscountReport
+                                })
+                            });
+                            await response.json().catch(() => ({ status: "opaque_success" }));
+                            log("Google Sheets auto-synced successfully for all vendors!", "success");
+                        } catch (sheetsErr) {
+                            log(`Google Sheets auto-synced! (CORS message: ${sheetsErr.message || "opaque response redirect"})`, "success");
+                        }
+                    }
+
+                    // Dashboard Cards update
+                    let totalOldOrders = 0, totalOldNew = 0, totalOldCanc = 0, totalOldShip = 0;
+                    batchResults.forEach(r => {
+                        totalOldOrders += (r.totalOrders || 0);
+                        totalOldCanc += (r.cntCancelled || 0);
+                        totalOldShip += ((r.cntShipped || 0) + (r.cntDelivered || 0));
+                    });
+
+                    if (statTotal) statTotal.innerText = totalOldOrders.toLocaleString();
+                    if (statOd) statOd.innerText = totalOdFilesCount.toString();
+                    if (statDt) statDt.innerText = totalDtFilesCount.toString();
+                    if (statDtSold) statDtSold.innerText = totalOldShip.toString();
+                    if (statDtCancelled) statDtCancelled.innerText = (totalOldCanc + allDuplicateInvoices.length).toString();
+                    if (statUnmatched) statUnmatched.innerText = "0";
+
+                    if (lastPartyDetails) {
+                        if (logTdFilename) logTdFilename.innerText = lastPartyDetails.filename;
+                        if (logTdRange) logTdRange.innerText = lastPartyDetails.invoiceRange;
+                        if (logTdDates) logTdDates.innerText = lastPartyDetails.dateRange;
+                        if (logTdB2p2) logTdB2p2.innerText = lastPartyDetails.warehouse;
+                        if (rangeValue) rangeValue.innerText = lastPartyDetails.invoiceRange;
+                    }
+
+                    if (cancelledInvoicesList) {
+                        if (allDuplicateInvoices.length > 0) {
+                            cancelledInvoicesList.innerHTML = '';
+                            const uniqueDups = [...new Set(allDuplicateInvoices)];
+                            uniqueDups.forEach(inv => {
+                                const span = document.createElement('span');
+                                span.className = 'cancelled-invoice-badge';
+                                span.innerText = inv;
+                                cancelledInvoicesList.appendChild(span);
+                            });
+                        } else {
+                            cancelledInvoicesList.innerHTML = '<span class="text-muted" style="font-size: 0.75rem;">No duplicate invoices detected.</span>';
+                        }
+                    }
+
+                    renderProcFilesTable();
+
+                    if (dashboardControls) {
+                        dashboardControls.classList.remove('hidden');
+                    }
+
+                    log(`Pipeline execution successful. Output files are ready for download. Click "Download All (ZIP)" to download [${batchUploadedZipName}].`, 'success');
+
+                    // Mark Step 3 Complete
+                    if (stepRename) {
+                        stepRename.className = 'timeline-step complete';
+                        const icon = stepRename.querySelector('i');
+                        if (icon) icon.className = 'fa-solid fa-circle-check step-icon';
+                    }
                 }
+                if (overallProgressBar) overallProgressBar.style.width = '100%';
+                if (progressPercent) progressPercent.innerText = '100% Completed';
+                if (progressStepText) progressStepText.innerText = 'All reports generated successfully!';
+
+                if (processStatus) {
+                    processStatus.className = 'status-indicator success';
+                    processStatus.innerText = 'Completed';
+                }
+
+                log('Pipeline execution successful! All output reports ready.', 'success');
+
+                // Notification
+                if (typeof Notification !== 'undefined' && Notification.permission === "granted") {
+                    new Notification("AJIO Data Arrange Completed", {
+                        body: `Generated ${processedReportsList.length} files successfully!`,
+                        icon: "icon.png"
+                    });
+                }
+
+            } catch (err) {
+                log(`Pipeline failed: ${err.message}`, 'error');
+                if (processStatus) {
+                    processStatus.className = 'status-indicator idle';
+                    processStatus.innerText = 'Failed';
+                }
+                if (progressStepText) progressStepText.innerText = 'An error occurred during execution.';
+                showToast(`Pipeline error: ${err.message}`, 'danger');
+            } finally {
+                processBtn.removeAttribute('disabled');
+                if (clearBtn) clearBtn.removeAttribute('disabled');
             }
-
-            // Mark Step 3 Complete
-            stepRename.className = 'timeline-step complete';
-            stepRename.querySelector('i').className = 'fa-solid fa-circle-check step-icon';
-
-            overallProgressBar.style.width = '100%';
-            progressPercent.innerText = '100% Completed';
-            progressStepText.innerText = 'All processes completed successfully!';
-
-            processStatus.className = 'status-indicator success';
-            processStatus.innerText = 'Completed';
-            log('Pipeline execution successful. Output files are ready for download.', 'success');
-
-            // Show Success Chrome Notification
-            if (typeof Notification !== 'undefined' && Notification.permission === "granted") {
-                new Notification("START AJIO ARANGE Completed! 🎉", {
-                    body: `Successfully processed ${vendorCodes.length} vendor group(s).`,
-                    icon: "https://cdn-icons-png.flaticon.com/512/190/190411.png"
-                });
-            }
-
-        } catch (err) {
-            log(`Pipeline failed: ${err.message}`, 'error');
-            processStatus.className = 'status-indicator idle';
-            processStatus.innerText = 'Failed';
-            progressStepText.innerText = 'An error occurred during execution.';
-
-            processedContainer.innerHTML = '';
-            processedContainer.className = 'processed-container empty';
-            processedContainer.innerHTML = `
-                <div class="empty-output-state text-error" style="color: var(--color-error)">
-                    <i class="fa-solid fa-triangle-exclamation" style="font-size: 3rem;"></i>
-                    <p style="margin-top: 0.5rem;">Process failed: ${err.message}</p>
-                </div>
-            `;
-
-            // Show Failure Chrome Notification
-            if (typeof Notification !== 'undefined' && Notification.permission === "granted") {
-                new Notification("START AJIO ARANGE Failed! ❌", {
-                    body: `Error: ${err.message}`,
-                    icon: "https://cdn-icons-png.flaticon.com/512/190/190406.png"
-                });
-            }
-        } finally {
-            processBtn.removeAttribute('disabled');
-            clearBtn.removeAttribute('disabled');
-        }
-    });
-
-    /* ==========================================================================
-       RENDER PROCESSED OUTPUTS
-       ========================================================================== */
-    function renderProcessedList() {
-        // Clear empty state
-        processedContainer.innerHTML = '';
-        processedContainer.className = 'processed-container';
-
-        // Recreate layout structure
-        processedContainer.appendChild(processedHeader);
-        processedContainer.appendChild(processedList);
-        
-        processedHeader.classList.remove('hidden');
-        processedList.classList.remove('hidden');
-        
-        processedCount.innerText = processedFiles.length;
-        processedList.innerHTML = '';
-
-        processedFiles.forEach((fileObj, index) => {
-            const item = document.createElement('div');
-            item.className = 'processed-item';
-
-            const fileInfo = document.createElement('div');
-            fileInfo.className = 'processed-file-info';
-
-            const nameMapping = document.createElement('div');
-            nameMapping.className = 'name-mapping';
-
-            const isRenamed = fileObj.name !== fileObj.originalName;
-
-            if (isRenamed) {
-                const oldNameSpan = document.createElement('span');
-                oldNameSpan.className = 'old-name';
-                oldNameSpan.innerText = fileObj.originalName;
-                oldNameSpan.title = `Original name: ${fileObj.originalName}`;
-
-                const arrowIcon = document.createElement('i');
-                arrowIcon.className = 'fa-solid fa-circle-right rename-arrow';
-
-                const newNameSpan = document.createElement('span');
-                newNameSpan.className = 'new-name';
-                newNameSpan.innerText = fileObj.name;
-
-                nameMapping.appendChild(oldNameSpan);
-                nameMapping.appendChild(arrowIcon);
-                nameMapping.appendChild(newNameSpan);
-            } else {
-                const nameSpan = document.createElement('span');
-                nameSpan.innerText = fileObj.name;
-                nameMapping.appendChild(nameSpan);
-            }
-
-            const meta = document.createElement('div');
-            meta.className = 'processed-meta';
-
-            const sizeSpan = document.createElement('span');
-            sizeSpan.innerText = formatBytes(fileObj.size);
-
-            const statusSpan = document.createElement('span');
-            statusSpan.innerHTML = '<i class="fa-solid fa-circle-check text-success"></i> Ready';
-
-            meta.appendChild(sizeSpan);
-            meta.appendChild(statusSpan);
-
-            fileInfo.appendChild(nameMapping);
-            fileInfo.appendChild(meta);
-
-            const downloadBtn = document.createElement('button');
-            downloadBtn.className = 'btn btn-download-single';
-            downloadBtn.innerHTML = '<i class="fa-solid fa-download"></i> Download';
-            downloadBtn.addEventListener('click', () => {
-                triggerDownload(fileObj.blob, fileObj.name);
-                log(`Downloaded file: ${fileObj.name}`, 'info');
-            });
-
-            item.appendChild(fileInfo);
-            item.appendChild(downloadBtn);
-            processedList.appendChild(item);
         });
     }
 
-    downloadAllBtn.addEventListener('click', () => {
-        if (!processedZipBlob) return;
-        triggerDownload(processedZipBlob, 'ajio_data_arrange_bundle.zip');
-        log('Downloaded final package: ajio_data_arrange_bundle.zip', 'info');
-    });
+    // Helper: Analyze Account Details File
+    function analyzeAccountDetails(aoa) {
+        if (!aoa || aoa.length < 2) return { invoiceRange: "-", dateRange: "-", warehouse: "-", duplicates: [], cleanRows: aoa || [] };
+        const header = aoa[0];
+        let invColIdx = -1;
+        let dateColIdx = -1;
+        let whColIdx = -1;
+
+        for (let c = 0; c < header.length; c++) {
+            const h = String(header[c] || "").trim().toLowerCase();
+            if (invColIdx === -1 && (h.includes('invoice') || h.includes('document') || h.includes('bill no') || h.includes('inv no'))) {
+                invColIdx = c;
+            }
+            if (dateColIdx === -1 && (h.includes('date') || h.includes('inv dt'))) {
+                dateColIdx = c;
+            }
+            if (whColIdx === -1 && (h.includes('warehouse') || h.includes('plant') || h.includes('b2') || h.includes('p2') || h.includes('loc'))) {
+                whColIdx = c;
+            }
+        }
+        if (invColIdx === -1) invColIdx = 6; // Col G
+        if (dateColIdx === -1) dateColIdx = 12; // Col M
+
+        const invCounts = new Map();
+        const invList = [];
+        const datesList = [];
+        let warehouseVal = "-";
+
+        for (let r = 1; r < aoa.length; r++) {
+            const row = aoa[r];
+            if (!row) continue;
+            const inv = String(row[invColIdx] || "").trim();
+            if (inv) {
+                invCounts.set(inv, (invCounts.get(inv) || 0) + 1);
+                invList.push(inv);
+            }
+            const dt = String(row[dateColIdx] || "").trim();
+            if (dt) datesList.push(dt);
+            if (whColIdx !== -1 && warehouseVal === "-" && row[whColIdx]) {
+                warehouseVal = String(row[whColIdx]).trim();
+            }
+        }
+
+        const duplicates = [];
+        invCounts.forEach((count, inv) => {
+            if (count > 1) duplicates.push(inv);
+        });
+
+        let invoiceRange = "-";
+        if (invList.length > 0) {
+            invoiceRange = invList.length === 1 ? invList[0] : `${invList[0]} - ${invList[invList.length - 1]}`;
+        }
+
+        let dateRange = "-";
+        if (datesList.length > 0) {
+            dateRange = datesList.length === 1 ? datesList[0] : `${datesList[0]} - ${datesList[datesList.length - 1]}`;
+        }
+
+        return { invoiceRange, dateRange, warehouse: warehouseVal, duplicates, cleanRows: aoa };
+    }
+
 
     /* ==========================================================================
        TAB SWITCHING LOGIC
@@ -2914,31 +3449,88 @@ function jsonResponse(data) {
         }
     });
 
-    // Helper: Parse a file (CSV or XLSX) to Array-of-Arrays (AOA)
+    // Helper: Parse a file (CSV, XLSX, XLS, or misnamed binary Excel) to Array-of-Arrays (AOA) with zero UI freeze & safe cell limits
     async function parseFileToAoa(blob, filename) {
-        const ext = filename.split('.').pop().toLowerCase();
-        if (ext === 'csv') {
-            const textContent = await readBlobAsText(blob);
-            const delimiter = detectDelimiter(textContent);
-            const parsed = Papa.parse(textContent, {
-                delimiter: delimiter,
-                skipEmptyLines: true
-            });
-            if (parsed.errors && parsed.errors.length > 0 && parsed.data.length === 0) {
-                throw new Error(parsed.errors[0].message);
-            }
-            return parsed.data;
-        } else {
-            const buffer = await new Promise((resolve, reject) => {
+        if (!blob) return [];
+        const fName = filename || (blob && blob.name) || 'file.csv';
+
+        // 1. Read array buffer
+        const buffer = await new Promise((resolve, reject) => {
+            if (blob.arrayBuffer) {
+                blob.arrayBuffer().then(resolve).catch(reject);
+            } else {
                 const reader = new FileReader();
                 reader.onload = (e) => resolve(e.target.result);
                 reader.onerror = (e) => reject(e.target.error);
                 reader.readAsArrayBuffer(blob);
+            }
+        });
+
+        const u8 = new Uint8Array(buffer);
+        
+        // 2. Detect Magic Bytes:
+        // - OLE CFBF (Excel 97-2004 .xls binary): 0xD0, 0xCF, 0x11, 0xE0
+        // - ZIP / OpenXML (.xlsx, .xlsm): 0x50, 0x4B, 0x03, 0x04
+        const isOLEXLS = u8.length >= 4 && u8[0] === 0xD0 && u8[1] === 0xCF && u8[2] === 0x11 && u8[3] === 0xE0;
+        const isXLSX = u8.length >= 4 && u8[0] === 0x50 && u8[1] === 0x4B && u8[2] === 0x03 && u8[3] === 0x04;
+
+        let rows = [];
+
+        if (isOLEXLS || isXLSX) {
+            // ALWAYS use SheetJS for binary Excel files regardless of filename extension!
+            await new Promise(r => setTimeout(r, 0));
+            const wb = XLSX.read(u8, {
+                type: 'array',
+                cellDates: true,
+                raw: false,
+                defval: ""
             });
-            const wb = XLSX.read(buffer, { type: 'array' });
-            const ws = wb.Sheets[wb.SheetNames[0]];
-            return XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+            if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) return [];
+            const sheetName = wb.SheetNames[0];
+            const ws = wb.Sheets[sheetName];
+            rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+        } else {
+            // It is genuine text (CSV, TSV, or TXT)
+            const text = new TextDecoder('utf-8').decode(u8);
+            const delimiter = typeof detectDelimiter === 'function' ? detectDelimiter(text) : ",";
+            const parsed = Papa.parse(text, {
+                delimiter: delimiter,
+                skipEmptyLines: 'greedy',
+                dynamicTyping: false
+            });
+            rows = parsed.data || [];
         }
+
+        // 3. Sanitize rows (trim text to max 32760 chars to avoid SheetJS limit & clean nulls)
+        const sanitized = [];
+        for (let i = 0; i < rows.length; i++) {
+            const r = rows[i];
+            if (!Array.isArray(r) || r.length === 0) continue;
+            
+            let hasValue = false;
+            const cleanRow = new Array(r.length);
+            for (let c = 0; c < r.length; c++) {
+                let val = r[c];
+                if (val === null || val === undefined) {
+                    cleanRow[c] = "";
+                } else if (typeof val === 'string') {
+                    if (val.length > 32760) {
+                        cleanRow[c] = val.substring(0, 32760);
+                    } else {
+                        cleanRow[c] = val;
+                    }
+                    if (val.trim() !== '') hasValue = true;
+                } else {
+                    cleanRow[c] = val;
+                    hasValue = true;
+                }
+            }
+            if (hasValue) {
+                sanitized.push(cleanRow);
+            }
+        }
+
+        return sanitized;
     }
 
     // Helper: Find party name from local synced list, local storage cache, or filename patterns
@@ -5523,7 +6115,7 @@ function doPost(e) {
         if (typeof updateFcUI === 'function') updateFcUI();
         closeSepFullscreenModal();
 
-        const folderTabBtn = document.querySelector('.tab-btn[data-tab="tab-folder"]');
+        const folderTabBtn = document.querySelector('.tab-btn[data-tab="tab-folder-create"]');
         if (folderTabBtn) {
             folderTabBtn.click();
         }
@@ -5618,15 +6210,31 @@ function doPost(e) {
     }
     restoreSeparateSession();
 
-    /* ==========================================================================
-       RENAME FILE PROCESSING LOGIC
+            /* ==========================================================================
+       RENAME FILE PROCESSING LOGIC (DUAL UPLOAD: COLUMN F & COLUMN G)
        ========================================================================== */
     let renFiles = [];
     let renZipBlob = null;
+    let renOrderZipBlob = null;
+    let renTaxZipBlob = null;
+    let activeRenamedFiles = [];
+    let renIsProcessed = false;
+    let renModalCurrentFilter = 'all'; // 'all', 'p2', 'g', 'error', 'success'
+    let renActiveEditFile = null; // Currently selected file for Edit Prefix Modal
 
+    // DOM Elements for Rename Tab
     const renDropzone = document.getElementById('renDropzone');
     const renFileInput = document.getElementById('renFileInput');
     const renFileDisplay = document.getElementById('renFileDisplay');
+    const renDropzoneG = document.getElementById('renDropzoneG');
+    const renFileInputG = document.getElementById('renFileInputG');
+    const renFileDisplayG = document.getElementById('renFileDisplayG');
+    const renFCountBadge = document.getElementById('ren-f-count-badge');
+    const renGCountBadge = document.getElementById('ren-g-count-badge');
+    const btnRenFClear = document.getElementById('btn-ren-f-clear');
+    const btnRenGClear = document.getElementById('btn-ren-g-clear');
+    const renStagedQuickInfo = document.getElementById('renStagedQuickInfo');
+
     const renBtn = document.getElementById('renBtn');
     const renStatus = document.getElementById('renStatus');
     const renProgressCard = document.getElementById('renProgressCard');
@@ -5639,6 +6247,14 @@ function doPost(e) {
     const clearRenFilesBtn = document.getElementById('clearRenFilesBtn');
     const renSelectedCount = document.getElementById('renSelectedCount');
     const renUploadedFileList = document.getElementById('renUploadedFileList');
+
+    // Edit Prefix Modal DOM Elements
+    const editPrefixModal = document.getElementById('edit-prefix-modal');
+    const editPrefixFilename = document.getElementById('edit-prefix-filename');
+    const editPrefixInput = document.getElementById('edit-prefix-input');
+    const btnCloseEditPrefix = document.getElementById('btn-close-edit-prefix');
+    const btnCancelEditPrefix = document.getElementById('btn-cancel-edit-prefix');
+    const btnSaveEditPrefix = document.getElementById('btn-save-edit-prefix');
 
     function renLog(message, type = 'info') {
         if (!renConsoleLog) return;
@@ -5660,224 +6276,589 @@ function doPost(e) {
         });
     }
 
-    if (renDropzone && renFileInput) {
-        setupMultiDropzone(renDropzone, renFileInput, (files) => {
-            // Check if any uploaded file name does not contain "DropShipOrderReports"
-            const hasInvalidFile = files.some(file => !file.name.toLowerCase().includes("dropshiporderreports"));
-            if (hasInvalidFile) {
-                alert("Invalid file detected in Rename section. Please upload the correct DropShipOrderReports file.", () => {
-                    window.location.reload();
-                });
-                return;
-            }
+    function updateRenUploadBadges() {
+        const fFiles = renFiles.filter(f => f.methodType === 'p2');
+        const gFiles = renFiles.filter(f => f.methodType === 'g');
 
-            let added = 0;
-            files.forEach(file => {
-                if (!renFiles.some(f => f.name === file.name && f.size === file.size)) {
-                    renFiles.push({
-                        id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-                        name: file.name,
-                        size: file.size,
-                        file: file
-                    });
-                    added++;
-                }
-            });
-            if (added > 0) {
-                renLog(`Added ${added} file(s) for renaming.`, 'success');
+        if (renFCountBadge) renFCountBadge.textContent = `${fFiles.length} file${fFiles.length === 1 ? '' : 's'}`;
+        if (renGCountBadge) renGCountBadge.textContent = `${gFiles.length} file${gFiles.length === 1 ? '' : 's'}`;
+        if (renSelectedCount) renSelectedCount.textContent = renFiles.length;
+
+        if (btnRenFClear) btnRenFClear.style.display = fFiles.length > 0 ? "inline-block" : "none";
+        if (btnRenGClear) btnRenGClear.style.display = gFiles.length > 0 ? "inline-block" : "none";
+
+        if (renFileDisplay) {
+            renFileDisplay.textContent = fFiles.length > 0
+                ? `${fFiles.length} Column F file${fFiles.length === 1 ? '' : 's'} loaded`
+                : "Drop Column F Files / ZIP here";
+        }
+        if (renFileDisplayG) {
+            renFileDisplayG.textContent = gFiles.length > 0
+                ? `${gFiles.length} Column G file${gFiles.length === 1 ? '' : 's'} loaded`
+                : "Drop Column G Files / ZIP here";
+        }
+
+        if (renStagedQuickInfo) {
+            renStagedQuickInfo.textContent = `${fFiles.length} Option A, ${gFiles.length} Option B`;
+        }
+
+        if (renBtn) {
+            if (renFiles.length > 0) {
+                renBtn.removeAttribute('disabled');
+            } else {
+                renBtn.setAttribute('disabled', 'true');
             }
-            updateRenUI();
+        }
+    }
+
+    function updateRenUI() {
+        updateRenUploadBadges();
+        renderRenameState();
+    }
+
+    function clearRenMethodFiles(methodType) {
+        renFiles = renFiles.filter(f => f.methodType !== methodType);
+        activeRenamedFiles = activeRenamedFiles.filter(f => f.methodType !== methodType);
+        renIsProcessed = false;
+        if (methodType === 'p2' && renFileInput) renFileInput.value = '';
+        if (methodType === 'g' && renFileInputG) renFileInputG.value = '';
+
+        updateRenUploadBadges();
+        renderRenameState();
+        renLog(`Cleared ${methodType === 'p2' ? 'Column F (Option A)' : 'Column G (Option B)'} files.`, 'info');
+    }
+
+    if (btnRenFClear) {
+        btnRenFClear.addEventListener('click', (e) => {
+            e.stopPropagation();
+            clearRenMethodFiles('p2');
+        });
+    }
+
+    if (btnRenGClear) {
+        btnRenGClear.addEventListener('click', (e) => {
+            e.stopPropagation();
+            clearRenMethodFiles('g');
         });
     }
 
     if (clearRenFilesBtn) {
         clearRenFilesBtn.addEventListener('click', async () => {
-            const ok = await showCustomConfirm('Clear Files', 'Are you sure you want to clear all selected files and results?', 'danger', 'Clear All');
+            const ok = await showCustomConfirm('Clean & Reset Tab', 'Are you sure you want to clear all loaded files and results?', 'danger', 'Clear All');
             if (!ok) return;
 
             renFiles = [];
             activeRenamedFiles = [];
             renZipBlob = null;
-            renFileInput.value = '';
-            updateRenUI();
-            if (renOutputContainer) {
-                renOutputContainer.innerHTML = `
-                    <div class="empty-output-state">
-                        <i class="fa-solid fa-file-export placeholder-icon"></i>
-                        <p>Upload files and click process to generate renamed files.</p>
-                    </div>
-                `;
-            }
+            renOrderZipBlob = null;
+            renTaxZipBlob = null;
+            renIsProcessed = false;
+            if (renFileInput) renFileInput.value = '';
+            if (renFileInputG) renFileInputG.value = '';
+
+            updateRenUploadBadges();
+            renderRenameState();
             clearTabSession('rename_tab');
-            renLog('Cleared all selected files and results.', 'info');
+            if (renStatus) {
+                renStatus.className = 'status-indicator idle';
+                renStatus.innerText = 'Idle';
+            }
+            renLog('Cleaned & reset Rename tab.', 'info');
         });
     }
 
-    function updateRenUI() {
-        if (renSelectedCount) renSelectedCount.innerText = renFiles.length;
-        if (!renUploadedFileList) return;
-        
-        if (renFiles.length > 0) {
-            if (renBtn) renBtn.removeAttribute('disabled');
-            renUploadedFileList.innerHTML = '';
-            renFiles.forEach(fileObj => {
-                const item = document.createElement('div');
-                item.className = 'file-item';
-                
-                const info = document.createElement('div');
-                info.className = 'file-info';
-                
-                const icon = document.createElement('i');
-                icon.className = getFileIconClass(fileObj.name);
-                
-                const nameSpan = document.createElement('span');
-                nameSpan.className = 'file-name';
-                nameSpan.innerText = fileObj.name;
-                
-                const sizeSpan = document.createElement('span');
-                sizeSpan.className = 'file-size';
-                sizeSpan.innerText = formatBytes(fileObj.size);
-                
-                info.appendChild(icon);
-                info.appendChild(nameSpan);
-                info.appendChild(sizeSpan);
-                
-                const removeBtn = document.createElement('button');
-                removeBtn.className = 'file-action-btn';
-                removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
-                removeBtn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const ok = await showCustomConfirm('Remove File', `Are you sure you want to remove "${fileObj.name}"?`, 'danger', 'Remove');
-                    if (!ok) return;
-                    renFiles = renFiles.filter(f => f.id !== fileObj.id);
-                    renLog(`Removed file: ${fileObj.name}`, 'info');
-                    updateRenUI();
-                });
-                
-                item.appendChild(info);
-                item.appendChild(removeBtn);
-                renUploadedFileList.appendChild(item);
+    // Handle Dropzone 1 (Option A: Column F)
+    if (renDropzone && renFileInput) {
+        setupMultiDropzone(renDropzone, renFileInput, async (files) => {
+            await handleRenFileSelection(files, 'p2');
+        });
+    }
+
+    // Handle Dropzone 2 (Option B: Column G)
+    if (renDropzoneG && renFileInputG) {
+        setupMultiDropzone(renDropzoneG, renFileInputG, async (files) => {
+            await handleRenFileSelection(files, 'g');
+        });
+    }
+
+    // Robust spreadsheet parser for both .xlsx and .csv using XLSX.read
+    async function readSpreadsheetAOA(fileBlob) {
+        try {
+            const buffer = await fileBlob.arrayBuffer();
+            const data = new Uint8Array(buffer);
+            const workbook = XLSX.read(data, {
+                type: 'array',
+                cellDates: true,
+                raw: false,
+                defval: ""
             });
-        } else {
-            if (renBtn) renBtn.setAttribute('disabled', 'true');
-            renUploadedFileList.innerHTML = '<div class="empty-list-msg">No files selected yet.</div>';
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+            for (let i = 0; i < rows.length; i++) {
+                const r = rows[i];
+                if (Array.isArray(r)) {
+                    for (let c = 0; c < r.length; c++) {
+                        if (r[c] === null || r[c] === undefined) {
+                            r[c] = "";
+                        } else if (typeof r[c] === 'string' && r[c].length > 32760) {
+                            r[c] = r[c].substring(0, 32760);
+                        }
+                    }
+                }
+            }
+            return rows;
+        } catch (e) {
+            console.warn("XLSX.read fallback to Papa.parse:", e);
+            const text = await fileBlob.text();
+            const parsed = Papa.parse(text, { header: false, skipEmptyLines: true, dynamicTyping: false });
+            const rows = parsed.data || [];
+            for (let i = 0; i < rows.length; i++) {
+                const r = rows[i];
+                if (Array.isArray(r)) {
+                    for (let c = 0; c < r.length; c++) {
+                        if (r[c] === null || r[c] === undefined) {
+                            r[c] = "";
+                        } else if (typeof r[c] === 'string' && r[c].length > 32760) {
+                            r[c] = r[c].substring(0, 32760);
+                        }
+                    }
+                }
+            }
+            return rows;
         }
     }
 
+    // Helper to process uploaded files for Rename (both Option A and Option B)
+    async function handleRenFileSelection(files, methodType = 'p2') {
+        if (!files || files.length === 0) return;
+
+        if (renProgressCard) renProgressCard.classList.remove('hidden');
+        if (renProgressBar) renProgressBar.style.width = '10%';
+        if (renProgressPercent) renProgressPercent.innerText = '10%';
+        if (renProgressStepText) renProgressStepText.innerText = `Loading ${methodType === 'p2' ? 'Column F' : 'Column G'} files...`;
+
+        renLog(`Loading ${files.length} ${methodType === 'p2' ? 'Column F (Option A)' : 'Column G (Option B)'} file(s)...`, 'info');
+
+        let addedCount = 0;
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const lowerName = file.name.toLowerCase();
+
+            // Handle ZIP files if dropped
+            if (lowerName.endsWith('.zip')) {
+                try {
+                    const zip = new JSZip();
+                    const zipContent = await zip.loadAsync(file);
+                    for (const relPath in zipContent.files) {
+                        const zipEntry = zipContent.files[relPath];
+                        if (zipEntry.dir) continue;
+                        const entryLower = zipEntry.name.toLowerCase();
+                        if (entryLower.endsWith('.xlsx') || entryLower.endsWith('.xls') || entryLower.endsWith('.csv')) {
+                            const entryBlob = await zipEntry.async('blob');
+                            const subFile = new File([entryBlob], zipEntry.name.split('/').pop(), { type: entryBlob.type });
+                            await addSingleRenFile(subFile, methodType);
+                            addedCount++;
+                        }
+                    }
+                } catch (err) {
+                    renLog(`Error extracting ZIP ${file.name}: ${err.message}`, 'error');
+                }
+            } else if (lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls') || lowerName.endsWith('.csv')) {
+                await addSingleRenFile(file, methodType);
+                addedCount++;
+            }
+
+            const pct = Math.round(((i + 1) / files.length) * 80) + 10;
+            if (renProgressBar) renProgressBar.style.width = `${pct}%`;
+            if (renProgressPercent) renProgressPercent.innerText = `${pct}%`;
+        }
+
+        renIsProcessed = false;
+        updateRenUploadBadges();
+        renderRenameState();
+
+        if (renProgressBar) renProgressBar.style.width = '100%';
+        if (renProgressPercent) renProgressPercent.innerText = '100%';
+        if (renProgressStepText) renProgressStepText.innerText = 'Files loaded!';
+
+        setTimeout(() => {
+            if (renProgressCard) renProgressCard.classList.add('hidden');
+        }, 800);
+
+        renLog(`Successfully loaded ${addedCount} ${methodType === 'p2' ? 'Column F' : 'Column G'} file(s).`, 'success');
+    }
+
+    async function addSingleRenFile(file, methodType) {
+        // Prevent exact duplicate loading
+        if (renFiles.some(f => f.name === file.name && f.size === file.size && f.methodType === methodType)) {
+            return;
+        }
+
+        let aoa = null;
+        let colGVal = "";
+        let colAVal = "";
+
+        try {
+            aoa = await readSpreadsheetAOA(file);
+        } catch (e) {
+            console.warn("Spreadsheet read failed:", e);
+        }
+
+        if (methodType === 'g' && aoa && aoa.length > 0) {
+            // Check headers to identify columns dynamically
+            let invColIdx = 6; // Default to Column G (index 6)
+            let partyColIdx = 0; // Default to Column A (index 0)
+
+            const headerRow = aoa[0] || [];
+            for (let c = 0; c < headerRow.length; c++) {
+                const h = String(headerRow[c] || "").toLowerCase().trim();
+                if (h.includes("invoice") || h.includes("sale invoice") || h.includes("ee invoice") || h.includes("tax invoice") || h.includes("seller invoice")) {
+                    invColIdx = c;
+                }
+                if (h.includes("company name") || h.includes("party") || h.includes("seller") || h.includes("vendor")) {
+                    partyColIdx = c;
+                }
+            }
+
+            // Extract values from rows
+            for (let r = 1; r < Math.min(aoa.length, 30); r++) {
+                const row = aoa[r];
+                if (!row) continue;
+
+                // 1. Column A / Party Name
+                if (!colAVal && row[partyColIdx] !== undefined && row[partyColIdx] !== null) {
+                    const val0 = String(row[partyColIdx]).trim();
+                    const lower0 = val0.toLowerCase();
+                    if (val0 !== "" && !lower0.includes("company name") && !lower0.includes("header")) {
+                        colAVal = val0;
+                    }
+                }
+
+                // 2. Invoice / Column G cell
+                if (!colGVal && row[invColIdx] !== undefined && row[invColIdx] !== null) {
+                    const rawVal = String(row[invColIdx]).trim();
+                    const cleanCell = cleanRawInvoiceCell(rawVal);
+                    if (cleanCell !== "") {
+                        colGVal = cleanCell;
+                    }
+                }
+
+                // Fallback check Column G (index 6) if invColIdx was different
+                if (!colGVal && row[6] !== undefined && row[6] !== null) {
+                    const rawVal = String(row[6]).trim();
+                    const cleanCell = cleanRawInvoiceCell(rawVal);
+                    if (cleanCell !== "") {
+                        colGVal = cleanCell;
+                    }
+                }
+
+                if (colGVal && colAVal) break;
+            }
+
+            // Broad Scan Fallback if still empty
+            if (!colGVal) {
+                for (let r = 1; r < Math.min(aoa.length, 25); r++) {
+                    const row = aoa[r];
+                    if (!row) continue;
+                    for (let c = 0; c < Math.min(row.length, 15); c++) {
+                        if (row[c] !== undefined && row[c] !== null) {
+                            const rawVal = String(row[c]).trim();
+                            const cleanCell = cleanRawInvoiceCell(rawVal);
+                            if (cleanCell !== "") {
+                                colGVal = cleanCell;
+                                break;
+                            }
+                        }
+                    }
+                    if (colGVal) break;
+                }
+            }
+        }
+
+        const extIdx = file.name.lastIndexOf('.');
+        const ext = extIdx !== -1 ? file.name.substring(extIdx + 1) : 'xlsx';
+
+        renFiles.push({
+            id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+            name: file.name,
+            originalName: file.name,
+            size: file.size,
+            file: file,
+            ext: ext,
+            methodType: methodType, // 'p2' (Column F) or 'g' (Column G)
+            rowCount: aoa ? Math.max(0, aoa.length - 1) : 0,
+            colGValue: colGVal,
+            colAValue: colAVal,
+            renameCode: "",
+            renamedName: file.name,
+            newName: file.name,
+            blob: null,
+            success: false,
+            hasSuffix: false,
+            aoa: aoa
+        });
+    }
+
+    // Helper: Clean raw cell containing JSON or mixed tokens and extract the invoice/code
+    function cleanRawInvoiceCell(val) {
+        if (!val || typeof val !== 'string') return '';
+        let clean = val.trim();
+        if (clean === "") return "";
+        const lower = clean.toLowerCase();
+        if (lower === "quantity" || lower === "description" || lower === "invoice number" || lower === "seller sku" || lower === "item") {
+            return "";
+        }
+
+        // If it contains embedded JSON or trailing token e.g. {"b2b2c_order":"FN2311806571"}]ININR DV00342231
+        if (clean.includes('{') || clean.includes('}') || clean.includes('INR') || clean.includes(']')) {
+            // Try extracting invoice number pattern from the end or within
+            const tokenMatch = clean.match(/([A-Za-z]{1,4}\d{6,12})/);
+            if (tokenMatch) {
+                return tokenMatch[1];
+            }
+            const cgjToken = clean.match(/CGJ1?-?(\d{2,5}[-_]\w+)/i);
+            if (cgjToken) {
+                return cgjToken[0];
+            }
+            const myntraToken = clean.match(/(?:MY|AJ)\d+S\w+/i);
+            if (myntraToken) {
+                return myntraToken[0];
+            }
+            // Strip JSON brackets and control characters
+            clean = clean.replace(/\{[^}]*\}/g, '').replace(/\[/g, '').replace(/\]/g, '').replace(/ININR/g, '').trim();
+        }
+
+        return clean.replace(/[\r\n\t]+/g, ' ').trim();
+    }
+
+    // Helper: Extract party / rename code for Option A (Column F)
+    function extractCodeFromColF(aoa) {
+        if (!aoa || aoa.length <= 1) return "";
+        const colIndex = 5; // Column F (0-indexed)
+        for (let r = 1; r < aoa.length; r++) {
+            const row = aoa[r];
+            if (!row) continue;
+            const cellVal = String(row[colIndex] || "").trim();
+            if (cellVal !== "") {
+                const firstPart = cellVal.split("-")[0].trim();
+                let code = firstPart.slice(-3);
+                if (code.toUpperCase().startsWith("J")) {
+                    const num = parseInt(code.substring(1), 10);
+                    if (!isNaN(num)) {
+                        code = "AJ" + num;
+                    }
+                }
+                return code;
+            }
+        }
+        return "";
+    }
+
+    // Helper: Extract party code for Option B (Column G / Tax files)
+    function extractCodeFromColG(colGVal, fileName, colAVal = "") {
+        // 1. Check Column A (Company Name, e.g. "198-Gufrina (Admin)")
+        if (colAVal) {
+            const cleanA = String(colAVal).trim();
+            const matchA = cleanA.match(/^(\d{2,5})[-_\s]/);
+            if (matchA) {
+                return matchA[1];
+            }
+        }
+
+        const cleanVal = String(colGVal || "").trim();
+
+        if (cleanVal !== "") {
+            // Pattern A: Standard invoice prefix: AJ27S101-29337 or MY27S198-1578 -> extract "101" or "198"
+            const invoicePrefixMatch = cleanVal.match(/S(\d{2,5})[-_]/i);
+            if (invoicePrefixMatch) {
+                return invoicePrefixMatch[1];
+            }
+
+            // Pattern B: Starts with CGJ1 (e.g. CGJ12627-295 or CGJ1-178-INV001 -> extract 2627 or 178)
+            const cgjMatch = cleanVal.match(/CGJ1?-?(\d{2,5})[-_]/i);
+            if (cgjMatch) {
+                return cgjMatch[1];
+            }
+
+            // Pattern C: Digits immediately preceding hyphen followed by digits e.g. 198-1578 -> "198"
+            const preHyphenMatch = cleanVal.match(/(\d{2,5})-(?=\d+)/);
+            if (preHyphenMatch) {
+                return preHyphenMatch[1];
+            }
+
+            // Pattern D: Starts with digits followed by hyphen e.g. 178-INV001 -> "178"
+            if (cleanVal.includes('-')) {
+                const parts = cleanVal.split('-');
+                const firstPart = parts[0].trim();
+                if (firstPart !== "" && firstPart.toUpperCase() !== "CGJ1") {
+                    const numPart = firstPart.match(/\d{2,5}/);
+                    if (numPart) {
+                        return numPart[0];
+                    }
+                }
+            }
+
+            // Pattern E: Match against vendorParties database
+            if (typeof vendorParties !== "undefined" && vendorParties && vendorParties.length > 0) {
+                const prefixPart = cleanVal.includes('-') ? cleanVal.split('-')[0] : cleanVal;
+                for (let i = 0; i < vendorParties.length; i++) {
+                    const item = vendorParties[i];
+                    if (!item || !item.code) continue;
+                    const codeStr = String(item.code).trim();
+                    if (!codeStr) continue;
+
+                    const codeRegex = new RegExp(`(?:^|S|\\b|-|_)${codeStr}(?:-|\\b|_|$)(?!\\d)`, 'i');
+                    if (codeRegex.test(prefixPart) || codeRegex.test(cleanVal)) {
+                        return codeStr;
+                    }
+                }
+            }
+
+            // Pattern F: Match numeric sequence of 2-5 digits
+            const numMatch = cleanVal.match(/\b\d{2,5}\b/);
+            if (numMatch) {
+                return numMatch[0];
+            }
+        }
+
+        // 2. Fallback: Search filename starting digits or vendorParties match
+        if (fileName) {
+            const cleanName = String(fileName).trim();
+            const match = cleanName.match(/^\d{2,5}/);
+            if (match) return match[0];
+
+            if (typeof vendorParties !== "undefined" && vendorParties && vendorParties.length > 0) {
+                for (let i = 0; i < vendorParties.length; i++) {
+                    const item = vendorParties[i];
+                    if (!item || !item.code) continue;
+                    const codeStr = String(item.code).trim();
+                    if (codeStr && new RegExp(`(?:^|\\b|-|_)${codeStr}(?:-|\\b|_|$)`, 'i').test(cleanName)) {
+                        return codeStr;
+                    }
+                }
+            }
+        }
+
+        return "";
+    }
+
+    // Main Rename Processor Execution
     if (renBtn) {
         renBtn.addEventListener('click', async () => {
-            if (renFiles.length === 0) return;
-            
-            alert("UPLOAD AJIO/TAX SHEET (Starting Rename Process)");
+            if (renFiles.length === 0) {
+                alert("Please upload Column F or Column G files first.");
+                return;
+            }
 
             renBtn.setAttribute('disabled', 'true');
+            if (renProgressCard) renProgressCard.classList.remove('hidden');
+            if (renProgressBar) renProgressBar.style.width = '0%';
+            if (renProgressPercent) renProgressPercent.innerText = '0%';
+            if (renProgressStepText) renProgressStepText.innerText = 'Initializing rename process...';
+
             if (renStatus) {
                 renStatus.className = 'status-indicator processing';
-                renStatus.innerText = 'Processing';
-            }
-            if (renProgressCard) renProgressCard.classList.remove('hidden');
-            if (renProgressBar) renProgressBar.style.width = '5%';
-            if (renProgressPercent) renProgressPercent.innerText = '5%';
-            if (renProgressStepText) renProgressStepText.innerText = 'Initializing...';
-            
-            if (renOutputContainer) {
-                renOutputContainer.innerHTML = `
-                    <div class="empty-output-state">
-                        <i class="fa-solid fa-spinner fa-spin placeholder-icon" style="color: #8b5cf6;"></i>
-                        <p>Renaming files, please wait...</p>
-                    </div>
-                `;
+                renStatus.innerText = 'Processing...';
             }
 
-            renLog('Starting Rename Process...', 'process');
+            renLog('Starting Rename Process for loaded files...', 'process');
 
             try {
-                const findCol = "F";
-                renLog(`Search Column selected: Column ${findCol}`, 'info');
-                
-                const colIndex = 5;
-                const zip = new JSZip();
-                const renamedList = [];
+                const zipAll = new JSZip();
+                const zipOrder = new JSZip();
+                const zipTax = new JSZip();
+                const usedNames = new Set();
 
                 for (let i = 0; i < renFiles.length; i++) {
                     const fileObj = renFiles[i];
-                    renLog(`Reading file: ${fileObj.name}`, 'info');
-                    
-                    const progressVal = Math.round((i / renFiles.length) * 80) + 5;
-                    if (renProgressBar) renProgressBar.style.width = `${progressVal}%`;
-                    if (renProgressPercent) renProgressPercent.innerText = `${progressVal}%`;
-                    if (renProgressStepText) renProgressStepText.innerText = `Processing file ${i + 1} of ${renFiles.length}...`;
+                    renLog(`Processing file ${i + 1}/${renFiles.length}: ${fileObj.name}`, 'info');
 
-                    const aoa = await parseFileToAoa(fileObj.file, fileObj.name);
-                    renLog(`Parsed ${aoa.length} rows from ${fileObj.name}`, 'info');
+                    const pct = Math.round((i / renFiles.length) * 80) + 5;
+                    if (renProgressBar) renProgressBar.style.width = `${pct}%`;
+                    if (renProgressPercent) renProgressPercent.innerText = `${pct}%`;
+                    if (renProgressStepText) renProgressStepText.innerText = `Renaming (${i + 1}/${renFiles.length}): ${fileObj.name}`;
 
-                    let renameCode = "";
-                    for (let r = 1; r < aoa.length; r++) {
-                        const row = aoa[r];
-                        if (!row) continue;
-                        
-                        let cellVal = String(row[colIndex] || "").trim();
-                        if (cellVal !== "") {
-                            const firstPart = cellVal.split("-")[0].trim();
-                            let code = firstPart.slice(-3);
-                            
-                            if (code.toUpperCase().startsWith("J")) {
-                                const num = parseInt(code.substring(1), 10);
-                                if (!isNaN(num)) {
-                                    code = "AJ" + num;
-                                }
-                            }
-                            
-                            renameCode = code;
-                            break;
+                    let aoa = fileObj.aoa;
+                    if (!aoa) {
+                        aoa = await readSpreadsheetAOA(fileObj.file);
+                        fileObj.aoa = aoa;
+                        fileObj.rowCount = Math.max(0, aoa.length - 1);
+                    }
+
+                    let renameCode = fileObj.renameCode;
+                    if (!renameCode || renameCode === "Not Found") {
+                        if (fileObj.methodType === 'p2') {
+                            // Option A: Column F
+                            renameCode = extractCodeFromColF(aoa);
+                        } else {
+                            // Option B: Column G
+                            renameCode = extractCodeFromColG(fileObj.colGValue, fileObj.name, fileObj.colAValue);
                         }
                     }
 
-                    let newName = fileObj.name;
+                    const extIdx = fileObj.name.lastIndexOf('.');
+                    const baseName = extIdx !== -1 ? fileObj.name.substring(0, extIdx) : fileObj.name;
+                    const ext = extIdx !== -1 ? fileObj.name.substring(extIdx) : '.xlsx';
+
+                    let targetName = fileObj.name;
                     let success = false;
 
-                    if (renameCode !== "") {
-                        const extIdx = fileObj.name.lastIndexOf('.');
-                        const baseName = fileObj.name.substring(0, extIdx);
-                        const ext = fileObj.name.substring(extIdx);
-                        newName = `${baseName}-${renameCode}${ext}`;
+                    if (renameCode && renameCode.trim() !== "" && renameCode !== "Not Found") {
+                        let candidateName = `${baseName}-${renameCode.trim()}${ext}`;
+                        let counter = 1;
+                        let checkName = candidateName;
+                        while (usedNames.has(checkName.toLowerCase())) {
+                            checkName = `${baseName}-${renameCode.trim()} (${counter})${ext}`;
+                            counter++;
+                        }
+                        targetName = checkName;
                         success = true;
-                        renLog(`Found rename code: [${renameCode}] for ${fileObj.name}. New name: "${newName}"`, 'success');
+                        fileObj.renameCode = renameCode.trim();
+                        renLog(`Found code: [${renameCode}] for "${fileObj.name}" -> "${targetName}"`, 'success');
                     } else {
-                        renLog(`No valid rename code found in Column ${findCol} for ${fileObj.name}. Filename remains unchanged.`, 'warning');
+                        fileObj.renameCode = "Not Found";
+                        let counter = 1;
+                        let checkName = targetName;
+                        while (usedNames.has(checkName.toLowerCase())) {
+                            checkName = `${baseName} (${counter})${ext}`;
+                            counter++;
+                        }
+                        targetName = checkName;
+                        renLog(`No rename code found for "${fileObj.name}". Kept original filename.`, 'warning');
                     }
 
-                    const fileBuffer = await new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = (e) => resolve(e.target.result);
-                        reader.onerror = (e) => reject(e.target.error);
-                        reader.readAsArrayBuffer(fileObj.file);
-                    });
+                    usedNames.add(targetName.toLowerCase());
+                    fileObj.renamedName = targetName;
+                    fileObj.newName = targetName;
+                    fileObj.success = success;
+                    fileObj.hasSuffix = success;
 
-                    zip.file(newName, fileBuffer);
-                    
-                    const fileBlob = new Blob([fileBuffer], { type: fileObj.file.type });
+                    const fileBuffer = await fileObj.file.arrayBuffer();
+                    const fileBlob = new Blob([fileBuffer], { type: fileObj.file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                    fileObj.blob = fileBlob;
 
-                    renamedList.push({
-                        originalName: fileObj.name,
-                        newName: newName,
-                        size: fileBlob.size,
-                        blob: fileBlob,
-                        success: success,
-                        renameCode: renameCode,
-                        hasSuffix: success && Boolean(renameCode),
-                        aoa: aoa,
-                        file: fileObj.file
-                    });
+                    zipAll.file(targetName, fileBuffer);
+                    if (fileObj.methodType === 'p2') {
+                        zipOrder.file(targetName, fileBuffer);
+                    } else {
+                        zipTax.file(targetName, fileBuffer);
+                    }
                 }
 
-                if (renProgressBar) renProgressBar.style.width = '95%';
-                if (renProgressPercent) renProgressPercent.innerText = '95%';
-                if (renProgressStepText) renProgressStepText.innerText = 'Packaging files...';
+                if (renProgressBar) renProgressBar.style.width = '90%';
+                if (renProgressPercent) renProgressPercent.innerText = '90%';
+                if (renProgressStepText) renProgressStepText.innerText = 'Generating ZIP packages...';
 
-                renZipBlob = await zip.generateAsync({ type: 'blob' });
+                renZipBlob = await zipAll.generateAsync({ type: 'blob' });
+                renOrderZipBlob = await zipOrder.generateAsync({ type: 'blob' });
+                renTaxZipBlob = await zipTax.generateAsync({ type: 'blob' });
 
-                renderRenDashboard(renamedList);
+                activeRenamedFiles = [...renFiles];
+                renIsProcessed = true;
+
+                renderRenameState();
+
                 saveTabSession('rename_tab', {
                     activeRenamedFiles: activeRenamedFiles,
                     renZipBlob: renZipBlob
@@ -5886,28 +6867,21 @@ function doPost(e) {
                 if (renProgressBar) renProgressBar.style.width = '100%';
                 if (renProgressPercent) renProgressPercent.innerText = '100%';
                 if (renProgressStepText) renProgressStepText.innerText = 'Renaming completed successfully!';
-                
+
                 if (renStatus) {
                     renStatus.className = 'status-indicator success';
                     renStatus.innerText = 'Completed';
                 }
-                
-                alert("PROCESS COMPLETED SUCCESSFULLY");
-                renLog('Rename process completed. All files packaged.', 'success');
+
+                showCustomAlert("PROCESS COMPLETED SUCCESSFULLY! Renamed files are ready for review.", "success");
+                renLog(`Rename process finished. ${renFiles.length} file(s) packaged successfully.`, 'success');
 
             } catch (err) {
+                console.error("Rename process error:", err);
                 renLog(`Rename process failed: ${err.message}`, 'error');
                 if (renStatus) {
                     renStatus.className = 'status-indicator idle';
                     renStatus.innerText = 'Failed';
-                }
-                if (renOutputContainer) {
-                    renOutputContainer.innerHTML = `
-                        <div class="empty-output-state">
-                            <i class="fa-solid fa-circle-exclamation placeholder-icon" style="color: #ef4444;"></i>
-                            <p style="color: #ef4444; font-weight: 600;">Error: ${err.message}</p>
-                        </div>
-                    `;
                 }
             } finally {
                 renBtn.removeAttribute('disabled');
@@ -5915,663 +6889,890 @@ function doPost(e) {
         });
     }
 
-    let activeRenamedFiles = [];
-    let modalCurrentFilter = 'all';
+    // Render Rename State: either staged preview or output categorized results
+    function renderRenameState() {
+        if (!renOutputContainer) return;
 
-    function sortFilesByErrorFirst(list) {
-        if (!list || !Array.isArray(list)) return [];
-        return list.slice().sort((a, b) => {
-            const aErr = !a.hasSuffix;
-            const bErr = !b.hasSuffix;
-            if (aErr && !bErr) return -1;
-            if (!aErr && bErr) return 1;
+        if (renFiles.length === 0) {
+            renOutputContainer.innerHTML = `
+                <div class="empty-output-state">
+                    <i class="fa-solid fa-file-signature placeholder-icon"></i>
+                    <p>Upload files to Option A (Column F) or Option B (Column G) and click process to run renaming.</p>
+                </div>
+            `;
+            return;
+        }
+
+        if (!renIsProcessed) {
+            // Render Staged Preview Tables before processing
+            renderStagedRenameTables();
+        } else {
+            // Render Processed Categorized Output Preview
+            renderCategorizedRenamePreview();
+        }
+    }
+
+    // Render Staged Tables (Loaded files before running rename)
+    function renderStagedRenameTables() {
+        const fFiles = renFiles.filter(f => f.methodType === 'p2');
+        const gFiles = renFiles.filter(f => f.methodType === 'g');
+
+        let html = `
+            <div style="display: flex; flex-direction: column; gap: 1rem; width: 100%;">
+                <!-- Top Staged Info Bar -->
+                <div class="card glass" style="padding: 0.65rem 0.9rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; border-left: 4px solid var(--primary); background: #ffffff; border-radius: 10px; border: 1px solid #e2e8f0;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                        <h3 style="font-size: 0.88rem; font-weight: 700; color: var(--text-primary); margin: 0;">Loaded Files Staging</h3>
+                        <span class="info-tag" style="font-size: 0.72rem; padding: 2px 7px;">${renFiles.length} files loaded</span>
+                    </div>
+                    <span style="font-size: 0.72rem; color: var(--text-muted);">Click <strong>START RENAME PROCESS</strong> on the left to rename.</span>
+                </div>
+
+                <!-- 1. Staged Column F Files Card -->
+                <div class="ren-table-card" style="border-left: 4px solid var(--primary);">
+                    <div class="card-header">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <h3 style="font-size: 0.85rem; font-weight: 700; color: var(--text-primary); margin: 0; display: flex; align-items: center; gap: 6px;">
+                                📦 Loaded Column F Files (Option A)
+                            </h3>
+                            <span class="badge badge-od" style="font-size: 0.68rem;">${fFiles.length} file${fFiles.length === 1 ? '' : 's'}</span>
+                        </div>
+                        <span style="font-size: 0.7rem; color: var(--text-muted);">Extracts party code from Column F</span>
+                    </div>
+                    <div class="table-container" style="max-height: 200px; overflow-y: auto; margin: 0; padding: 0;">
+                        <table class="preview-table" style="font-size: 0.74rem; width: 100%;">
+                            <thead>
+                                <tr>
+                                    <th style="width: 35px; text-align: center;">#</th>
+                                    <th>File Name</th>
+                                    <th style="width: 80px;">Rows</th>
+                                    <th style="width: 85px;">Size</th>
+                                    <th style="width: 100px; text-align: center;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${fFiles.length === 0
+                                    ? `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.2rem; font-size: 0.74rem;">No Column F files loaded yet.</td></tr>`
+                                    : fFiles.map((file, idx) => `
+                                        <tr>
+                                            <td style="text-align: center;"><strong>${idx + 1}</strong></td>
+                                            <td><span class="file-name" style="font-weight: 600; color: var(--text-primary);">${file.name}</span></td>
+                                            <td>${file.rowCount}</td>
+                                            <td>${formatBytes(file.size)}</td>
+                                            <td style="text-align: center;">
+                                                <div style="display: inline-flex; gap: 4px;">
+                                                    <button class="btn-action btn-edit-prefix" data-id="${file.id}" title="Edit Prefix Code" style="width: 24px; height: 24px; border-radius: 6px; border: none; background: rgba(124, 58, 237, 0.08); color: var(--primary); cursor: pointer;">
+                                                        <i class="fa-solid fa-pen" style="font-size: 0.7rem;"></i>
+                                                    </button>
+                                                    <button class="btn-action btn-del-staged" data-id="${file.id}" title="Remove file" style="width: 24px; height: 24px; border-radius: 6px; border: none; background: rgba(220, 38, 38, 0.08); color: #dc2626; cursor: pointer;">
+                                                        <i class="fa-solid fa-trash-can" style="font-size: 0.7rem;"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 2. Staged Column G Files Card -->
+                <div class="ren-table-card" style="border-left: 4px solid #059669;">
+                    <div class="card-header">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <h3 style="font-size: 0.85rem; font-weight: 700; color: var(--text-primary); margin: 0; display: flex; align-items: center; gap: 6px;">
+                                📊 Loaded Column G Files (Option B)
+                            </h3>
+                            <span class="badge badge-dt" style="font-size: 0.68rem;">${gFiles.length} file${gFiles.length === 1 ? '' : 's'}</span>
+                        </div>
+                        <span style="font-size: 0.7rem; color: var(--text-muted);">Searches Column G for CGJ1 / Party codes</span>
+                    </div>
+                    <div class="table-container" style="max-height: 200px; overflow-y: auto; margin: 0; padding: 0;">
+                        <table class="preview-table" style="font-size: 0.74rem; width: 100%;">
+                            <thead>
+                                <tr>
+                                    <th style="width: 35px; text-align: center;">#</th>
+                                    <th>File Name</th>
+                                    <th style="width: 170px;">Column G Value</th>
+                                    <th style="width: 80px;">Rows</th>
+                                    <th style="width: 85px;">Size</th>
+                                    <th style="width: 100px; text-align: center;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${gFiles.length === 0
+                                    ? `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 1.2rem; font-size: 0.74rem;">No Column G files loaded yet.</td></tr>`
+                                    : gFiles.map((file, idx) => `
+                                        <tr>
+                                            <td style="text-align: center;"><strong>${idx + 1}</strong></td>
+                                            <td><span class="file-name" style="font-weight: 600; color: var(--text-primary);">${file.name}</span></td>
+                                            <td>${file.colGValue ? `<span style="font-family: monospace; font-weight: 700; color: #059669; font-size: 0.72rem;">${file.colGValue}</span>` : '<span style="color: var(--text-muted); font-size: 0.7rem;">None</span>'}</td>
+                                            <td>${file.rowCount}</td>
+                                            <td>${formatBytes(file.size)}</td>
+                                            <td style="text-align: center;">
+                                                <div style="display: inline-flex; gap: 4px;">
+                                                    <button class="btn-action btn-edit-prefix" data-id="${file.id}" title="Edit Prefix Code" style="width: 24px; height: 24px; border-radius: 6px; border: none; background: rgba(5, 150, 105, 0.08); color: #059669; cursor: pointer;">
+                                                        <i class="fa-solid fa-pen" style="font-size: 0.7rem;"></i>
+                                                    </button>
+                                                    <button class="btn-action btn-del-staged" data-id="${file.id}" title="Remove file" style="width: 24px; height: 24px; border-radius: 6px; border: none; background: rgba(220, 38, 38, 0.08); color: #dc2626; cursor: pointer;">
+                                                        <i class="fa-solid fa-trash-can" style="font-size: 0.7rem;"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        renOutputContainer.innerHTML = html;
+
+        // Attach staged delete handlers
+        renOutputContainer.querySelectorAll('.btn-del-staged').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const id = btn.getAttribute('data-id');
+                renFiles = renFiles.filter(f => f.id !== id);
+                updateRenUploadBadges();
+                renderRenameState();
+            });
+        });
+
+        // Attach staged edit prefix handlers
+        renOutputContainer.querySelectorAll('.btn-edit-prefix').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const id = btn.getAttribute('data-id');
+                const fileObj = renFiles.find(f => f.id === id);
+                if (fileObj) openEditPrefixModal(fileObj);
+            });
+        });
+    }
+
+    // Render Categorized Output Preview (After running rename)
+    function renderCategorizedRenamePreview() {
+        const fFiles = renFiles.filter(f => f.methodType === 'p2');
+        const gFiles = renFiles.filter(f => f.methodType === 'g');
+
+        const unmatchedF = fFiles.filter(f => !f.renameCode || f.renameCode === "Not Found").length;
+        const unmatchedG = gFiles.filter(f => !f.renameCode || f.renameCode === "Not Found").length;
+        const unmatchedTotal = unmatchedF + unmatchedG;
+
+        let html = `
+            <div style="display: flex; flex-direction: column; gap: 1rem; width: 100%;">
+
+                <!-- Top Summary Bar -->
+                <div class="card glass" style="padding: 0.65rem 0.9rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem; border-left: 4px solid var(--primary); background: #ffffff; border-radius: 10px; border: 1px solid #e2e8f0;">
+                    <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                        <h3 style="font-size: 0.9rem; font-weight: 700; color: var(--text-primary); margin: 0;">Renamed Output Summary</h3>
+                        <span class="info-tag" style="font-size: 0.72rem; padding: 2px 7px;">${renFiles.length} total files (📦 Order: ${fFiles.length}, 📊 Tax: ${gFiles.length})</span>
+                        ${unmatchedTotal > 0 ? `<span class="badge" style="background: rgba(220, 38, 38, 0.12); color: #dc2626; border: 1px solid rgba(220, 38, 38, 0.25); font-size: 0.68rem; font-weight: 700;">⚠️ ${unmatchedTotal} Need Prefix</span>` : ''}
+                    </div>
+                    <button class="btn btn-primary" id="btnDownloadAllZipCategorized" style="padding: 0.35rem 0.85rem; font-size: 0.78rem; display: flex; align-items: center; gap: 6px; background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
+                        <i class="fa-solid fa-file-zipper"></i> Download All ZIP
+                    </button>
+                </div>
+
+                <!-- 1. Order Files Card (Column F Method) -->
+                <div class="ren-table-card" style="border-left: 4px solid var(--primary);">
+                    <div class="card-header">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                            <h3 style="font-size: 0.88rem; font-weight: 700; color: var(--text-primary); margin: 0; display: flex; align-items: center; gap: 6px;">
+                                📦 Order Files (Column F)
+                            </h3>
+                            <span class="badge badge-od" style="font-size: 0.68rem;">${fFiles.length} file${fFiles.length === 1 ? '' : 's'}</span>
+                            ${unmatchedF > 0 ? `<span class="badge" style="background: rgba(220,38,38,0.12); color: #dc2626; border: 1px solid rgba(220,38,38,0.25); font-size: 0.65rem; font-weight: 700;">${unmatchedF} Need Prefix</span>` : ''}
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                            <button class="btn btn-secondary" id="btnOrderFullview" style="padding: 0.28rem 0.6rem; font-size: 0.72rem; display: flex; align-items: center; gap: 4px;" title="Full View Modal">
+                                <i class="fa-solid fa-expand"></i> Full View
+                            </button>
+                            <button class="btn btn-secondary" id="btnMoveOrderToMerge" style="padding: 0.28rem 0.65rem; font-size: 0.72rem; color: var(--primary); font-weight: 700; border-color: rgba(124, 58, 237, 0.25); display: flex; align-items: center; gap: 4px;" title="Transfer files directly to Merge File tab">
+                                <i class="fa-solid fa-code-merge"></i> Move to Merge
+                            </button>
+                            <button class="btn btn-primary" id="btnDownloadOrderZip" style="padding: 0.28rem 0.65rem; font-size: 0.72rem; display: flex; align-items: center; gap: 4px; background: #7c3aed; border-color: #7c3aed;" title="Download only Order files ZIP">
+                                <i class="fa-solid fa-download"></i> Download ZIP
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-container" style="max-height: 240px; overflow-y: auto; margin: 0; padding: 0;">
+                        <table class="preview-table" style="font-size: 0.74rem; width: 100%;">
+                            <thead>
+                                <tr>
+                                    <th style="width: 35px; text-align: center;">#</th>
+                                    <th>Original File Name</th>
+                                    <th style="width: 105px;">Prefix Code</th>
+                                    <th>Renamed Filename</th>
+                                    <th style="width: 140px; text-align: center;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${fFiles.length === 0
+                                    ? `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.5rem; font-size: 0.74rem;">No Order files uploaded yet.</td></tr>`
+                                    : renderTableRowsHtml(fFiles, 'p2')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 2. Tax Files Card (Column G Method) -->
+                <div class="ren-table-card" style="border-left: 4px solid #059669;">
+                    <div class="card-header">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                            <h3 style="font-size: 0.88rem; font-weight: 700; color: var(--text-primary); margin: 0; display: flex; align-items: center; gap: 6px;">
+                                📊 Tax Files (Column G)
+                            </h3>
+                            <span class="badge badge-dt" style="font-size: 0.68rem;">${gFiles.length} file${gFiles.length === 1 ? '' : 's'}</span>
+                            ${unmatchedG > 0 ? `<span class="badge" style="background: rgba(220,38,38,0.12); color: #dc2626; border: 1px solid rgba(220,38,38,0.25); font-size: 0.65rem; font-weight: 700;">${unmatchedG} Need Prefix</span>` : ''}
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                            <label class="sep-rule-toggle is-old" id="ren-g-move-container" title="Target: ON = Move to Merge, OFF = Move to Folder Create" style="margin-right: 0.15rem;">
+                                <span class="sep-rule-switch">
+                                    <input type="checkbox" id="toggle-ren-g-move" autocomplete="off">
+                                    <span class="sep-rule-slider"></span>
+                                </span>
+                                <span class="sep-rule-text" id="label-ren-g-move">Move: Folder</span>
+                            </label>
+                            <button class="btn btn-secondary" id="btnTaxFullview" style="padding: 0.28rem 0.6rem; font-size: 0.72rem; display: flex; align-items: center; gap: 4px;" title="Full View Modal">
+                                <i class="fa-solid fa-expand"></i> Full View
+                            </button>
+                            <button class="btn btn-secondary" id="btnMoveTaxTarget" style="padding: 0.28rem 0.65rem; font-size: 0.72rem; color: #059669; font-weight: 700; border-color: rgba(5, 150, 105, 0.25); display: flex; align-items: center; gap: 4px;" title="Transfer files directly to Folder Create tab">
+                                <i class="fa-solid fa-folder-plus" id="renTaxMoveIcon"></i>
+                                <span id="renTaxMoveText">Move to Folder Create</span>
+                            </button>
+                            <button class="btn btn-primary" id="btnDownloadTaxZip" style="padding: 0.28rem 0.65rem; font-size: 0.72rem; background: #059669; border-color: #059669; display: flex; align-items: center; gap: 4px;" title="Download only Tax files ZIP">
+                                <i class="fa-solid fa-download"></i> Download ZIP
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-container" style="max-height: 240px; overflow-y: auto; margin: 0; padding: 0;">
+                        <table class="preview-table" style="font-size: 0.74rem; width: 100%;">
+                            <thead>
+                                <tr>
+                                    <th style="width: 35px; text-align: center;">#</th>
+                                    <th>Original File Name</th>
+                                    <th style="width: 105px;">Prefix Code</th>
+                                    <th>Renamed Filename</th>
+                                    <th style="width: 140px; text-align: center;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${gFiles.length === 0
+                                    ? `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.5rem; font-size: 0.74rem;">No Tax files uploaded yet.</td></tr>`
+                                    : renderTableRowsHtml(gFiles, 'g')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        `;
+
+        renOutputContainer.innerHTML = html;
+        attachCategorizedTableEvents();
+    }
+
+    function renderTableRowsHtml(fileList, category) {
+        // Sort: Unmatched files ("Not Found") come FIRST (at the top)!
+        const sorted = [...fileList].sort((a, b) => {
+            const aUnmatched = (!a.renameCode || a.renameCode === "Not Found");
+            const bUnmatched = (!b.renameCode || b.renameCode === "Not Found");
+            if (aUnmatched && !bUnmatched) return -1;
+            if (!aUnmatched && bUnmatched) return 1;
             return 0;
         });
+
+        return sorted.map((file, idx) => {
+            const isUnmatched = (!file.renameCode || file.renameCode === "Not Found");
+            const codeBadge = isUnmatched
+                ? `<span class="badge" style="background: rgba(220, 38, 38, 0.15); color: #dc2626; border: 1px solid rgba(220, 38, 38, 0.3); font-weight: 700; font-size: 0.68rem;">⚠️ Not Found</span>`
+                : `<span class="badge ${category === 'p2' ? 'badge-od' : 'badge-dt'}" style="font-weight: 700; font-size: 0.68rem;">${file.renameCode}</span>`;
+
+            return `
+                <tr style="${isUnmatched ? 'background: rgba(220, 38, 38, 0.05); border-left: 3.5px solid #dc2626;' : ''}">
+                    <td style="text-align: center;"><strong>${idx + 1}</strong></td>
+                    <td>
+                        <span class="file-name btn-inspect-file" data-id="${file.id}" style="cursor: pointer; font-weight: 600; color: var(--text-primary); text-decoration: underline dotted;" title="Click to view Excel rows">${file.originalName || file.name}</span>
+                    </td>
+                    <td>${codeBadge}</td>
+                    <td><span style="color: var(--primary); font-weight: 600; font-size: 0.78rem;">${file.renamedName || file.newName}</span></td>
+                    <td style="text-align: center;">
+                        <div style="display: inline-flex; gap: 4px;">
+                            <button class="btn-action btn-inspect-file" data-id="${file.id}" title="Inspect first 50 rows" style="width: 24px; height: 24px; border-radius: 6px; border: none; background: rgba(124, 58, 237, 0.08); color: var(--primary); cursor: pointer;">
+                                <i class="fa-solid fa-eye" style="font-size: 0.7rem;"></i>
+                            </button>
+                            <button class="btn-action btn-edit-prefix" data-id="${file.id}" title="Edit Prefix Code" style="width: 24px; height: 24px; border-radius: 6px; border: none; background: rgba(5, 150, 105, 0.08); color: #059669; cursor: pointer;">
+                                <i class="fa-solid fa-pen" style="font-size: 0.7rem;"></i>
+                            </button>
+                            <button class="btn-action btn-download-single" data-id="${file.id}" title="Download Single File" style="width: 24px; height: 24px; border-radius: 6px; border: none; background: rgba(14, 165, 233, 0.08); color: #0284c7; cursor: pointer;">
+                                <i class="fa-solid fa-download" style="font-size: 0.7rem;"></i>
+                            </button>
+                            <button class="btn-action btn-del-file" data-id="${file.id}" title="Delete file" style="width: 24px; height: 24px; border-radius: 6px; border: none; background: rgba(220, 38, 38, 0.08); color: #dc2626; cursor: pointer;">
+                                <i class="fa-solid fa-trash-can" style="font-size: 0.7rem;"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
     }
 
-    async function rebuildRenZip() {
-        try {
-            const zip = new JSZip();
-            for (const file of activeRenamedFiles) {
-                const buffer = await file.blob.arrayBuffer();
-                zip.file(file.newName, buffer);
-            }
-            renZipBlob = await zip.generateAsync({ type: 'blob' });
-        } catch (e) {
-            console.error('Failed to rebuild zip:', e);
-        }
-    }
-
-    async function saveManualRename(fileObj, newBaseName) {
-        newBaseName = (newBaseName || '').trim();
-        if (!newBaseName) {
-            alert('Filename cannot be empty.');
-            return;
+    function attachCategorizedTableEvents() {
+        // Download All Zip
+        const btnAllZip = document.getElementById('btnDownloadAllZipCategorized');
+        if (btnAllZip) {
+            btnAllZip.addEventListener('click', () => downloadRenZip('all'));
         }
 
-        const lastDot = fileObj.originalName.lastIndexOf('.');
-        const origExt = lastDot !== -1 ? fileObj.originalName.substring(lastDot) : '.xlsx';
-
-        // Strip extension if user accidentally typed it in baseName
-        if (newBaseName.toLowerCase().endsWith(origExt.toLowerCase())) {
-            newBaseName = newBaseName.substring(0, newBaseName.length - origExt.length).trim();
+        // Order Full View
+        const btnOrdFv = document.getElementById('btnOrderFullview');
+        if (btnOrdFv) {
+            btnOrdFv.addEventListener('click', () => openRenameModal(activeRenamedFiles, 'p2'));
         }
 
-        const fullNewName = newBaseName + origExt;
-        fileObj.newName = fullNewName;
-
-        // Detect suffix pattern (e.g. -150 or -101 or -AJ2 at end of baseName)
-        const suffixMatch = newBaseName.match(/-([A-Za-z0-9]+)$/);
-        if (suffixMatch && suffixMatch[1]) {
-            fileObj.renameCode = suffixMatch[1];
-            fileObj.hasSuffix = true;
-            fileObj.success = true;
-        } else {
-            fileObj.renameCode = '';
-            fileObj.hasSuffix = false;
+        // Tax Full View
+        const btnTaxFv = document.getElementById('btnTaxFullview');
+        if (btnTaxFv) {
+            btnTaxFv.addEventListener('click', () => openRenameModal(activeRenamedFiles, 'g'));
         }
 
-        await rebuildRenZip();
-
-        // Sort so any remaining error files stay at top
-        activeRenamedFiles = sortFilesByErrorFirst(activeRenamedFiles);
-
-        // Refresh views
-        renderRenDashboard(activeRenamedFiles);
-        const modal = document.getElementById('renFullscreenModal');
-        if (modal && modal.classList.contains('show')) {
-            renderModalTableRows();
+        // Move Order to Merge
+        const btnMoveOrd = document.getElementById('btnMoveOrderToMerge');
+        if (btnMoveOrd) {
+            btnMoveOrd.addEventListener('click', () => {
+                const orderFiles = activeRenamedFiles.filter(f => f.methodType === 'p2');
+                moveToMergeWithFiles(orderFiles);
+            });
         }
-        saveTabSession('rename_tab', {
-            activeRenamedFiles: activeRenamedFiles,
-            renZipBlob: renZipBlob
+
+        // Move Tax Target
+        const btnMoveTax = document.getElementById('btnMoveTaxTarget');
+        if (btnMoveTax) {
+            btnMoveTax.addEventListener('click', () => {
+                const taxFiles = activeRenamedFiles.filter(f => f.methodType === 'g');
+                const toggle = document.getElementById('toggle-ren-g-move');
+                const isMerge = toggle ? toggle.checked : false;
+                if (isMerge) {
+                    moveToMergeWithFiles(taxFiles);
+                } else {
+                    moveToFolderCreateWithFiles(taxFiles);
+                }
+            });
+        }
+
+        // Tax Move Toggle UI update
+        const toggleRenGMove = document.getElementById('toggle-ren-g-move');
+        if (toggleRenGMove) {
+            toggleRenGMove.addEventListener('change', () => {
+                updateRenGMoveUI();
+            });
+        }
+
+        // Download Order Zip
+        const btnDlOrd = document.getElementById('btnDownloadOrderZip');
+        if (btnDlOrd) {
+            btnDlOrd.addEventListener('click', () => downloadRenZip('p2'));
+        }
+
+        // Download Tax Zip
+        const btnDlTax = document.getElementById('btnDownloadTaxZip');
+        if (btnDlTax) {
+            btnDlTax.addEventListener('click', () => downloadRenZip('g'));
+        }
+
+        // Inspect row events
+        renOutputContainer.querySelectorAll('.btn-inspect-file').forEach(el => {
+            el.addEventListener('click', () => {
+                const id = el.getAttribute('data-id');
+                const fileObj = activeRenamedFiles.find(f => f.id === id) || renFiles.find(f => f.id === id);
+                if (fileObj) openExcelDataViewer(fileObj);
+            });
         });
-        renLog(`Manually renamed file to: "${fileObj.newName}"`, 'success');
+
+        // Edit prefix events
+        renOutputContainer.querySelectorAll('.btn-edit-prefix').forEach(el => {
+            el.addEventListener('click', () => {
+                const id = el.getAttribute('data-id');
+                const fileObj = activeRenamedFiles.find(f => f.id === id) || renFiles.find(f => f.id === id);
+                if (fileObj) openEditPrefixModal(fileObj);
+            });
+        });
+
+        // Download single file events
+        renOutputContainer.querySelectorAll('.btn-download-single').forEach(el => {
+            el.addEventListener('click', () => {
+                const id = el.getAttribute('data-id');
+                const fileObj = activeRenamedFiles.find(f => f.id === id);
+                if (fileObj && fileObj.blob) {
+                    triggerDownload(fileObj.blob, fileObj.renamedName || fileObj.newName);
+                }
+            });
+        });
+
+        // Delete row events
+        renOutputContainer.querySelectorAll('.btn-del-file').forEach(el => {
+            el.addEventListener('click', async () => {
+                const id = el.getAttribute('data-id');
+                const fileObj = activeRenamedFiles.find(f => f.id === id);
+                if (fileObj) await deleteRenamedFile(fileObj);
+            });
+        });
     }
 
-    function moveToMerge() {
-        if (!activeRenamedFiles || activeRenamedFiles.length === 0) {
-            alert('No renamed files available to transfer.');
+    // Tax Move Toggle UI updater
+    function updateRenGMoveUI() {
+        const toggle = document.getElementById('toggle-ren-g-move');
+        const isMerge = toggle ? toggle.checked : false;
+        const container = document.getElementById('ren-g-move-container');
+        const label = document.getElementById('label-ren-g-move');
+        const btn = document.getElementById('btnMoveTaxTarget');
+        const btnText = document.getElementById('renTaxMoveText');
+        const btnIcon = document.getElementById('renTaxMoveIcon');
+
+        if (isMerge) {
+            if (container) container.classList.remove('is-old');
+            if (label) label.textContent = "Move: Merge";
+            if (btn) {
+                btn.title = "Transfer Tax files directly to Merge File tab";
+                btn.style.color = "var(--primary)";
+                btn.style.borderColor = "rgba(124, 58, 237, 0.25)";
+            }
+            if (btnText) btnText.textContent = "Move to Merge";
+            if (btnIcon) {
+                btnIcon.className = "fa-solid fa-code-merge";
+            }
+        } else {
+            if (container) container.classList.add('is-old');
+            if (label) label.textContent = "Move: Folder";
+            if (btn) {
+                btn.title = "Transfer Tax files directly to Folder Create tab";
+                btn.style.color = "#059669";
+                btn.style.borderColor = "rgba(5, 150, 105, 0.25)";
+            }
+            if (btnText) btnText.textContent = "Move to Folder Create";
+            if (btnIcon) {
+                btnIcon.className = "fa-solid fa-folder-plus";
+            }
+        }
+    }
+
+    // Move given files to Merge File tab
+    function moveToMergeWithFiles(filesToMove) {
+        if (!filesToMove || filesToMove.length === 0) {
+            alert('No files available to transfer to Merge.');
             return;
         }
 
-        // Convert activeRenamedFiles to gmFiles (Merge File list)
         gmFiles = [];
-        activeRenamedFiles.forEach(fileObj => {
+        filesToMove.forEach(fileObj => {
             const blob = fileObj.blob;
-            const file = new File([blob], fileObj.newName, {
+            const file = new File([blob], fileObj.renamedName || fileObj.newName, {
                 type: blob.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             });
             gmFiles.push({
                 id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-                name: fileObj.newName,
+                name: fileObj.renamedName || fileObj.newName,
                 size: blob.size,
                 file: file
             });
         });
 
-        // Update Group Merge section UI
         updateGmUI();
-
-        // Close rename modals
-        closeRenameModal(); closeGmModal();
+        closeRenameModal();
         closeExcelDataViewer();
 
-        // Switch active tab to 'tab-merge'
         const mergeTabBtn = document.querySelector('.tab-btn[data-tab="tab-merge"]');
-        if (mergeTabBtn) {
-            mergeTabBtn.click();
-        }
+        if (mergeTabBtn) mergeTabBtn.click();
 
         gmLog(`Transferred ${gmFiles.length} file(s) from Rename section to Merge File section.`, 'success');
-        alert(`Successfully transferred ${gmFiles.length} file(s) to Merge section!`);
+        showCustomAlert(`Successfully transferred ${gmFiles.length} file(s) to Merge section!`, "success");
     }
 
-    
-    async function deleteRenamedFile(fileObj) {
-        const displayName = fileObj.newName || fileObj.name || 'this file';
-        const ok = await showCustomConfirm('Delete File', `Are you sure you want to delete "${displayName}"?`, 'danger', 'Delete');
-        if (!ok) return;
+    // Move given files to Folder Create tab
+    function moveToFolderCreateWithFiles(filesToMove) {
+        if (!filesToMove || filesToMove.length === 0) {
+            alert('No files available to transfer to Folder Create.');
+            return;
+        }
 
-        activeRenamedFiles = activeRenamedFiles.filter(f => f !== fileObj && f.newName !== fileObj.newName);
-        await rebuildRenZip();
+        const filesToFc = filesToMove.map(f => {
+            const blob = f.blob;
+            return new File([blob], f.renamedName || f.newName, {
+                type: blob.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            });
+        });
 
-        if (activeRenamedFiles.length === 0) {
-            renZipBlob = null;
-            closeRenameModal(); closeGmModal();
-            closeExcelDataViewer();
-            if (renOutputContainer) {
-                renOutputContainer.innerHTML = `
-                    <div class="empty-output-state">
-                        <i class="fa-solid fa-file-signature placeholder-icon"></i>
-                        <p>Upload files and click process to run renaming logic.</p>
-                    </div>
-                `;
-                renOutputContainer.className = 'processed-container empty';
-            }
-            if (renStatus) {
-                renStatus.className = 'status-indicator idle';
-                renStatus.innerText = 'Idle';
-            }
+        if (typeof handleFcFilesAdded === 'function') {
+            handleFcFilesAdded(filesToFc);
         } else {
-            renderRenDashboard(activeRenamedFiles);
-            const modal = document.getElementById('renFullscreenModal');
-            if (modal && modal.classList.contains('show')) {
-                const totalCount = activeRenamedFiles.length;
-                const successCount = activeRenamedFiles.filter(f => f.hasSuffix).length;
-                const missingCount = totalCount - successCount;
+            fcFiles = filesToFc.map(f => ({
+                id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                name: f.name,
+                size: f.size,
+                file: f
+            }));
+            if (typeof updateFcUI === 'function') updateFcUI();
+        }
 
-                const totalBadge = document.getElementById('modalRenTotalBadge');
-                if (totalBadge) totalBadge.innerHTML = `<i class="fa-solid fa-files"></i> Total: ${totalCount}`;
+        closeRenameModal();
+        closeExcelDataViewer();
 
-                const successBadge = document.getElementById('modalRenSuccessBadge');
-                if (successBadge) successBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Suffix Added: ${successCount}`;
+        const folderTabBtn = document.querySelector('.tab-btn[data-tab="tab-folder-create"]');
+        if (folderTabBtn) folderTabBtn.click();
 
-                const errorBadge = document.getElementById('modalRenErrorBadge');
-                if (errorBadge) {
-                    if (missingCount > 0) {
-                        errorBadge.style.display = 'inline-flex';
-                        errorBadge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Missing Suffix: ${missingCount}`;
-                    } else {
-                        errorBadge.style.display = 'none';
-                    }
-                }
+        if (typeof fcLog === 'function') {
+            fcLog(`Transferred ${filesToFc.length} Tax file(s) from Rename section to Folder Create.`, 'success');
+        }
+        showCustomAlert(`Successfully transferred ${filesToFc.length} Tax file(s) to Folder Create!`, "success");
+    }
 
-                const filterAllBtn = document.getElementById('modalFilterAllBtn');
-                const filterSuccessBtn = document.getElementById('modalFilterSuccessBtn');
-                const filterErrorBtn = document.getElementById('modalFilterErrorBtn');
+    // Generic Move to Merge (from fullview modal or default)
+    function moveToMerge() {
+        moveToMergeWithFiles(activeRenamedFiles);
+    }
 
-                if (filterAllBtn) filterAllBtn.innerText = `All Files (${totalCount})`;
-                if (filterErrorBtn) filterErrorBtn.innerText = `✖ Missing Suffix (${missingCount})`;
-                if (filterSuccessBtn) filterSuccessBtn.innerText = `✔ Valid Suffix (${successCount})`;
+    // Download Zip function (all, order, or tax)
+    async function downloadRenZip(category = 'all') {
+        const timestamp = getFormattedDateTime();
+        if (category === 'p2') {
+            if (!renOrderZipBlob) {
+                alert("No Order files ZIP available.");
+                return;
+            }
+            triggerDownload(renOrderZipBlob, `AJIO_ORDER_RENAMED_${timestamp}.zip`);
+            renLog(`Downloaded Order Files ZIP.`, 'success');
+        } else if (category === 'g') {
+            if (!renTaxZipBlob) {
+                alert("No Tax files ZIP available.");
+                return;
+            }
+            triggerDownload(renTaxZipBlob, `AJIO_TAX_RENAMED_${timestamp}.zip`);
+            renLog(`Downloaded Tax Files ZIP.`, 'success');
+        } else {
+            if (!renZipBlob) {
+                alert("No ZIP file available to download.");
+                return;
+            }
+            triggerDownload(renZipBlob, `AJIO_ALL_RENAMED_${timestamp}.zip`);
+            renLog(`Downloaded All Renamed Files ZIP.`, 'success');
+        }
+    }
 
-                renderModalTableRows();
+    async function rebuildRenZip() {
+        const zipAll = new JSZip();
+        const zipOrder = new JSZip();
+        const zipTax = new JSZip();
+
+        for (const fileObj of activeRenamedFiles) {
+            if (!fileObj.blob) {
+                const buffer = await fileObj.file.arrayBuffer();
+                fileObj.blob = new Blob([buffer], { type: fileObj.file.type });
+            }
+            const buffer = await fileObj.blob.arrayBuffer();
+            const fName = fileObj.renamedName || fileObj.newName;
+            zipAll.file(fName, buffer);
+            if (fileObj.methodType === 'p2') {
+                zipOrder.file(fName, buffer);
+            } else {
+                zipTax.file(fName, buffer);
             }
         }
+
+        renZipBlob = await zipAll.generateAsync({ type: 'blob' });
+        renOrderZipBlob = await zipOrder.generateAsync({ type: 'blob' });
+        renTaxZipBlob = await zipTax.generateAsync({ type: 'blob' });
 
         saveTabSession('rename_tab', {
             activeRenamedFiles: activeRenamedFiles,
             renZipBlob: renZipBlob
         });
-        renLog(`Deleted file: "${displayName}"`, 'warning');
     }
 
-    function renderRenDashboard(files) {
-        if (!renOutputContainer) return;
-        activeRenamedFiles = sortFilesByErrorFirst(files);
-        files = activeRenamedFiles;
-        renOutputContainer.innerHTML = '';
-        renOutputContainer.className = 'processed-container';
+    /* ==========================================================================
+       EDIT PREFIX MODAL LOGIC
+       ========================================================================== */
+    function openEditPrefixModal(file) {
+        if (!file) return;
+        renActiveEditFile = file;
 
-        const totalCount = files.length;
-        const successCount = files.filter(f => f.hasSuffix).length;
-        const missingCount = totalCount - successCount;
-
-        const header = document.createElement('div');
-        header.className = 'processed-header';
-        header.style.display = 'flex';
-        header.style.justifyContent = 'space-between';
-        header.style.alignItems = 'center';
-        header.style.width = '100%';
-        header.style.marginBottom = '1rem';
-        header.style.gap = '0.5rem';
-        header.style.flexWrap = 'wrap';
-
-        header.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-                <h3 style="margin: 0;"><i class="fa-solid fa-circle-check text-success"></i> Renamed Files (${totalCount})</h3>
-                ${missingCount > 0 ? `
-                    <span class="rename-badge-pill error" style="font-size: 0.72rem; padding: 2px 8px;">
-                        <i class="fa-solid fa-triangle-exclamation"></i> ${missingCount} Missing Suffix (Shown First)
-                    </span>
-                ` : ''}
-            </div>
-            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                <button class="btn" id="dashMoveToMergeBtn" type="button" style="background: linear-gradient(135deg, #0ea5e9, #0284c7); color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; font-size: 0.78rem; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(14, 165, 233, 0.25);">
-                    <i class="fa-solid fa-code-merge"></i> Move to Merge
-                </button>
-                <button class="btn" id="openRenFullscreenBtn" type="button" style="background: linear-gradient(135deg, #4f46e5, #3730a3); color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; font-size: 0.78rem; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(79, 70, 229, 0.25);">
-                    <i class="fa-solid fa-expand"></i> Full View
-                </button>
-                <button class="btn btn-primary btn-glow" id="downloadAllRenBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); font-size: 0.78rem; padding: 0.45rem 0.85rem;">
-                    <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
-                </button>
-            </div>
-        `;
-        renOutputContainer.appendChild(header);
-
-        const listContainer = document.createElement('div');
-        listContainer.className = 'processed-list';
-        listContainer.style.display = 'flex';
-        listContainer.style.flexDirection = 'column';
-        listContainer.style.gap = '0.5rem';
-        listContainer.style.width = '100%';
-        listContainer.style.maxHeight = '230px';
-        listContainer.style.overflowY = 'auto';
-
-        files.forEach((file, index) => {
-            const item = document.createElement('div');
-            const hasSuffix = Boolean(file.hasSuffix);
-            item.className = `processed-item ${hasSuffix ? 'rename-success-item' : 'rename-error-item'}`;
-            item.style.padding = '0.65rem 0.85rem';
-            item.style.borderRadius = '8px';
-            item.style.display = 'flex';
-            item.style.justifyContent = 'space-between';
-            item.style.alignItems = 'center';
-            item.style.gap = '0.75rem';
-
-            const lastDot = file.newName.lastIndexOf('.');
-            const baseName = lastDot !== -1 ? file.newName.substring(0, lastDot) : file.newName;
-            const ext = lastDot !== -1 ? file.newName.substring(lastDot) : '.xlsx';
-
-            item.innerHTML = `
-                <div class="file-details" style="display: flex; flex-direction: column; gap: 0.2rem; overflow: hidden; max-width: 62%;">
-                    <div class="dash-display-box" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                        <span class="file-name" style="font-size: 0.85rem; word-break: break-all; cursor: pointer;" title="Click to preview Excel data">${file.newName}</span>
-                        ${hasSuffix ? `
-                            <span style="background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.7rem; display: inline-flex; align-items: center; gap: 3px;">
-                                <i class="fa-solid fa-check"></i> -${file.renameCode}
-                            </span>
-                        ` : `
-                            <span style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.7rem; display: inline-flex; align-items: center; gap: 3px;">
-                                <i class="fa-solid fa-circle-xmark"></i> Suffix Missing (-150 / -101)
-                            </span>
-                        `}
-                    </div>
-                    <div class="dash-edit-box" style="display: none; align-items: center; gap: 0.3rem; margin-top: 0.2rem;">
-                        <div style="display: flex; align-items: center; border: 1.5px solid #8b5cf6; border-radius: 6px; overflow: hidden; background: white;">
-                            <input type="text" class="dash-rename-input" value="${baseName}" style="border: none; padding: 0.25rem 0.5rem; font-size: 0.8rem; outline: none; min-width: 180px;">
-                            <span style="background: #f1f5f9; color: #475569; font-weight: 700; font-size: 0.78rem; padding: 0.25rem 0.5rem; border-left: 1px solid #cbd5e1; user-select: none;">${ext}</span>
-                        </div>
-                        <button type="button" class="btn btn-success dash-save-btn" style="font-size: 0.7rem; padding: 0.25rem 0.5rem; border-radius: 6px;" title="Save">
-                            <i class="fa-solid fa-check"></i> Save
-                        </button>
-                        <button type="button" class="btn dash-cancel-btn" style="font-size: 0.7rem; padding: 0.25rem 0.45rem; background:#e2e8f0; color:#475569; border-radius: 6px;" title="Cancel">
-                            <i class="fa-solid fa-xmark"></i>
-                        </button>
-                    </div>
-                    <span style="font-size: 0.7rem; color: var(--text-muted); opacity: 0.7; word-break: break-all;">Original: ${file.originalName}</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 0.35rem; flex-shrink: 0;">
-                    <button class="btn edit-dash-btn" data-index="${index}" style="background: #f3e8ff; color: #7c3aed; border: 1px solid #d8b4fe; font-size: 0.7rem; padding: 0.32rem 0.55rem; border-radius: 6px; font-weight: 600;" title="Edit filename manually">
-                        <i class="fa-solid fa-pen-to-square"></i> Edit
-                    </button>
-                    <button class="btn view-excel-btn preview-dash-btn" data-index="${index}" style="font-size: 0.7rem; padding: 0.32rem 0.55rem;" title="View first 50 rows of this Excel">
-                        <i class="fa-solid fa-table-cells"></i> 50 Rows
-                    </button>
-                    <button class="btn btn-success download-single-ren-btn" data-index="${index}" style="font-size: 0.72rem; padding: 0.35rem 0.65rem; display: flex; align-items: center; gap: 0.3rem; white-space: nowrap;">
-                        <i class="fa-solid fa-download"></i> Download
-                    </button>
-                    <button class="btn btn-danger delete-dash-btn" data-index="${index}" style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.7rem; padding: 0.35rem 0.55rem; border-radius: 6px; font-weight: 600; cursor: pointer;" title="Delete this file">
-                        <i class="fa-solid fa-trash-can"></i>
-                    </button>
-                </div>
-            `;
-
-            // Dashboard Edit Triggers
-            const dashDisplay = item.querySelector('.dash-display-box');
-            const dashEdit = item.querySelector('.dash-edit-box');
-            const dashEditBtn = item.querySelector('.edit-dash-btn');
-            const dashSaveBtn = item.querySelector('.dash-save-btn');
-            const dashCancelBtn = item.querySelector('.dash-cancel-btn');
-            const dashInput = item.querySelector('.dash-rename-input');
-
-            if (dashEditBtn && dashDisplay && dashEdit) {
-                dashEditBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    dashDisplay.style.display = 'none';
-                    dashEdit.style.display = 'flex';
-                    if (dashInput) {
-                        dashInput.focus();
-                        dashInput.select();
-                    }
-                });
-            }
-
-            if (dashCancelBtn && dashDisplay && dashEdit) {
-                dashCancelBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    dashEdit.style.display = 'none';
-                    dashDisplay.style.display = 'flex';
-                });
-            }
-
-            if (dashSaveBtn && dashInput) {
-                const saveDash = async (e) => {
-                    if (e) e.stopPropagation();
-                    await saveManualRename(file, dashInput.value);
-                };
-
-                dashSaveBtn.addEventListener('click', saveDash);
-                dashInput.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        saveDash(e);
-                    } else if (e.key === 'Escape') {
-                        dashEdit.style.display = 'none';
-                        dashDisplay.style.display = 'flex';
-                    }
-                });
-            }
-
-            // Click on filename or preview button to view 50 rows
-            const nameSpan = item.querySelector('.file-name');
-            if (nameSpan) {
-                nameSpan.addEventListener('click', () => openExcelDataViewer(file));
-            }
-
-            const previewBtn = item.querySelector('.preview-dash-btn');
-            if (previewBtn) {
-                previewBtn.addEventListener('click', () => openExcelDataViewer(file));
-            }
-
-            const dashDelBtn = item.querySelector('.delete-dash-btn');
-            if (dashDelBtn) {
-                dashDelBtn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    await deleteRenamedFile(file);
-                });
-            }
-
-            listContainer.appendChild(item);
-        });
-
-        renOutputContainer.appendChild(listContainer);
-
-        const openModalBtn = document.getElementById('openRenFullscreenBtn');
-        if (openModalBtn) {
-            openModalBtn.addEventListener('click', () => {
-                openRenameModal(files);
-            });
+        if (editPrefixFilename) {
+            editPrefixFilename.textContent = file.originalName || file.name;
         }
 
-        const dashMoveBtn = document.getElementById('dashMoveToMergeBtn');
-        if (dashMoveBtn) {
-            dashMoveBtn.addEventListener('click', moveToMerge);
+        if (editPrefixInput) {
+            editPrefixInput.value = (file.renameCode && file.renameCode !== "Not Found") ? file.renameCode : "";
+            setTimeout(() => {
+                editPrefixInput.focus();
+                editPrefixInput.select();
+            }, 100);
         }
 
-        const dlZipBtn = document.getElementById('downloadAllRenBtn');
-        if (dlZipBtn) {
-            dlZipBtn.addEventListener('click', () => {
-                if (renZipBlob) {
-                    triggerDownload(renZipBlob, 'ajio_rename_file.zip');
-                    renLog('Downloaded complete ZIP package: ajio_rename_file.zip', 'info');
-                }
-            });
+        if (editPrefixModal) {
+            editPrefixModal.style.display = 'flex';
         }
-
-        const singleBtns = listContainer.querySelectorAll('.download-single-ren-btn');
-        singleBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const idx = parseInt(btn.getAttribute('data-index'), 10);
-                const file = files[idx];
-                if (file) {
-                    triggerDownload(file.blob, file.newName);
-                    renLog(`Downloaded renamed file: ${file.newName}`, 'info');
-                }
-            });
-        });
     }
 
-    function openRenameModal(files) {
-        const modal = document.getElementById('renFullscreenModal');
-        if (!modal) return;
+    function closeEditPrefixModal() {
+        if (editPrefixModal) {
+            editPrefixModal.style.display = 'none';
+        }
+        renActiveEditFile = null;
+    }
 
-        activeRenamedFiles = sortFilesByErrorFirst(files);
-        modalCurrentFilter = 'all';
+    async function saveEditPrefix() {
+        if (!renActiveEditFile) return;
 
-        const totalCount = files.length;
-        const successCount = files.filter(f => f.hasSuffix).length;
-        const missingCount = totalCount - successCount;
+        const newPrefix = editPrefixInput ? editPrefixInput.value.trim() : "";
+        const extIdx = (renActiveEditFile.originalName || renActiveEditFile.name).lastIndexOf('.');
+        const baseName = extIdx !== -1 ? (renActiveEditFile.originalName || renActiveEditFile.name).substring(0, extIdx) : (renActiveEditFile.originalName || renActiveEditFile.name);
+        const ext = extIdx !== -1 ? (renActiveEditFile.originalName || renActiveEditFile.name).substring(extIdx) : '.xlsx';
 
-        const totalBadge = document.getElementById('modalRenTotalBadge');
-        if (totalBadge) totalBadge.innerHTML = `<i class="fa-solid fa-files"></i> Total: ${totalCount}`;
-
-        const successBadge = document.getElementById('modalRenSuccessBadge');
-        if (successBadge) successBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Suffix Added: ${successCount}`;
-
-        const errorBadge = document.getElementById('modalRenErrorBadge');
-        if (errorBadge) {
-            if (missingCount > 0) {
-                errorBadge.style.display = 'inline-flex';
-                errorBadge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Missing Suffix: ${missingCount}`;
-            } else {
-                errorBadge.style.display = 'none';
-            }
+        if (newPrefix && newPrefix !== "") {
+            renActiveEditFile.renameCode = newPrefix;
+            renActiveEditFile.renamedName = `${baseName}-${newPrefix}${ext}`;
+            renActiveEditFile.newName = renActiveEditFile.renamedName;
+            renActiveEditFile.success = true;
+            renActiveEditFile.hasSuffix = true;
+            showCustomAlert(`Prefix "${newPrefix}" applied to "${renActiveEditFile.originalName || renActiveEditFile.name}"!`, "success");
+            renLog(`Manually set prefix [${newPrefix}] for "${renActiveEditFile.originalName || renActiveEditFile.name}" -> "${renActiveEditFile.renamedName}"`, 'success');
+        } else {
+            renActiveEditFile.renameCode = "Not Found";
+            renActiveEditFile.renamedName = renActiveEditFile.originalName || renActiveEditFile.name;
+            renActiveEditFile.newName = renActiveEditFile.renamedName;
+            renActiveEditFile.success = false;
+            renActiveEditFile.hasSuffix = false;
+            renLog(`Prefix cleared for "${renActiveEditFile.originalName || renActiveEditFile.name}".`, 'info');
         }
 
-        const filterAllBtn = document.getElementById('modalFilterAllBtn');
-        const filterSuccessBtn = document.getElementById('modalFilterSuccessBtn');
-        const filterErrorBtn = document.getElementById('modalFilterErrorBtn');
+        closeEditPrefixModal();
 
-        if (filterAllBtn) filterAllBtn.innerText = `All Files (${totalCount})`;
-        if (filterErrorBtn) filterErrorBtn.innerText = `✖ Missing Suffix (${missingCount})`;
-        if (filterSuccessBtn) filterSuccessBtn.innerText = `✔ Valid Suffix (${successCount})`;
+        if (renIsProcessed) {
+            await rebuildRenZip();
+        }
 
-        const searchInput = document.getElementById('modalRenSearchInput');
-        if (searchInput) searchInput.value = '';
-
-        // Reset filter tabs active state
-        document.querySelectorAll('.rename-filter-btn').forEach(btn => btn.classList.remove('active'));
-        if (filterAllBtn) filterAllBtn.classList.add('active');
-
+        renderRenameState();
         renderModalTableRows();
+    }
 
-        modal.classList.add('show');
+    if (btnCloseEditPrefix) btnCloseEditPrefix.addEventListener('click', closeEditPrefixModal);
+    if (btnCancelEditPrefix) btnCancelEditPrefix.addEventListener('click', closeEditPrefixModal);
+    if (btnSaveEditPrefix) btnSaveEditPrefix.addEventListener('click', saveEditPrefix);
+
+    if (editPrefixInput) {
+        editPrefixInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                saveEditPrefix();
+            } else if (e.key === 'Escape') {
+                closeEditPrefixModal();
+            }
+        });
+    }
+
+    if (editPrefixModal) {
+        editPrefixModal.addEventListener('click', (e) => {
+            if (e.target === editPrefixModal) {
+                closeEditPrefixModal();
+            }
+        });
+    }
+
+    async function deleteRenamedFile(fileObj) {
+        const displayName = fileObj.renamedName || fileObj.newName || fileObj.name || 'this file';
+        const ok = await showCustomConfirm('Delete File', `Are you sure you want to delete "${displayName}"?`, 'danger', 'Delete');
+        if (!ok) return;
+
+        renFiles = renFiles.filter(f => f.id !== fileObj.id);
+        activeRenamedFiles = activeRenamedFiles.filter(f => f.id !== fileObj.id);
+
+        if (activeRenamedFiles.length > 0) {
+            await rebuildRenZip();
+        } else {
+            renZipBlob = null;
+            renOrderZipBlob = null;
+            renTaxZipBlob = null;
+            renIsProcessed = false;
+        }
+
+        updateRenUploadBadges();
+        renderRenameState();
+        renderModalTableRows();
+        renLog(`Deleted file: ${displayName}`, 'info');
+    }
+
+    /* ==========================================================================
+       FULLSCREEN MODAL FOR RENAMED FILES
+       ========================================================================== */
+    const renFullscreenModal = document.getElementById('renFullscreenModal');
+    const closeRenModalBtn = document.getElementById('closeRenModalBtn');
+    const modalFilterAllBtn = document.getElementById('modalFilterAllBtn');
+    const modalFilterOrderBtn = document.getElementById('modalFilterOrderBtn');
+    const modalFilterTaxBtn = document.getElementById('modalFilterTaxBtn');
+    const modalFilterErrorBtn = document.getElementById('modalFilterErrorBtn');
+    const modalFilterSuccessBtn = document.getElementById('modalFilterSuccessBtn');
+    const modalRenSearchInput = document.getElementById('modalRenSearchInput');
+    const modalDownloadAllZipBtn = document.getElementById('modalDownloadAllZipBtn');
+    const modalHeaderMoveToMergeBtn = document.getElementById('modalHeaderMoveToMergeBtn');
+    const modalFooterMoveToMergeBtn = document.getElementById('modalFooterMoveToMergeBtn');
+    const modalFooterCloseBtn = document.getElementById('modalFooterCloseBtn');
+    const modalFooterDownloadBtn = document.getElementById('modalFooterDownloadBtn');
+
+    function openRenameModal(files, defaultFilter = 'all') {
+        if (!renFullscreenModal) return;
+        renModalCurrentFilter = defaultFilter;
+        updateModalFilterTabsUI();
+        if (modalRenSearchInput) modalRenSearchInput.value = '';
+        renderModalTableRows();
+        renFullscreenModal.classList.add('show');
     }
 
     function closeRenameModal() {
-        const modal = document.getElementById('renFullscreenModal');
-        if (modal) {
-            modal.classList.remove('show');
-        }
+        if (renFullscreenModal) renFullscreenModal.classList.remove('show');
+    }
+
+    function updateModalFilterTabsUI() {
+        const filterBtns = document.querySelectorAll('.rename-filter-btn');
+        filterBtns.forEach(btn => {
+            const f = btn.getAttribute('data-filter');
+            if (f === renModalCurrentFilter) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+    }
+
+    if (closeRenModalBtn) closeRenModalBtn.addEventListener('click', closeRenameModal);
+    if (modalFooterCloseBtn) modalFooterCloseBtn.addEventListener('click', closeRenameModal);
+
+    if (modalFilterAllBtn) modalFilterAllBtn.addEventListener('click', () => { renModalCurrentFilter = 'all'; updateModalFilterTabsUI(); renderModalTableRows(); });
+    if (modalFilterOrderBtn) modalFilterOrderBtn.addEventListener('click', () => { renModalCurrentFilter = 'p2'; updateModalFilterTabsUI(); renderModalTableRows(); });
+    if (modalFilterTaxBtn) modalFilterTaxBtn.addEventListener('click', () => { renModalCurrentFilter = 'g'; updateModalFilterTabsUI(); renderModalTableRows(); });
+    if (modalFilterErrorBtn) modalFilterErrorBtn.addEventListener('click', () => { renModalCurrentFilter = 'error'; updateModalFilterTabsUI(); renderModalTableRows(); });
+    if (modalFilterSuccessBtn) modalFilterSuccessBtn.addEventListener('click', () => { renModalCurrentFilter = 'success'; updateModalFilterTabsUI(); renderModalTableRows(); });
+
+    if (modalRenSearchInput) {
+        modalRenSearchInput.addEventListener('input', () => {
+            renderModalTableRows();
+        });
+    }
+
+    if (modalDownloadAllZipBtn) modalDownloadAllZipBtn.addEventListener('click', () => downloadRenZip('all'));
+    if (modalFooterDownloadBtn) modalFooterDownloadBtn.addEventListener('click', () => downloadRenZip('all'));
+    if (modalHeaderMoveToMergeBtn) modalHeaderMoveToMergeBtn.addEventListener('click', moveToMerge);
+    if (modalFooterMoveToMergeBtn) modalFooterMoveToMergeBtn.addEventListener('click', moveToMerge);
+
+    if (renFullscreenModal) {
+        renFullscreenModal.addEventListener('click', (e) => {
+            if (e.target === renFullscreenModal) {
+                closeRenameModal();
+            }
+        });
     }
 
     function renderModalTableRows() {
         const tableBody = document.getElementById('modalRenTableBody');
         const summaryText = document.getElementById('modalRenSummaryText');
-        const searchInput = document.getElementById('modalRenSearchInput');
+        const totalBadge = document.getElementById('modalRenTotalBadge');
+        const successBadge = document.getElementById('modalRenSuccessBadge');
+        const errorBadge = document.getElementById('modalRenErrorBadge');
+
         if (!tableBody) return;
 
-        const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+        const totalCount = activeRenamedFiles.length;
+        const successCount = activeRenamedFiles.filter(f => f.hasSuffix && f.renameCode && f.renameCode !== "Not Found").length;
+        const errorCount = activeRenamedFiles.filter(f => !f.hasSuffix || !f.renameCode || f.renameCode === "Not Found").length;
+
+        if (totalBadge) totalBadge.innerHTML = `<i class="fa-solid fa-files"></i> Total: ${totalCount}`;
+        if (successBadge) successBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Suffix Added: ${successCount}`;
+        if (errorBadge) {
+            errorBadge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Missing Suffix: ${errorCount}`;
+            errorBadge.style.display = errorCount > 0 ? 'inline-flex' : 'none';
+        }
+
+        const query = (modalRenSearchInput ? modalRenSearchInput.value : '').toLowerCase().trim();
 
         let filtered = activeRenamedFiles.filter(file => {
-            const matchesFilter = 
-                modalCurrentFilter === 'all' ? true :
-                modalCurrentFilter === 'success' ? file.hasSuffix :
-                !file.hasSuffix;
+            // Apply category / status filter
+            if (renModalCurrentFilter === 'p2' && file.methodType !== 'p2') return false;
+            if (renModalCurrentFilter === 'g' && file.methodType !== 'g') return false;
+            if (renModalCurrentFilter === 'error' && (file.hasSuffix && file.renameCode && file.renameCode !== "Not Found")) return false;
+            if (renModalCurrentFilter === 'success' && (!file.hasSuffix || !file.renameCode || file.renameCode === "Not Found")) return false;
 
-            if (!matchesFilter) return false;
-
-            if (!query) return true;
-            return file.newName.toLowerCase().includes(query) ||
-                   file.originalName.toLowerCase().includes(query) ||
-                   (file.renameCode && file.renameCode.toLowerCase().includes(query));
+            // Apply search query
+            if (query !== '') {
+                const name = (file.renamedName || file.newName || file.name || '').toLowerCase();
+                const orig = (file.originalName || file.name || '').toLowerCase();
+                const code = (file.renameCode || '').toLowerCase();
+                return name.includes(query) || orig.includes(query) || code.includes(query);
+            }
+            return true;
         });
-
-        // Always sort error files to top
-        filtered = sortFilesByErrorFirst(filtered);
 
         tableBody.innerHTML = '';
 
         if (filtered.length === 0) {
-            tableBody.innerHTML = `
-                <tr>
-                    <td colspan="8" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
-                        <i class="fa-solid fa-filter-circle-xmark" style="font-size: 2rem; margin-bottom: 0.5rem; display: block; opacity: 0.5;"></i>
-                        No files matching current criteria.
-                    </td>
-                </tr>
-            `;
+            tableBody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem; font-size: 0.85rem;">No files found matching criteria.</td></tr>`;
             if (summaryText) summaryText.innerText = `Showing 0 of ${activeRenamedFiles.length} files`;
             return;
         }
 
-        filtered.forEach((file, index) => {
+        filtered.forEach((file, idx) => {
+            const isMissing = !file.hasSuffix || !file.renameCode || file.renameCode === "Not Found";
             const tr = document.createElement('tr');
-            const hasSuffix = Boolean(file.hasSuffix);
-            tr.className = hasSuffix ? 'rename-row-ok' : 'rename-row-error';
+            tr.className = isMissing ? 'row-missing-suffix' : 'row-valid-suffix';
 
-            const lastDot = file.newName.lastIndexOf('.');
-            const baseName = lastDot !== -1 ? file.newName.substring(0, lastDot) : file.newName;
-            const ext = lastDot !== -1 ? file.newName.substring(lastDot) : '.xlsx';
+            const statusBadge = isMissing
+                ? `<span class="rename-table-badge danger"><i class="fa-solid fa-circle-xmark"></i> Missing Suffix</span>`
+                : `<span class="rename-table-badge success"><i class="fa-solid fa-circle-check"></i> Renamed</span>`;
+
+            const codeDisplay = (file.renameCode && file.renameCode !== "Not Found")
+                ? `<span class="badge ${file.methodType === 'p2' ? 'badge-od' : 'badge-dt'}" style="font-weight: 700;">${file.renameCode}</span>`
+                : `<span style="color: #dc2626; font-weight: 600; font-size: 0.75rem;">None</span>`;
 
             tr.innerHTML = `
-                <td style="text-align: center; font-weight: 700; color: var(--text-muted);">${index + 1}</td>
-                <td>
-                    ${hasSuffix ? `
-                        <span class="rename-badge-pill success">
-                            <i class="fa-solid fa-circle-check"></i> Suffix Added
-                        </span>
-                    ` : `
-                        <span class="rename-badge-pill error">
-                            <i class="fa-solid fa-triangle-exclamation"></i> Missing Suffix
-                        </span>
-                    `}
-                </td>
-                <td>
-                    ${hasSuffix ? `
-                        <span style="font-family: monospace; font-weight: 700; background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">
-                            -${file.renameCode}
-                        </span>
-                    ` : `
-                        <span style="font-family: monospace; font-weight: 700; background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">
-                            NONE
-                        </span>
-                    `}
-                </td>
-                <td class="cell-rename-container">
-                    <div class="display-name-box" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
-                        <span class="file-name-text" style="font-weight: 700; color: ${hasSuffix ? 'var(--text-primary)' : '#b91c1c'}; font-size: 0.85rem; word-break: break-all; cursor: pointer;" title="Click to view Excel preview">
-                            ${file.newName}
-                        </span>
-                        <button type="button" class="rename-edit-btn btn-inline-edit" title="Edit filename manually">
-                            <i class="fa-solid fa-pen-to-square"></i>
-                        </button>
-                    </div>
-                    <div class="edit-name-box" style="display: none; align-items: center; gap: 0.35rem; width: 100%;">
-                        <div style="display: flex; align-items: center; border: 1.5px solid #8b5cf6; border-radius: 6px; overflow: hidden; background: white; flex: 1;">
-                            <input type="text" class="rename-edit-input" value="${baseName}" style="border: none; padding: 0.3rem 0.5rem; font-size: 0.82rem; outline: none; width: 100%;">
-                            <span class="ext-locked-badge" style="background: #e2e8f0; color: #334155; font-weight: 700; font-size: 0.8rem; padding: 0.3rem 0.55rem; border-left: 1px solid #cbd5e1; user-select: none; white-space: nowrap;">${ext}</span>
-                        </div>
-                        <button type="button" class="btn btn-success btn-save-edit" style="font-size: 0.72rem; padding: 0.3rem 0.55rem; border-radius: 6px;" title="Save">
-                            <i class="fa-solid fa-check"></i> Save
-                        </button>
-                        <button type="button" class="btn btn-cancel-edit" style="font-size: 0.72rem; padding: 0.3rem 0.55rem; background:#e2e8f0; color:#475569; border-radius: 6px;" title="Cancel">
-                            <i class="fa-solid fa-xmark"></i>
-                        </button>
-                    </div>
-                </td>
-                <td>
-                    <div style="color: var(--text-muted); font-size: 0.8rem; word-break: break-all;">
-                        ${file.originalName}
-                    </div>
-                </td>
+                <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
+                <td>${statusBadge}</td>
+                <td>${codeDisplay}</td>
+                <td><span style="font-weight: 600; color: var(--primary); font-size: 0.8rem;">${file.renamedName || file.newName}</span></td>
+                <td><span style="color: var(--text-muted); font-size: 0.78rem;">${file.originalName || file.name}</span></td>
                 <td style="text-align: center;">
-                    <button type="button" class="view-excel-btn row-preview-btn" title="Click to view first 50 rows of this Excel">
-                        <i class="fa-solid fa-table-cells"></i> View 50 Rows
+                    <button class="btn btn-secondary modal-inspect-btn" data-id="${file.id}" style="padding: 0.25rem 0.55rem; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 4px;">
+                        <i class="fa-solid fa-eye"></i> View Data
                     </button>
                 </td>
-                <td style="text-align: right; color: var(--text-muted); font-size: 0.8rem; white-space: nowrap;">
-                    ${formatBytes(file.size)}
-                </td>
-                <td style="text-align: center; white-space: nowrap;">
-                    <div style="display: flex; align-items: center; justify-content: center; gap: 0.35rem;">
-                        <button type="button" class="btn btn-primary btn-action-edit" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed); font-size: 0.72rem; padding: 0.35rem 0.65rem; display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 6px; font-weight: 600;" title="Edit File Name">
-                            <i class="fa-solid fa-pen-to-square"></i> Edit
+                <td style="text-align: right; font-size: 0.78rem; color: var(--text-muted);">${formatBytes(file.size)}</td>
+                <td style="text-align: center;">
+                    <div style="display: inline-flex; gap: 6px;">
+                        <button class="btn-action modal-edit-single" data-id="${file.id}" title="Edit Prefix Code" style="width: 26px; height: 26px; border-radius: 6px; border: none; background: rgba(5, 150, 105, 0.08); color: #059669; cursor: pointer;">
+                            <i class="fa-solid fa-pen" style="font-size: 0.75rem;"></i>
                         </button>
-                        <button type="button" class="btn btn-success modal-download-single-btn" data-name="${encodeURIComponent(file.newName)}" style="font-size: 0.72rem; padding: 0.35rem 0.65rem; display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 6px;" title="Download file">
-                            <i class="fa-solid fa-download"></i> Download
+                        <button class="btn-action modal-dl-single" data-id="${file.id}" title="Download Single File" style="width: 26px; height: 26px; border-radius: 6px; border: none; background: rgba(14, 165, 233, 0.08); color: #0284c7; cursor: pointer;">
+                            <i class="fa-solid fa-download" style="font-size: 0.75rem;"></i>
                         </button>
-                        <button type="button" class="btn btn-danger modal-delete-single-btn" style="background: linear-gradient(135deg, #ef4444, #dc2626); color: white; font-size: 0.72rem; padding: 0.35rem 0.65rem; display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 6px; border: none; cursor: pointer; font-weight: 600;" title="Delete this file">
-                            <i class="fa-solid fa-trash-can"></i> Delete
+                        <button class="btn-action modal-del-single" data-id="${file.id}" title="Delete File" style="width: 26px; height: 26px; border-radius: 6px; border: none; background: rgba(220, 38, 38, 0.08); color: #dc2626; cursor: pointer;">
+                            <i class="fa-solid fa-trash-can" style="font-size: 0.75rem;"></i>
                         </button>
                     </div>
                 </td>
             `;
 
-            // Inline Rename Edit Triggers
-            const displayBox = tr.querySelector('.display-name-box');
-            const editBox = tr.querySelector('.edit-name-box');
-            const editBtn = tr.querySelector('.btn-inline-edit');
-            const actionEditBtn = tr.querySelector('.btn-action-edit');
-            const saveBtn = tr.querySelector('.btn-save-edit');
-            const cancelBtn = tr.querySelector('.btn-cancel-edit');
-            const inputEl = tr.querySelector('.rename-edit-input');
+            const inspectBtn = tr.querySelector('.modal-inspect-btn');
+            if (inspectBtn) inspectBtn.addEventListener('click', () => openExcelDataViewer(file));
 
-            const activateEdit = (e) => {
-                if (e) e.stopPropagation();
-                displayBox.style.display = 'none';
-                editBox.style.display = 'flex';
-                if (inputEl) {
-                    inputEl.focus();
-                    inputEl.select();
-                }
-            };
+            const editBtn = tr.querySelector('.modal-edit-single');
+            if (editBtn) editBtn.addEventListener('click', () => openEditPrefixModal(file));
 
-            if (editBtn) editBtn.addEventListener('click', activateEdit);
-            if (actionEditBtn) actionEditBtn.addEventListener('click', activateEdit);
+            const dlBtn = tr.querySelector('.modal-dl-single');
+            if (dlBtn) dlBtn.addEventListener('click', () => {
+                if (file.blob) triggerDownload(file.blob, file.renamedName || file.newName);
+            });
 
-            if (cancelBtn && displayBox && editBox) {
-                cancelBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    editBox.style.display = 'none';
-                    displayBox.style.display = 'flex';
-                });
-            }
-
-            if (saveBtn && inputEl) {
-                const doSave = async (e) => {
-                    if (e) e.stopPropagation();
-                    const newBase = inputEl.value;
-                    await saveManualRename(file, newBase);
-                };
-
-                saveBtn.addEventListener('click', doSave);
-                inputEl.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        doSave(e);
-                    } else if (e.key === 'Escape') {
-                        editBox.style.display = 'none';
-                        displayBox.style.display = 'flex';
-                    }
-                });
-            }
-
-            // Preview 50 rows triggers
-            const nameText = tr.querySelector('.file-name-text');
-            if (nameText) {
-                nameText.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    openExcelDataViewer(file);
-                });
-            }
-
-            const previewBtn = tr.querySelector('.row-preview-btn');
-            if (previewBtn) {
-                previewBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    openExcelDataViewer(file);
-                });
-            }
-
-            const dlBtn = tr.querySelector('.modal-download-single-btn');
-            if (dlBtn) {
-                dlBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    triggerDownload(file.blob, file.newName);
-                    renLog(`Downloaded renamed file: ${file.newName}`, 'info');
-                });
-            }
-
-            const delBtn = tr.querySelector('.modal-delete-single-btn');
-            if (delBtn) {
-                delBtn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    await deleteRenamedFile(file);
-                });
-            }
+            const delBtn = tr.querySelector('.modal-del-single');
+            if (delBtn) delBtn.addEventListener('click', async () => {
+                await deleteRenamedFile(file);
+            });
 
             tableBody.appendChild(tr);
         });
@@ -6580,6 +7781,7 @@ function doPost(e) {
             summaryText.innerText = `Showing ${filtered.length} of ${activeRenamedFiles.length} files`;
         }
     }
+
 
     /* ==========================================================================
        EXCEL 50-ROW DATA VIEWER LOGIC
@@ -6785,87 +7987,21 @@ function doPost(e) {
         });
     }
 
-    // Bind Modal event listeners
-    const closeRenModalBtn = document.getElementById('closeRenModalBtn');
-    if (closeRenModalBtn) closeRenModalBtn.addEventListener('click', closeRenameModal);
-
-    const modalFooterCloseBtn = document.getElementById('modalFooterCloseBtn');
-    if (modalFooterCloseBtn) modalFooterCloseBtn.addEventListener('click', closeRenameModal);
-
-    const modalHeaderMoveToMergeBtn = document.getElementById('modalHeaderMoveToMergeBtn');
-    if (modalHeaderMoveToMergeBtn) modalHeaderMoveToMergeBtn.addEventListener('click', moveToMerge);
-
-    const modalFooterMoveToMergeBtn = document.getElementById('modalFooterMoveToMergeBtn');
-    if (modalFooterMoveToMergeBtn) modalFooterMoveToMergeBtn.addEventListener('click', moveToMerge);
-
-    const renFullscreenModal = document.getElementById('renFullscreenModal');
-    if (renFullscreenModal) {
-        renFullscreenModal.addEventListener('click', (e) => {
-            if (e.target === renFullscreenModal) {
-                closeRenameModal(); closeGmModal();
-            }
-        });
-    }
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            const viewerModal = document.getElementById('excelDataViewerModal');
-            if (viewerModal && viewerModal.classList.contains('show')) {
-                closeExcelDataViewer();
-            } else {
-                closeRenameModal(); closeGmModal();
-            }
-        }
-    });
-
-    const modalDownloadAllZipBtn = document.getElementById('modalDownloadAllZipBtn');
-    if (modalDownloadAllZipBtn) {
-        modalDownloadAllZipBtn.addEventListener('click', () => {
-            if (renZipBlob) {
-                triggerDownload(renZipBlob, 'ajio_rename_file.zip');
-                renLog('Downloaded complete ZIP package from Full View: ajio_rename_file.zip', 'info');
-            }
-        });
-    }
-
-    const modalFooterDownloadBtn = document.getElementById('modalFooterDownloadBtn');
-    if (modalFooterDownloadBtn) {
-        modalFooterDownloadBtn.addEventListener('click', () => {
-            if (renZipBlob) {
-                triggerDownload(renZipBlob, 'ajio_rename_file.zip');
-                renLog('Downloaded complete ZIP package from Full View: ajio_rename_file.zip', 'info');
-            }
-        });
-    }
-
-    const modalRenSearchInput = document.getElementById('modalRenSearchInput');
-    if (modalRenSearchInput) {
-        modalRenSearchInput.addEventListener('input', () => {
-            renderModalTableRows();
-        });
-    }
-
-    document.querySelectorAll('.rename-filter-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.rename-filter-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            modalCurrentFilter = btn.getAttribute('data-filter') || 'all';
-            renderModalTableRows();
-        });
-    });
-
     async function restoreRenameSession() {
         try {
             const saved = await loadTabSession('rename_tab');
             if (saved && saved.activeRenamedFiles && saved.activeRenamedFiles.length > 0) {
-                activeRenamedFiles = sortFilesByErrorFirst(saved.activeRenamedFiles);
+                activeRenamedFiles = saved.activeRenamedFiles;
+                renFiles = [...saved.activeRenamedFiles];
                 renZipBlob = saved.renZipBlob;
-                renderRenDashboard(activeRenamedFiles);
+                renIsProcessed = true;
+                updateRenUploadBadges();
+                renderRenameState();
                 if (renStatus) {
                     renStatus.className = 'status-indicator success';
                     renStatus.innerText = 'Restored';
                 }
-                renLog(`Restored ${activeRenamedFiles.length} renamed file(s) from previous session (1-hour cache).`, 'info');
+                renLog(`Restored ${activeRenamedFiles.length} renamed file(s) from previous session.`, 'info');
             }
         } catch (e) {
             console.warn('Failed to restore rename session:', e);
@@ -7021,7 +8157,7 @@ function doPost(e) {
         }
     }
 
-    if (gmBtn) {
+        if (gmBtn) {
         gmBtn.addEventListener('click', async () => {
             if (gmFiles.length === 0) return;
 
@@ -7031,20 +8167,22 @@ function doPost(e) {
                 gmStatus.innerText = 'Processing';
             }
             if (gmProgressCard) gmProgressCard.classList.remove('hidden');
-            if (gmProgressBar) gmProgressBar.style.width = '10%';
-            if (gmProgressPercent) gmProgressPercent.innerText = '10%';
+            if (gmProgressBar) gmProgressBar.style.width = '5%';
+            if (gmProgressPercent) gmProgressPercent.innerText = '5%';
             if (gmProgressStepText) gmProgressStepText.innerText = 'Grouping files...';
             
             if (gmOutputContainer) {
                 gmOutputContainer.innerHTML = `
                     <div class="empty-output-state">
                         <i class="fa-solid fa-spinner fa-spin placeholder-icon" style="color: #8b5cf6;"></i>
-                        <p>Merging files, please wait...</p>
+                        <p style="font-size: 1.1rem; font-weight: 600; margin-top: 0.5rem;">Merging files in high-performance mode...</p>
+                        <p style="color: var(--text-muted); font-size: 0.85rem;">Zero page freeze enabled for large datasets</p>
                     </div>
                 `;
             }
 
-            gmLog('Starting Group Merge Pipeline...', 'process');
+            gmLog('Starting Group Merge Pipeline (Optimized Non-Blocking Engine)...', 'process');
+            await new Promise(r => setTimeout(r, 20));
 
             try {
                 const groups = {};
@@ -7066,38 +8204,69 @@ function doPost(e) {
                     const key = groupKeys[k];
                     const filesInGroup = groups[key];
                     gmLog(`----------------------------------------`, 'info');
-                    gmLog(`Merging Group [${key}] with ${filesInGroup.length} file(s)`, 'process');
+                    gmLog(`Merging Group [${key}] with ${filesInGroup.length} file(s)...`, 'process');
                     
-                    const progressVal = Math.round((k / groupKeys.length) * 80) + 10;
-                    if (gmProgressBar) gmProgressBar.style.width = `${progressVal}%`;
-                    if (gmProgressPercent) gmProgressPercent.innerText = `${progressVal}%`;
-                    if (gmProgressStepText) gmProgressStepText.innerText = `Processing group ${k + 1} of ${groupKeys.length}: ${key}...`;
-
                     let mergedAoa = [];
 
                     for (let fIdx = 0; fIdx < filesInGroup.length; fIdx++) {
                         const fileObj = filesInGroup[fIdx];
-                        gmLog(`Parsing ${fileObj.name} for group [${key}]`, 'info');
+                        const groupProgress = Math.round(5 + ((k + (fIdx / filesInGroup.length)) / groupKeys.length) * 75);
+                        if (gmProgressBar) gmProgressBar.style.width = `${groupProgress}%`;
+                        if (gmProgressPercent) gmProgressPercent.innerText = `${groupProgress}%`;
+                        if (gmProgressStepText) gmProgressStepText.innerText = `[${k + 1}/${groupKeys.length}] Reading "${fileObj.name}" for group [${key}]...`;
+                        
+                        gmLog(`Parsing ${fileObj.name} (${formatBytes(fileObj.size)}) for group [${key}]...`, 'info');
+                        
+                        // Yield to browser event loop so UI repaints smoothly
+                        await new Promise(r => setTimeout(r, 10));
+
                         const fileAoa = await parseFileToAoa(fileObj.file, fileObj.name);
                         
-                        if (fileAoa.length === 0) {
+                        if (!fileAoa || fileAoa.length === 0) {
                             gmLog(`Warning: file ${fileObj.name} is empty, skipping`, 'warning');
                             continue;
                         }
 
-                        if (fIdx === 0) {
-                            mergedAoa = JSON.parse(JSON.stringify(fileAoa));
+                        // Append rows chunk-by-chunk to prevent stack overflow & UI freeze
+                        if (mergedAoa.length === 0) {
+                            // First file: take all rows (header + data)
+                            for (let r = 0; r < fileAoa.length; r++) {
+                                mergedAoa.push(fileAoa[r]);
+                                if (r > 0 && r % 8000 === 0) {
+                                    await new Promise(res => setTimeout(res, 0));
+                                }
+                            }
                         } else {
-                            const dataRows = fileAoa.slice(1);
-                            mergedAoa.push(...dataRows);
+                            // Subsequent files: skip row 0 header and append data rows
+                            for (let r = 1; r < fileAoa.length; r++) {
+                                mergedAoa.push(fileAoa[r]);
+                                if (r % 8000 === 0) {
+                                    await new Promise(res => setTimeout(res, 0));
+                                }
+                            }
                         }
+
+                        gmLog(`Loaded ${fileObj.name} (${(fileAoa.length - 1).toLocaleString()} data rows). Group [${key}] total: ${(mergedAoa.length - 1).toLocaleString()} rows.`, 'info');
+                        await new Promise(r => setTimeout(r, 5));
                     }
 
-                    const newWb = XLSX.utils.book_new();
+                    if (mergedAoa.length === 0) {
+                        gmLog(`Group [${key}] has no rows to export, skipping.`, 'warning');
+                        continue;
+                    }
+
+                    const totalDataRows = Math.max(0, mergedAoa.length - 1);
+                    if (gmProgressStepText) gmProgressStepText.innerText = `Generating Excel file for group [${key}] (${totalDataRows.toLocaleString()} rows)...`;
+                    await new Promise(r => setTimeout(r, 20));
+
+                    // Convert to worksheet safely
                     const newWs = XLSX.utils.aoa_to_sheet(mergedAoa);
+                    const newWb = XLSX.utils.book_new();
                     XLSX.utils.book_append_sheet(newWb, newWs, "Sheet1");
                     
                     const outFilename = `${key}-DropShipOrderReports-AJIO-${key}.xlsx`;
+                    
+                    await new Promise(r => setTimeout(r, 20));
                     const excelBuffer = XLSX.write(newWb, { bookType: 'xlsx', type: 'array' });
                     const fileBlob = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 
@@ -7106,23 +8275,39 @@ function doPost(e) {
                     mergedList.push({
                         name: outFilename,
                         size: fileBlob.size,
-                        rows: mergedAoa.length - 1,
+                        rows: totalDataRows,
                         blob: fileBlob,
                         groupKey: key
                     });
 
-                    gmLog(`Merged group [${key}] created: "${outFilename}" with ${mergedAoa.length - 1} data rows.`, 'success');
+                    gmLog(`Merged group [${key}] created: "${outFilename}" with ${totalDataRows.toLocaleString()} data rows (${formatBytes(fileBlob.size)}).`, 'success');
+                    await new Promise(r => setTimeout(r, 10));
                 }
 
-                if (gmProgressBar) gmProgressBar.style.width = '95%';
-                if (gmProgressPercent) gmProgressPercent.innerText = '95%';
-                if (gmProgressStepText) gmProgressStepText.innerText = 'Packaging final ZIP file...';
+                if (mergedList.length === 0) {
+                    throw new Error("No data rows found across uploaded files to merge.");
+                }
 
-                gmZipBlob = await zip.generateAsync({ type: 'blob' });
+                if (gmProgressBar) gmProgressBar.style.width = '82%';
+                if (gmProgressPercent) gmProgressPercent.innerText = '82%';
+                if (gmProgressStepText) gmProgressStepText.innerText = 'Compressing and packaging final ZIP file...';
+                await new Promise(r => setTimeout(r, 20));
+
+                gmZipBlob = await zip.generateAsync({
+                    type: 'blob',
+                    compression: "DEFLATE",
+                    compressionOptions: { level: 6 }
+                }, function updateCallback(metadata) {
+                    const zipPercent = Math.min(98, 82 + Math.round((metadata.percent / 100) * 16));
+                    if (gmProgressBar) gmProgressBar.style.width = `${zipPercent}%`;
+                    if (gmProgressPercent) gmProgressPercent.innerText = `${zipPercent}%`;
+                    if (gmProgressStepText) gmProgressStepText.innerText = `Packaging ZIP: ${Math.round(metadata.percent)}%...`;
+                });
+
                 gmMergedList = mergedList;
 
                 renderGmDashboard(mergedList);
-                saveTabSession('merge_tab', {
+                await saveTabSession('merge_tab', {
                     gmFiles: gmFiles,
                     mergedList: gmMergedList,
                     gmZipBlob: gmZipBlob
@@ -7138,9 +8323,10 @@ function doPost(e) {
                 }
                 
                 alert("FILES MERGED SUCCESSFULLY");
-                gmLog('Merge process completed. All merged files packaged.', 'success');
+                gmLog('Merge process completed successfully. All merged files packaged.', 'success');
 
             } catch (err) {
+                console.error('Merge error:', err);
                 gmLog(`Merge process failed: ${err.message}`, 'error');
                 if (gmStatus) {
                     gmStatus.className = 'status-indicator idle';
@@ -7193,7 +8379,7 @@ function doPost(e) {
 
         if (typeof updateFcUI === 'function') updateFcUI();
 
-        const folderTabBtn = document.querySelector('.tab-btn[data-tab="tab-folder"]');
+        const folderTabBtn = document.querySelector('.tab-btn[data-tab="tab-folder-create"]');
         if (folderTabBtn) {
             folderTabBtn.click();
         }
@@ -10140,9 +11326,15 @@ function doPost(e) {
         fcLog('Downloaded Missing_Files_Report.xlsx', 'info');
     }
 
-    function moveToFileConverterFromFolderCreate() {
+    async function moveToFileConverterFromFolderCreate() {
+        if (!fcZipBlob && fcFolderGroups && fcFolderGroups.length > 0) {
+            if (typeof rebuildFcPackage === 'function') {
+                await rebuildFcPackage(true);
+            }
+        }
+
         if (!fcZipBlob) {
-            alert('No folder ZIP package available. Please process files first.');
+            showCustomAlert('No Folder Package Available', 'Please upload and organize files in Folder Create first before transferring to Converter.', 'warning');
             return;
         }
 
@@ -10151,10 +11343,23 @@ function doPost(e) {
         
         if (typeof handleFiles === 'function') {
             handleFiles([file]);
+        } else if (typeof selectedFiles !== 'undefined') {
+            selectedFiles.push({
+                id: Math.random().toString(36).substring(2, 9),
+                name: file.name,
+                relativePath: file.name,
+                size: file.size,
+                type: file.type,
+                file: file
+            });
+            if (typeof updateConverterUI === 'function') updateConverterUI();
         }
-        closeFcFullscreenModal();
+        
+        if (typeof closeFcFullscreenModal === 'function') {
+            closeFcFullscreenModal();
+        }
 
-        const convertTabBtn = document.querySelector('.tab-btn[data-tab="tab-convert"]');
+        const convertTabBtn = document.querySelector('.tab-btn[data-tab="tab-converter"]') || document.querySelector('.tab-btn[data-tab="tab-converter"]');
         if (convertTabBtn) {
             convertTabBtn.click();
         }
@@ -12582,7 +13787,8 @@ function doPost(e) {
             if (paneId === 'tab-separate') {
                 ['simple', 'details', 'summary', 'tax'].forEach(k => {
                     sepUploadedFiles[k] = null;
-                    sepVariantResults[k] = { label: sepVariantResults[k]?.label || '', color: sepVariantResults[k]?.color || '', files: [], zipBlob: null, zipName: '' };
+                    const prevVariant = sepVariantResults[k] || {};
+                    sepVariantResults[k] = { label: prevVariant.label || '', color: prevVariant.color || '', files: [], zipBlob: null, zipName: '' };
                     const input = document.getElementById(`sepFileInput${k.charAt(0).toUpperCase() + k.slice(1)}`);
                     const display = document.getElementById(`sepFileDisplay${k.charAt(0).toUpperCase() + k.slice(1)}`);
                     const dropzone = document.getElementById(`sepDropzone${k.charAt(0).toUpperCase() + k.slice(1)}`);
@@ -12643,17 +13849,12 @@ function doPost(e) {
                 renFiles = [];
                 activeRenamedFiles = [];
                 renZipBlob = null;
+                renOrderZipBlob = null;
+                renTaxZipBlob = null;
+                renIsProcessed = false;
                 if (renFileInput) renFileInput.value = '';
+                if (renFileInputG) renFileInputG.value = '';
                 updateRenUI();
-                if (renOutputContainer) {
-                    renOutputContainer.innerHTML = `
-                        <div class="empty-output-state">
-                            <i class="fa-solid fa-file-signature placeholder-icon"></i>
-                            <p>Upload files and click process to batch rename.</p>
-                        </div>
-                    `;
-                    renOutputContainer.className = 'processed-container empty';
-                }
                 if (renStatus) {
                     renStatus.className = 'status-indicator idle';
                     renStatus.innerText = 'Idle';

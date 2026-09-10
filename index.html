@@ -71,14 +71,28 @@
             </button>
         </div>
 
-        <!-- Tab 1: Converter Pane -->
+                <!-- Tab 1: Converter Pane -->
         <div id="tab-converter" class="tab-pane hidden-pane">
             <main class="app-grid">
                 <!-- Left Panel: Upload & Config -->
                 <section class="panel upload-panel">
-                    <div class="panel-header">
-                        <h2><i class="fa-solid fa-cloud-arrow-up"></i> Upload Source Files</h2>
-                        <span class="badge">Local Only</span>
+                    <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <div>
+                            <h2><i class="fa-solid fa-arrows-spin text-purple"></i> Upload Source Files</h2>
+                            <span class="badge">Local Only</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.45rem;">
+                            <label class="sep-rule-toggle" id="proc-rule-container" title="Rule: ON = New Logic, OFF = Old Logic">
+                                <span class="sep-rule-switch">
+                                    <input type="checkbox" id="toggle-proc-rule" autocomplete="off">
+                                    <span class="sep-rule-slider"></span>
+                                </span>
+                                <span class="sep-rule-text" id="label-proc-rule">Old Logic</span>
+                            </label>
+                            <button class="btn-clear text-btn" id="clearBtn" title="Clean & Reset Tab">
+                                <i class="fa-solid fa-rotate-right"></i> Clean & Reset
+                            </button>
+                        </div>
                     </div>
                     
                     <!-- Dropzone -->
@@ -91,75 +105,36 @@
                                 <i class="fa-solid fa-folder-open upload-icon"></i>
                             </div>
                             <h3>Drag & drop your files or folder here</h3>
-                            <p>Upload ZIP, folder, or files to convert, merge, update Google Sheets & package reports automatically!</p>
+                            <p>Upload ZIP, folder, or files to convert, merge, generate OD/DT reports & package automatically!</p>
                             <div class="dropzone-actions" style="display: flex; gap: 0.5rem; justify-content: center; pointer-events: auto; flex-wrap: wrap;">
                                 <button type="button" class="btn btn-secondary" id="browseBtn">
-                                    <i class="fa-solid fa-file-lines"></i> Browse Files
+                                    <i class="fa-solid fa-file-lines"></i> Files / ZIP
                                 </button>
-                                <button type="button" class="btn btn-primary" id="browseZipBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: white !important;">
-                                    <i class="fa-solid fa-file-zipper"></i> Browse ZIP
-                                </button>
-                                <button type="button" class="btn btn-secondary" id="browseFolderBtn">
-                                    <i class="fa-solid fa-folder-open"></i> Browse Folder
+                                <button type="button" class="btn btn-primary" id="browseFolderBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: white !important;">
+                                    <i class="fa-solid fa-folder-plus"></i> Select Folder
                                 </button>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Settings / Rules Config -->
-                    <div class="settings-card">
-                        <h3><i class="fa-solid fa-sliders"></i> Processing Options</h3>
-                        <div class="options-group">
-                            <div class="checkbox-wrapper">
-                                <label class="switch">
-                                    <input type="checkbox" id="optCsvToXlsx" checked>
-                                    <span class="slider"></span>
-                                </label>
-                                <span class="option-label">Convert CSV to XLSX</span>
-                            </div>
-                            <div class="checkbox-wrapper">
-                                <label class="switch">
-                                    <input type="checkbox" id="optRenameFiles" checked>
-                                    <span class="slider"></span>
-                                </label>
-                                <span class="option-label">Apply Smart Renaming Rules</span>
-                            </div>
-                            <div class="checkbox-wrapper">
-                                <label class="switch">
-                                    <input type="checkbox" id="optSmartSuffix" checked>
-                                    <span class="slider"></span>
-                                </label>
-                                <span class="option-label">Prevent duplicates using suffixes (-1, -2)</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Uploaded Files List -->
-                    <div class="file-list-card" id="fileListCard">
+                    <!-- Selected Files List -->
+                    <div class="file-list-card" id="selectedFilesCard" style="margin-top: 0.85rem; max-height: 220px; flex-grow: 1;">
                         <div class="card-header">
-                            <h3><i class="fa-solid fa-list"></i> Selected Files (<span id="selectedCount">0</span>)</h3>
-                            <button class="btn-clear text-btn" id="clearBtn"><i class="fa-solid fa-trash-can"></i> Clear All</button>
+                            <h3><i class="fa-solid fa-list-check"></i> Selected Files (<span id="selectedCount">0</span>)</h3>
+                            <button class="btn-clear text-btn" id="clearFilesBtn"><i class="fa-solid fa-trash-can"></i> Clear</button>
                         </div>
-                        <div class="file-list" id="uploadFileList">
+                        <div class="file-list" id="uploadedFileList">
                             <div class="empty-list-msg">No files selected yet.</div>
                         </div>
                     </div>
 
-                    <!-- Process CTA Button Group -->
-                    <div style="display: flex; gap: 0.5rem; width: 100%; margin-top: 1rem;">
-                        <button class="btn btn-large btn-glow" id="processBtn" disabled style="flex: 2; background: linear-gradient(135deg, #059669, #10b981); color: white; font-weight: 800; font-family: 'Space Grotesk', sans-serif;">
-                            <i class="fa-solid fa-bolt"></i> START AJIO ARANGE
-                        </button>
-                        <button type="button" class="btn btn-large" id="clearFilesBtn" style="flex: 1; background: #e5e7eb; color: #374151; font-weight: 600; border: 1px solid #d1d5db; font-family: 'Space Grotesk', sans-serif; display: flex; align-items: center; justify-content: center; gap: 0.3rem;">
-                            <i class="fa-solid fa-trash-can"></i> CLEAR
-                        </button>
-                        <button type="button" class="btn btn-large" id="resetBtn" style="flex: 1; background: linear-gradient(135deg, #ef4444, #dc2626); color: white; font-weight: 600; font-family: 'Space Grotesk', sans-serif; display: flex; align-items: center; justify-content: center; gap: 0.3rem;">
-                            <i class="fa-solid fa-arrows-rotate"></i> RESET
-                        </button>
-                    </div>
+                    <!-- Process Button -->
+                    <button class="btn btn-large btn-success btn-glow" id="processBtn" disabled style="margin-top: 0.85rem; width: 100%; background: linear-gradient(135deg, #059669, #10b981);">
+                        <i class="fa-solid fa-bolt"></i> START AJIO ARANGE
+                    </button>
                 </section>
 
-                <!-- Right Panel: Status & Output -->
+                <!-- Right Panel: Results & Stats -->
                 <section class="panel output-panel">
                     <div class="panel-header">
                         <h2><i class="fa-solid fa-square-poll-horizontal"></i> Process Dashboard</h2>
@@ -180,48 +155,158 @@
                         <div class="steps-timeline">
                             <div class="timeline-step" id="stepExtract">
                                 <i class="fa-solid fa-circle-notch fa-spin step-icon"></i>
-                                <span class="step-label">Extracting ZIP Files</span>
+                                <span class="step-label">Extracting & Grouping</span>
                             </div>
                             <div class="timeline-step" id="stepConvert">
                                 <i class="fa-solid fa-circle-notch fa-spin step-icon"></i>
-                                <span class="step-label">Converting CSVs to XLSX</span>
+                                <span class="step-label">44-Col OD & DT Engine</span>
                             </div>
                             <div class="timeline-step" id="stepRename">
                                 <i class="fa-solid fa-circle-notch fa-spin step-icon"></i>
-                                <span class="step-label">Renaming & Packaging</span>
+                                <span class="step-label">Summary & Packaging</span>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Processed Files Output -->
-                    <div class="processed-container empty" id="processedContainer">
-                        <div class="empty-output-state">
-                            <i class="fa-solid fa-gears-gear placeholder-icon"></i>
-                            <p>Upload files and click convert to see results here.</p>
+                    <!-- Dashboard Statistics & Output Controls -->
+                    <div class="dashboard-controls hidden" id="dashboardControls">
+                        <!-- Stats Grid -->
+                        <div class="stats-grid">
+                            <div class="stat-box border-od">
+                                <span class="stat-label">Total Processed</span>
+                                <span class="stat-value" id="stat-total">0</span>
+                            </div>
+                            <div class="stat-box border-od">
+                                <span class="stat-label">OD Reports</span>
+                                <span class="stat-value text-od" id="stat-od">0</span>
+                            </div>
+                            <div class="stat-box border-dt">
+                                <span class="stat-label">DT Reports</span>
+                                <span class="stat-value text-dt" id="stat-dt">0</span>
+                            </div>
+                            <div class="stat-box" style="border-left: 3px solid #059669;">
+                                <span class="stat-label">Shipped / Sold</span>
+                                <span class="stat-value" id="stat-dt-sold" style="color: #059669;">0</span>
+                            </div>
+                            <div class="stat-box" style="border-left: 3px solid #dc2626;">
+                                <span class="stat-label">Duplicate / Canc</span>
+                                <span class="stat-value" id="stat-dt-cancelled" style="color: #dc2626;">0</span>
+                            </div>
+                            <div class="stat-box border-unmatched">
+                                <span class="stat-label">Unmatched</span>
+                                <span class="stat-value text-unmatched" id="stat-unmatched">0</span>
+                            </div>
                         </div>
 
-                        <!-- Processed List Header (shown only when files processed) -->
-                        <div class="processed-header hidden" id="processedHeader">
-                            <h3><i class="fa-solid fa-circle-check text-success"></i> Converted Files (<span id="processedCount">0</span>)</h3>
-                            <button class="btn btn-primary btn-glow" id="downloadAllBtn">
-                                <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
-                            </button>
+                        <!-- Details Log Summary Card -->
+                        <div class="log-tracker-card">
+                            <div class="card-header" style="padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                                <h3 style="margin: 0; font-size: 0.82rem; font-weight: 700; color: #7c3aed;">
+                                    <i class="fa-solid fa-table-list"></i> Details Log Summary
+                                </h3>
+                                <button class="btn btn-secondary" id="btnCopyLog" title="Copy Log Row for Excel" style="padding: 0.3rem 0.6rem; font-size: 0.72rem; display: flex; align-items: center; gap: 0.3rem;">
+                                    <i class="fa-solid fa-copy"></i> Copy Log
+                                </button>
+                            </div>
+                            <div style="padding: 0.65rem 0.85rem; overflow-x: auto;">
+                                <table class="details-log-table">
+                                    <thead>
+                                        <tr>
+                                            <th>File Name</th>
+                                            <th>Invoice Range</th>
+                                            <th>Date Range</th>
+                                            <th>B2 / P2 (Warehouse)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td id="log-td-filename" style="font-weight: 700; color: var(--text-primary);">-</td>
+                                            <td id="log-td-range" style="font-weight: 700; color: #7c3aed;">-</td>
+                                            <td id="log-td-dates" style="font-weight: 600; color: #0284c7;">-</td>
+                                            <td id="log-td-b2p2" style="font-weight: 600; color: #059669;">-</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
 
-                        <!-- Processed Files List -->
-                        <div class="processed-list hidden" id="processedList">
-                            <!-- Populated via JS -->
+                        <!-- DT Invoice Range & Cancelled Cards in 2 Columns -->
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.6rem; margin-bottom: 0.85rem;">
+                            <!-- Range Card -->
+                            <div class="range-card">
+                                <div class="card-header" style="padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                                    <h4 style="margin: 0; font-size: 0.78rem; font-weight: 700; color: #0284c7;">
+                                        <i class="fa-solid fa-receipt"></i> DT Invoice Range
+                                    </h4>
+                                    <button class="btn btn-secondary" id="btnCopyRange" title="Copy Invoice Range" style="padding: 0.25rem 0.5rem; font-size: 0.7rem;">
+                                        <i class="fa-solid fa-copy"></i> Copy
+                                    </button>
+                                </div>
+                                <div style="padding: 0.6rem 0.8rem;">
+                                    <span id="range-value" style="font-family: monospace; font-weight: 700; color: #0284c7; font-size: 0.85rem;">-</span>
+                                </div>
+                            </div>
+
+                            <!-- Cancelled / Duplicate Card -->
+                            <div class="cancelled-card">
+                                <div class="card-header" style="padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                                    <h4 style="margin: 0; font-size: 0.78rem; font-weight: 700; color: #dc2626;">
+                                        <i class="fa-solid fa-triangle-exclamation"></i> Duplicate Invoices
+                                    </h4>
+                                    <button class="btn btn-secondary" id="btnCopyCancelled" title="Copy Duplicate Invoices" style="padding: 0.25rem 0.5rem; font-size: 0.7rem;">
+                                        <i class="fa-solid fa-copy"></i> Copy
+                                    </button>
+                                </div>
+                                <div id="cancelledInvoicesList" style="padding: 0.5rem 0.8rem; max-height: 80px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 0.3rem;">
+                                    <span class="text-muted" style="font-size: 0.75rem;">No duplicate invoices detected.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Processed Files Interactive Table -->
+                        <div class="processed-container" id="processedContainer" style="padding: 0.85rem; border-radius: 10px; background: rgba(255, 255, 255, 0.9); border: 1px solid var(--border-color);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; flex-wrap: wrap; gap: 0.5rem;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <h3 style="margin: 0; font-size: 0.88rem; font-weight: 700;">
+                                        <i class="fa-solid fa-circle-check text-success"></i> Generated Reports (<span id="processedCount">0</span>)
+                                    </h3>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="text" id="procSearchInput" placeholder="Search generated files..." style="padding: 0.35rem 0.65rem; font-size: 0.75rem; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.9); width: 170px;">
+                                    <button class="btn btn-primary btn-glow" id="downloadAllBtn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); font-size: 0.78rem; padding: 0.45rem 0.85rem;">
+                                        <i class="fa-solid fa-file-zipper"></i> Download All (ZIP)
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="table-container" style="max-height: 340px; overflow-y: auto; overflow-x: auto; border: 1px solid var(--border-color); border-radius: 8px;">
+                                <table class="preview-table" style="width: 100%; border-collapse: collapse; font-size: 0.78rem;">
+                                    <thead>
+                                        <tr style="background: #f8fafc; position: sticky; top: 0; z-index: 1;">
+                                            <th style="width: 40px; text-align: center;">#</th>
+                                            <th>Original / Source</th>
+                                            <th style="width: 130px; text-align: center;">Category</th>
+                                            <th>Generated File Name</th>
+                                            <th style="width: 80px; text-align: center;">Rows</th>
+                                            <th style="width: 110px; text-align: center;">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="procFilesTbody">
+                                        <!-- Populated via JS -->
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
 
                     <!-- Console / Logger -->
-                    <div class="console-card">
+                    <div class="console-card" style="margin-top: 0.85rem;">
                         <div class="console-header">
                             <h3><i class="fa-solid fa-terminal"></i> Activity Log</h3>
                             <button class="btn-clear text-btn" id="clearLogBtn"><i class="fa-solid fa-eraser"></i> Clear</button>
                         </div>
                         <div class="console-log" id="consoleLog">
-                            <div class="log-line info">[System] Ready. Drag files to begin.</div>
+                            <div class="log-line info">[System] Ready. Upload DropShip and Account/Tax files to begin.</div>
                         </div>
                     </div>
                 </section>
@@ -604,49 +689,76 @@
         <!-- Tab 5: Rename File Pane -->
         <div id="tab-rename" class="tab-pane active-pane">
             <main class="app-grid">
-                <!-- Left Panel: Upload & Options -->
+                <!-- Left Panel: Dual Upload & Options -->
                 <section class="panel upload-panel">
                     <div class="panel-header">
-                        <h2><i class="fa-solid fa-file-signature text-purple"></i> Select Files to Rename</h2>
-                        <span class="badge">Local Only</span>
+                        <h2><i class="fa-solid fa-file-signature text-purple"></i> Dual File Upload & Rename</h2>
+                        <button class="btn-clear text-btn" id="clearRenFilesBtn" title="Clean & Reset Tab"><i class="fa-solid fa-rotate-right"></i> Clean & Reset</button>
                     </div>
 
-                    <!-- Upload Input: Multiple files -->
-                    <div class="merger-upload-card">
-                        <h3><i class="fa-solid fa-file-excel text-purple"></i> Drag & drop or browse files</h3>
-                        <div class="mini-dropzone" id="renDropzone" style="min-height: 120px; padding: 1.5rem 1rem;">
+                    <!-- Upload Box 1: Option A - Column F Files -->
+                    <div class="merger-upload-card" style="border-left: 4px solid var(--primary); margin-bottom: 0.6rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                            <div>
+                                <h3 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                                    <span style="background: var(--primary); color: white; border-radius: 50%; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.65rem;">1</span>
+                                    Column F Files
+                                </h3>
+                                <span class="info-tag" style="background: rgba(124, 58, 237, 0.1); color: #7c3aed; font-size: 0.65rem; font-weight: 600; padding: 2px 6px; border-radius: 4px;">Option A (Column F)</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                <span class="badge badge-od" id="ren-f-count-badge" style="font-size: 0.68rem; padding: 2px 7px;">0 files</span>
+                                <button class="btn-clear text-btn" id="btn-ren-f-clear" title="Clear Column F files" style="display: none; padding: 2px;"><i class="fa-solid fa-trash-can text-danger"></i></button>
+                            </div>
+                        </div>
+                        <div class="mini-dropzone" id="renDropzone" style="min-height: 90px; padding: 1rem 0.8rem;">
                             <input type="file" id="renFileInput" multiple accept=".xlsx,.xls,.csv" class="file-input-hidden">
                             <div class="mini-dropzone-content">
-                                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
-                                <span class="filename-display" id="renFileDisplay">Drag & drop or Click to choose files</span>
+                                <i class="fa-solid fa-cloud-arrow-up upload-icon" style="font-size: 1.3rem;"></i>
+                                <span class="filename-display" id="renFileDisplay" style="font-size: 0.78rem;">Drop Column F Files / ZIP here</span>
+                                <span style="font-size: 0.68rem; color: var(--text-muted);">Searches Column F for AJ... / Party codes</span>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Options: Choice A / Column F -->
-                    <div class="settings-card" style="margin-top: 0.5rem;">
-                        <h3><i class="fa-solid fa-sliders"></i> Rename Reference Options</h3>
-                        <div class="options-group" style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">
-                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                                <input type="radio" name="renColChoice" value="F" checked style="accent-color: #8b5cf6;">
-                                <span style="font-weight: 600; color: var(--text-primary);">Option A: Column F (AJIO)</span>
-                            </label>
+                    <!-- Upload Box 2: Option B - Column G Files -->
+                    <div class="merger-upload-card" style="border-left: 4px solid #059669; margin-bottom: 0.6rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                            <div>
+                                <h3 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                                    <span style="background: #059669; color: white; border-radius: 50%; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.65rem;">2</span>
+                                    Column G Files
+                                </h3>
+                                <span class="info-tag" style="background: rgba(5, 150, 105, 0.1); color: #059669; font-size: 0.65rem; font-weight: 600; padding: 2px 6px; border-radius: 4px;">Option B (Column G)</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                <span class="badge badge-dt" id="ren-g-count-badge" style="font-size: 0.68rem; padding: 2px 7px;">0 files</span>
+                                <button class="btn-clear text-btn" id="btn-ren-g-clear" title="Clear Column G files" style="display: none; padding: 2px;"><i class="fa-solid fa-trash-can text-danger"></i></button>
+                            </div>
+                        </div>
+                        <div class="mini-dropzone" id="renDropzoneG" style="min-height: 90px; padding: 1rem 0.8rem;">
+                            <input type="file" id="renFileInputG" multiple accept=".xlsx,.xls,.csv" class="file-input-hidden">
+                            <div class="mini-dropzone-content">
+                                <i class="fa-solid fa-cloud-arrow-up upload-icon" style="font-size: 1.3rem; color: #059669;"></i>
+                                <span class="filename-display" id="renFileDisplayG" style="font-size: 0.78rem;">Drop Column G Files / ZIP here</span>
+                                <span style="font-size: 0.68rem; color: var(--text-muted);">Searches Column G for CGJ1 / Party codes</span>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Selected Files List -->
-                    <div class="file-list-card" id="renSelectedFilesCard" style="max-height: 180px; margin-top: 0.5rem;">
-                        <div class="card-header">
-                            <h3><i class="fa-solid fa-list"></i> Selected Files (<span id="renSelectedCount">0</span>)</h3>
-                            <button class="btn-clear text-btn" id="clearRenFilesBtn"><i class="fa-solid fa-trash-can"></i> Clear</button>
+                    <!-- Selected Files Staged Summary Card -->
+                    <div class="file-list-card" id="renSelectedFilesCard" style="max-height: 140px; margin-top: 0.4rem;">
+                        <div class="card-header" style="padding: 0.4rem 0.75rem;">
+                            <h3 style="font-size: 0.8rem;"><i class="fa-solid fa-list"></i> Loaded Files (<span id="renSelectedCount">0</span>)</h3>
+                            <span id="renStagedQuickInfo" style="font-size: 0.7rem; color: var(--text-muted);">0 Option A, 0 Option B</span>
                         </div>
-                        <div class="file-list" id="renUploadedFileList">
-                            <div class="empty-list-msg">No files selected yet.</div>
+                        <div class="file-list" id="renUploadedFileList" style="max-height: 90px; overflow-y: auto;">
+                            <div class="empty-list-msg">No files loaded yet.</div>
                         </div>
                     </div>
 
                     <!-- Run rename CTA -->
-                    <button class="btn btn-large btn-success btn-glow" id="renBtn" disabled style="margin-top: 0.5rem; width: 100%; background: linear-gradient(135deg, #059669, #10b981);">
+                    <button class="btn btn-large btn-success btn-glow" id="renBtn" disabled style="margin-top: 0.6rem; width: 100%; background: linear-gradient(135deg, #059669, #10b981);">
                         <i class="fa-solid fa-bolt"></i> START RENAME PROCESS
                     </button>
                 </section>
@@ -1201,6 +1313,35 @@
         <!-- Footer removed -->
     </div>
 
+    <!-- Edit Prefix Code Modal -->
+    <div id="edit-prefix-modal" class="modal-overlay" style="display: none; z-index: 99999;">
+        <div class="modal-card glass" style="max-width: 440px; border-radius: 16px; padding: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.75rem; border-bottom: 1px solid var(--panel-border, #e2e8f0);">
+                <h3 id="edit-prefix-title" style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary); margin: 0; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-pen-to-square text-purple"></i> Edit Prefix Code
+                </h3>
+                <button type="button" class="btn-action" id="btn-close-edit-prefix" style="width: 28px; height: 28px; border-radius: 6px; border: none; background: rgba(0,0,0,0.05); cursor: pointer;">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div style="padding: 0.85rem 0; display: flex; flex-direction: column; gap: 0.85rem;">
+                <div>
+                    <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem; font-weight: 600;">Original File Name:</label>
+                    <div id="edit-prefix-filename" style="font-size: 0.75rem; font-family: monospace; color: var(--text-primary); word-break: break-all; background: #f8fafc; padding: 0.5rem; border-radius: 6px; border: 1px solid #e2e8f0; font-weight: 600;"></div>
+                </div>
+                <div>
+                    <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.35rem;">Enter Party Prefix Code (e.g. 157, 139, 225, AJ101):</label>
+                    <input type="text" id="edit-prefix-input" placeholder="e.g. 157" style="width: 100%; box-sizing: border-box; font-size: 0.92rem; font-weight: 700; color: #7c3aed; padding: 0.5rem 0.75rem; border: 1.5px solid #8b5cf6; border-radius: 8px; outline: none;">
+                    <p style="font-size: 0.68rem; color: var(--text-muted); margin-top: 0.35rem; margin-bottom: 0;">Prefix lagate hi filename <code>&lt;prefix&gt;-filename.ext</code> (ya <code>filename-&lt;prefix&gt;.ext</code>) ban jayega aur status Green ho jayega.</p>
+                </div>
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.4rem;">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-edit-prefix" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-glow" id="btn-save-edit-prefix" style="padding: 0.4rem 1rem; font-size: 0.8rem; background: linear-gradient(135deg, #059669, #10b981);">Save Prefix</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Full Window Modal for Renamed Files -->
     <div id="renFullscreenModal" class="rename-fullscreen-modal-backdrop">
         <div class="rename-fullscreen-modal-card">
@@ -1237,6 +1378,8 @@
                 </div>
                 <div class="rename-filter-tabs">
                     <button type="button" class="rename-filter-btn active" data-filter="all" id="modalFilterAllBtn">All Files</button>
+                    <button type="button" class="rename-filter-btn" data-filter="p2" id="modalFilterOrderBtn">📦 Order (Col F)</button>
+                    <button type="button" class="rename-filter-btn" data-filter="g" id="modalFilterTaxBtn">📊 Tax (Col G)</button>
                     <button type="button" class="rename-filter-btn" data-filter="error" id="modalFilterErrorBtn" style="color: #b91c1c; font-weight: 700;">✖ Missing Suffix (Red)</button>
                     <button type="button" class="rename-filter-btn" data-filter="success" id="modalFilterSuccessBtn">✔ Valid Suffix</button>
                 </div>
@@ -1666,7 +1809,7 @@
         </div>
     </div>
 
-    <!-- Main JS Application -->
-    <script src="app.js?v=3.5"></script>
+    <!-- Custom JS Logic -->
+    <script src="app.js?v=4.6"></script>
 </body>
 </html>

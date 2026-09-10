@@ -1,0 +1,5 @@
+*.bak
+*.backup*
+scratch_test_files/
+.DS_Store
+Thumbs.db
