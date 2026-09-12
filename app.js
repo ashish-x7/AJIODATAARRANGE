@@ -8907,6 +8907,52 @@ function doPost(e) {
     const aeDataFileDisplay = document.getElementById('aeDataFileDisplay');
 
     const aeFromDate = document.getElementById('aeFromDate');
+    const aeDateRangesContainer = document.getElementById('aeDateRangesContainer');
+    const aeAddDateRangeBtn = document.getElementById('aeAddDateRangeBtn');
+
+    if (aeAddDateRangeBtn && aeDateRangesContainer) {
+        aeAddDateRangeBtn.addEventListener('click', () => {
+            const row = document.createElement('div');
+            row.className = 'ae-date-range-row';
+            row.style.display = 'flex';
+            row.style.gap = '0.75rem';
+            row.style.alignItems = 'flex-end';
+            row.innerHTML = `
+                <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1;">
+                    <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">From Date</label>
+                    <input type="date" class="ae-from-date" style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.5rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; height: 36px; width: 100%;">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1;">
+                    <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">To Date</label>
+                    <input type="date" class="ae-to-date" style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.5rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; height: 36px; width: 100%;">
+                </div>
+                <button type="button" class="btn btn-danger remove-ae-range-btn" title="Remove Range" style="height: 36px; width: 36px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; flex-shrink: 0;">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+            `;
+            row.querySelector('.remove-ae-range-btn').addEventListener('click', () => row.remove());
+            aeDateRangesContainer.appendChild(row);
+        });
+    }
+
+    function getAjioActiveDateRanges() {
+        const ranges = [];
+        const rows = document.querySelectorAll('#aeDateRangesContainer .ae-date-range-row');
+        rows.forEach(r => {
+            const fromInp = r.querySelector('.ae-from-date');
+            const toInp = r.querySelector('.ae-to-date');
+            const fVal = fromInp ? fromInp.value : '';
+            const tVal = toInp ? toInp.value : '';
+            if (fVal || tVal) {
+                const f = fVal ? new Date(fVal) : null;
+                const t = tVal ? new Date(tVal) : null;
+                if (f) f.setHours(0, 0, 0, 0);
+                if (t) t.setHours(23, 59, 59, 999);
+                ranges.push({ from: f, to: t, fromStr: fVal, toStr: tVal });
+            }
+        });
+        return ranges;
+    }
     const aeToDate = document.getElementById('aeToDate');
 
     const aeBtn = document.getElementById('aeBtn');
@@ -8983,11 +9029,11 @@ function doPost(e) {
             try {
                 aeLog('Starting Ajio Error Process...', 'process');
                 
-                // Read date ranges if available
-                const fromDateVal = aeFromDate ? aeFromDate.value : "";
-                const toDateVal = aeToDate ? aeToDate.value : "";
-                if (fromDateVal || toDateVal) {
-                    aeLog(`Selected Date Range: From ${fromDateVal || 'N/A'} To ${toDateVal || 'N/A'}`, 'info');
+                // Read active date ranges
+                const activeDateRanges = getAjioActiveDateRanges();
+                if (activeDateRanges.length > 0) {
+                    const rangeLogs = activeDateRanges.map(r => `[${r.fromStr || 'Start'} to ${r.toStr || 'End'}]`).join(', ');
+                    aeLog(`Active Date Ranges for Exclusion (${activeDateRanges.length}): ${rangeLogs}`, 'info');
                 }
 
                 if (aeProgressBar) aeProgressBar.style.width = '10%';
@@ -9249,16 +9295,19 @@ function doPost(e) {
                         isMatched = true;
                     }
 
-                    // 4. Date Range Filter against Column W (lookupVal)
+                    // 4. Multi-Date Range Filter against Column W (lookupVal)
                     let shouldDeleteByDate = false;
-                    if (fromDate || toDate) {
+                    if (activeDateRanges.length > 0) {
                         const parsedDate = parseExcelDate(lookupVal);
                         if (parsedDate) {
                             const time = parsedDate.getTime();
-                            const satisfiesFrom = fromDate ? time >= fromDate.getTime() : true;
-                            const satisfiesTo = toDate ? time <= toDate.getTime() : true;
-                            if (satisfiesFrom && satisfiesTo) {
-                                shouldDeleteByDate = true;
+                            for (const rng of activeDateRanges) {
+                                const satisfiesFrom = rng.from ? time >= rng.from.getTime() : true;
+                                const satisfiesTo = rng.to ? time <= rng.to.getTime() : true;
+                                if (satisfiesFrom && satisfiesTo) {
+                                    shouldDeleteByDate = true;
+                                    break;
+                                }
                             }
                         }
                     }
