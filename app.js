@@ -392,11 +392,17 @@ document.addEventListener('DOMContentLoaded', () => {
        RULE TOGGLE (NEW 2 FILES vs OLD 3 FILES)
        ========================================================================== */
     if (toggleProcRule && labelProcRule) {
-        toggleProcRule.checked = false;
-        labelProcRule.innerText = "Old Logic";
+        toggleProcRule.checked = true;
+        labelProcRule.innerText = "New Logic";
+        const procContainer = document.getElementById('proc-rule-container');
+        if (procContainer) procContainer.classList.remove('is-old');
         toggleProcRule.addEventListener('change', () => {
             const isNew = toggleProcRule.checked;
             labelProcRule.innerText = isNew ? "New Logic" : "Old Logic";
+            if (procContainer) {
+                if (isNew) procContainer.classList.remove('is-old');
+                else procContainer.classList.add('is-old');
+            }
             log(`Processing Mode switched to: ${isNew ? "New Logic (44-Col OD, GST & JSON Formula)" : "Old Logic (Classic OD & Account Merger)"}`, "info");
         });
     }
@@ -1043,8 +1049,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (procSearchInput) procSearchInput.value = '';
 
         if (toggleProcRule && labelProcRule) {
-            toggleProcRule.checked = false;
-            labelProcRule.innerText = "Old Logic";
+            toggleProcRule.checked = true;
+            labelProcRule.innerText = "New Logic";
+            const procContainer = document.getElementById('proc-rule-container');
+            if (procContainer) procContainer.classList.remove('is-old');
         }
 
         if (dashboardControls) dashboardControls.classList.add('hidden');
@@ -1359,7 +1367,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 let lastPartyDetails = null;
                 const partyInfoMap = new Map();
 
-                const isNewLogic = toggleProcRule ? toggleProcRule.checked : false;
+                const isNewLogic = toggleProcRule ? toggleProcRule.checked : true;
                 log(`Executing pipeline in: [${isNewLogic ? "New Logic (44-Col OD, GST & JSON Formula)" : "Old Logic (Classic OD & Account Merger)"}] mode`, "process");
 
                 if (isNewLogic) {
@@ -1813,7 +1821,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 const wsSummary = XLSX.utils.aoa_to_sheet(partySummaryRows);
-                XLSX.utils.book_append_sheet(summaryWb, wsSummary, "Summary");
+                XLSX.utils.book_append_sheet(summaryWb, wsSummary, "Invoice Summary");
 
                 // Sheet 2: Detailed Summary
                 const detailedSummaryData = [[
@@ -1850,7 +1858,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 const wsDetailed = XLSX.utils.aoa_to_sheet(detailedSummaryData);
-                XLSX.utils.book_append_sheet(summaryWb, wsDetailed, "Detailed Summary");
+                XLSX.utils.book_append_sheet(summaryWb, wsDetailed, "Invoice Details");
 
                 const summaryOut = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
                 const summaryFilename = getAjioSummaryFilename('ajio invoice summary');
@@ -1867,24 +1875,30 @@ document.addEventListener('DOMContentLoaded', () => {
                     aoa: partySummaryRows
                 });
 
-                // Compile Final ZIP & Set Zip Name to e.g. "101-PROCESSED.zip"
+                // Compile Final ZIP & Set Zip Name to e.g. "101_Arranged.zip" or "101-150_Arranged.zip"
                 log('Compiling final ZIP bundle...', 'process');
                 batchProcessedZipBlob = await outputZip.generateAsync({ type: 'blob' });
 
-                let zipBaseName = "";
-                if (selectedFiles && selectedFiles.length > 0) {
-                    const zf = selectedFiles.find(f => f.name && f.name.toLowerCase().endsWith('.zip'));
-                    if (zf) zipBaseName = zf.name.replace(/\.zip$/i, '');
-                }
-                if (!zipBaseName && currentUploadedFolderName) {
-                    zipBaseName = currentUploadedFolderName;
-                }
-                if (!zipBaseName && partyGroups.size > 0) {
-                    zipBaseName = partyGroups.size === 1 ? Array.from(partyGroups.keys())[0] : `AJIO_${partyGroups.size}_PARTIES`;
-                }
-                if (!zipBaseName) zipBaseName = "101";
+                let validPartyKeys = Array.from(partyGroups.keys())
+                    .filter(k => k && k !== "Main" && k !== "UNKNOWN" && k !== "All Parties");
 
-                batchUploadedZipName = `${zipBaseName}-PROCESSED.zip`;
+                validPartyKeys.sort((a, b) => (isNaN(a) || isNaN(b)) ? a.localeCompare(b, undefined, { numeric: true }) : Number(a) - Number(b));
+
+                let zipBaseName = "";
+                if (validPartyKeys.length > 0) {
+                    zipBaseName = validPartyKeys.join('-');
+                } else {
+                    if (selectedFiles && selectedFiles.length > 0) {
+                        const zf = selectedFiles.find(f => f.name && f.name.toLowerCase().endsWith('.zip'));
+                        if (zf) zipBaseName = zf.name.replace(/\.zip$/i, '').replace(/[-_]?(?:processed|arranged)$/i, '');
+                    }
+                    if (!zipBaseName && currentUploadedFolderName) {
+                        zipBaseName = currentUploadedFolderName.replace(/[-_]?(?:processed|arranged)$/i, '');
+                    }
+                }
+                if (!zipBaseName) zipBaseName = "AJIO";
+
+                batchUploadedZipName = `${zipBaseName}_Arranged.zip`;
                 log(`Final ZIP package generated: [${batchUploadedZipName}] (${formatBytes(batchProcessedZipBlob.size)})`, 'success');
 
                 // Update Dashboard Cards
@@ -2401,7 +2415,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
 
                     const wsDetailed = XLSX.utils.aoa_to_sheet(detailedSummaryData);
-                    XLSX.utils.book_append_sheet(summaryWb, wsDetailed, "Detailed Summary");
+                    XLSX.utils.book_append_sheet(summaryWb, wsDetailed, "Invoice Details");
 
                     const shortListData = [];
                     batchResults.forEach(r => {
@@ -2413,7 +2427,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
 
                     const wsShort = XLSX.utils.aoa_to_sheet(shortListData);
-                    XLSX.utils.book_append_sheet(summaryWb, wsShort, "Short List");
+                    XLSX.utils.book_append_sheet(summaryWb, wsShort, "Invoice Summary");
 
                     const summaryOut = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
                     const summaryReportFilename = getAjioSummaryFilename('ajio invoice summry');
@@ -2430,14 +2444,22 @@ document.addEventListener('DOMContentLoaded', () => {
                         aoa: detailedSummaryData
                     });
 
-                    // Output ZIP name
-                    if (selectedFiles.length === 1 && selectedFiles[0].name.split('.').pop().toLowerCase() === 'zip') {
-                        batchUploadedZipName = selectedFiles[0].name.replace(/\.zip$/i, '') + '_processed.zip';
+                    // Output ZIP name (e.g. 101_Arranged.zip or 101-150_Arranged.zip)
+                    const validVendorCodes = vendorCodes.filter(k => k && k !== "UNKNOWN" && k !== "Main" && k !== "All Parties");
+                    validVendorCodes.sort((a, b) => (isNaN(a) || isNaN(b)) ? a.localeCompare(b, undefined, { numeric: true }) : Number(a) - Number(b));
+
+                    let zipBaseName = "";
+                    if (validVendorCodes.length > 0) {
+                        zipBaseName = validVendorCodes.join('-');
+                    } else if (selectedFiles.length === 1 && selectedFiles[0].name.split('.').pop().toLowerCase() === 'zip') {
+                        zipBaseName = selectedFiles[0].name.replace(/\.zip$/i, '').replace(/[-_]?(?:processed|arranged)$/i, '');
                     } else if (currentUploadedFolderName) {
-                        batchUploadedZipName = currentUploadedFolderName + '_processed.zip';
+                        zipBaseName = currentUploadedFolderName.replace(/[-_]?(?:processed|arranged)$/i, '');
                     } else {
-                        batchUploadedZipName = 'AJIO_DATA_ARRANGE_Output.zip';
+                        zipBaseName = 'AJIO';
                     }
+
+                    batchUploadedZipName = `${zipBaseName}_Arranged.zip`;
 
                     log('Compiling final ZIP output archive...', 'process');
                     batchProcessedZipBlob = await outputZip.generateAsync({ type: 'blob' });
@@ -3559,6 +3581,20 @@ function jsonResponse(data) {
             }
         } catch (e) {}
 
+        // Known parties dictionary fallback
+        const defaultKnownParties = {
+            "101": "101-BHARVITA",
+            "509": "509-VIVATRA",
+            "128": "128-BAGHADELLO",
+            "200": "200-FOCUS STYLE",
+            "178": "178-COLORBOOK",
+            "150": "150-ZOMBOM",
+            "544": "544-HOUSE OF PRANSHI",
+            "198": "198-GUFRINA",
+            "139": "139-INDO PRIMO"
+        };
+        if (defaultKnownParties[strCode]) return defaultKnownParties[strCode];
+
         // 3. Extract party name from filenames
         const searchFiles = [];
         if (Array.isArray(filesList)) searchFiles.push(...filesList);
@@ -3717,7 +3753,7 @@ function jsonResponse(data) {
                 });
 
                 const wsDetailed = XLSX.utils.aoa_to_sheet(detailedSummaryData);
-                XLSX.utils.book_append_sheet(summaryWb, wsDetailed, "Detailed Summary");
+                XLSX.utils.book_append_sheet(summaryWb, wsDetailed, "Invoice Details");
 
                 const shortListData = [];
                 batchResults.forEach(r => {
@@ -3729,7 +3765,7 @@ function jsonResponse(data) {
                 });
 
                 const wsShort = XLSX.utils.aoa_to_sheet(shortListData);
-                XLSX.utils.book_append_sheet(summaryWb, wsShort, "Short List");
+                XLSX.utils.book_append_sheet(summaryWb, wsShort, "Invoice Summary");
 
                 const summaryOut = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
                 const summaryBlob = new Blob([summaryOut], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -4132,7 +4168,7 @@ function jsonResponse(data) {
             });
 
             const wsDetailed = XLSX.utils.aoa_to_sheet(detailedSummaryData);
-            XLSX.utils.book_append_sheet(summaryWb, wsDetailed, "Detailed Summary");
+            XLSX.utils.book_append_sheet(summaryWb, wsDetailed, "Invoice Details");
 
             const shortListData = [];
             batchResults.forEach(r => {
@@ -4144,7 +4180,7 @@ function jsonResponse(data) {
             });
 
             const wsShort = XLSX.utils.aoa_to_sheet(shortListData);
-            XLSX.utils.book_append_sheet(summaryWb, wsShort, "Short List");
+            XLSX.utils.book_append_sheet(summaryWb, wsShort, "Invoice Summary");
 
             const summaryOut = XLSX.write(summaryWb, { bookType: 'xlsx', type: 'array' });
             const summaryReportFilename = getAjioSummaryFilename('ajio invoice summry');
@@ -4154,8 +4190,13 @@ function jsonResponse(data) {
             mergerProgressPercent.innerText = '95%';
             mergerProgressStepText.innerText = 'Compiling output ZIP package...';
 
+            const validMergerCodes = vendorCodes.filter(k => k && k !== "UNKNOWN" && k !== "Main" && k !== "All Parties");
+            validMergerCodes.sort((a, b) => (isNaN(a) || isNaN(b)) ? a.localeCompare(b, undefined, { numeric: true }) : Number(a) - Number(b));
+            const mergerZipBase = validMergerCodes.length > 0 ? validMergerCodes.join('-') : 'Batch_Merger';
+            batchUploadedZipName = `${mergerZipBase}_Arranged.zip`;
+
             batchProcessedZipBlob = await outputZip.generateAsync({ type: 'blob' });
-            mergerLog(`Batch ZIP compiled successfully (${formatBytes(batchProcessedZipBlob.size)}).`, 'success');
+            mergerLog(`Batch ZIP compiled successfully [${batchUploadedZipName}] (${formatBytes(batchProcessedZipBlob.size)}).`, 'success');
 
             renderBatchMergerDashboard();
 
@@ -7127,19 +7168,19 @@ function doPost(e) {
                             ${unmatchedG > 0 ? `<span class="badge" style="background: rgba(220,38,38,0.12); color: #dc2626; border: 1px solid rgba(220,38,38,0.25); font-size: 0.65rem; font-weight: 700;">${unmatchedG} Need Prefix</span>` : ''}
                         </div>
                         <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
-                            <label class="sep-rule-toggle is-old" id="ren-g-move-container" title="Target: ON = Move to Merge, OFF = Move to Folder Create" style="margin-right: 0.15rem;">
+                            <label class="sep-rule-toggle" id="ren-g-move-container" title="Target: ON = Move to Merge, OFF = Move to Folder Create" style="margin-right: 0.15rem;">
                                 <span class="sep-rule-switch">
-                                    <input type="checkbox" id="toggle-ren-g-move" autocomplete="off">
+                                    <input type="checkbox" id="toggle-ren-g-move" checked autocomplete="off">
                                     <span class="sep-rule-slider"></span>
                                 </span>
-                                <span class="sep-rule-text" id="label-ren-g-move">Move: Folder</span>
+                                <span class="sep-rule-text" id="label-ren-g-move">Move: Merge</span>
                             </label>
                             <button class="btn btn-secondary" id="btnTaxFullview" style="padding: 0.28rem 0.6rem; font-size: 0.72rem; display: flex; align-items: center; gap: 4px;" title="Full View Modal">
                                 <i class="fa-solid fa-expand"></i> Full View
                             </button>
-                            <button class="btn btn-secondary" id="btnMoveTaxTarget" style="padding: 0.28rem 0.65rem; font-size: 0.72rem; color: #059669; font-weight: 700; border-color: rgba(5, 150, 105, 0.25); display: flex; align-items: center; gap: 4px;" title="Transfer files directly to Folder Create tab">
-                                <i class="fa-solid fa-folder-plus" id="renTaxMoveIcon"></i>
-                                <span id="renTaxMoveText">Move to Folder Create</span>
+                            <button class="btn btn-secondary" id="btnMoveTaxTarget" style="padding: 0.28rem 0.65rem; font-size: 0.72rem; color: var(--primary); font-weight: 700; border-color: rgba(124, 58, 237, 0.25); display: flex; align-items: center; gap: 4px;" title="Transfer Tax files directly to Merge File tab">
+                                <i class="fa-solid fa-code-merge" id="renTaxMoveIcon"></i>
+                                <span id="renTaxMoveText">Move to Merge</span>
                             </button>
                             <button class="btn btn-primary" id="btnDownloadTaxZip" style="padding: 0.28rem 0.65rem; font-size: 0.72rem; background: #059669; border-color: #059669; display: flex; align-items: center; gap: 4px;" title="Download only Tax files ZIP">
                                 <i class="fa-solid fa-download"></i> Download ZIP
@@ -7252,7 +7293,7 @@ function doPost(e) {
             btnMoveTax.addEventListener('click', () => {
                 const taxFiles = activeRenamedFiles.filter(f => f.methodType === 'g');
                 const toggle = document.getElementById('toggle-ren-g-move');
-                const isMerge = toggle ? toggle.checked : false;
+                const isMerge = toggle ? toggle.checked : true;
                 if (isMerge) {
                     moveToMergeWithFiles(taxFiles);
                 } else {
