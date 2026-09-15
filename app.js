@@ -9142,39 +9142,47 @@ function doPost(e) {
                 }
 
                 const dataHeaderRow = dataAoa[dataHeaderRowIndex];
-                let searchColData = 7; // default H
-                let valueColData = 2;  // default C
+                // Direct configuration:
+                // Search Details Invoice No directly in Data File Column L (Index 11)
+                // Retrieve corresponding value from Data File Column G (Index 6)
+                let searchColData = 11; // Column L (0-indexed 11)
+                let valueColData = 6;   // Column G (0-indexed 6)
 
+                // Check headers for verification and logging
                 if (dataHeaderRow) {
-                    for (let c = 0; c < dataHeaderRow.length; c++) {
-                        const cellVal = String(dataHeaderRow[c]).trim().toLowerCase();
-                        if (cellVal === "invoice no" || cellVal === "invoice number") {
-                            searchColData = c;
-                        }
-                    }
+                    const colLTitle = dataHeaderRow[11] !== undefined && String(dataHeaderRow[11]).trim() !== "" ? String(dataHeaderRow[11]).trim() : "Column L";
+                    const colGTitle = dataHeaderRow[6] !== undefined && String(dataHeaderRow[6]).trim() !== "" ? String(dataHeaderRow[6]).trim() : "Column G";
+                    aeLog(`Data File Config: Search Details Invoice in Column L [${colLTitle}], Fetch Value from Column G [${colGTitle}]`, 'info');
+                } else {
+                    aeLog(`Data File Config: Search Details Invoice in Column L (Index 11), Fetch Value from Column G (Index 6)`, 'info');
                 }
-
-                aeLog(`Data File - Search Column (H-equiv) index: ${searchColData}, Value Column (C-equiv) index: ${valueColData}`, 'info');
 
                 if (aeProgressBar) aeProgressBar.style.width = '70%';
                 if (aeProgressPercent) aeProgressPercent.innerText = '70%';
-                if (aeProgressStepText) aeProgressStepText.innerText = 'Building data lookup index...';
+                if (aeProgressStepText) aeProgressStepText.innerText = 'Building data lookup index (Col L -> Col G)...';
 
                 // Step 2: Build Lookup Map from Data AOA
                 const dataMap = new Map();
                 for (let i = dataHeaderRowIndex + 1; i < dataAoa.length; i++) {
                     const row = dataAoa[i];
-                    if (!row || row.length <= Math.max(searchColData, valueColData)) continue;
+                    if (!row || row.length === 0) continue;
                     
-                    const invoiceKey = String(row[searchColData]).trim().toUpperCase();
-                    const copyVal = row[valueColData];
+                    const rawSearchVal = row[searchColData] !== undefined ? row[searchColData] : "";
+                    const invoiceKey = String(rawSearchVal).trim().toUpperCase();
+                    const copyVal = row[valueColData] !== undefined ? row[valueColData] : "";
                     
-                    if (invoiceKey !== "" && !dataMap.has(invoiceKey)) {
-                        dataMap.set(invoiceKey, copyVal);
+                    if (invoiceKey !== "") {
+                        if (!dataMap.has(invoiceKey)) {
+                            dataMap.set(invoiceKey, copyVal);
+                        }
+                        const altKey = cleanKey(invoiceKey);
+                        if (altKey !== "" && !dataMap.has(altKey)) {
+                            dataMap.set(altKey, copyVal);
+                        }
                     }
                 }
 
-                aeLog(`Mapped ${dataMap.size} unique invoices from Ajio Data file.`, 'info');
+                aeLog(`Mapped ${dataMap.size} unique keys from Data File Column L (values from Column G).`, 'info');
 
                 if (aeProgressBar) aeProgressBar.style.width = '85%';
                 if (aeProgressPercent) aeProgressPercent.innerText = '85%';
@@ -9293,6 +9301,12 @@ function doPost(e) {
                     if (dataMap.has(invoiceKey)) {
                         lookupVal = dataMap.get(invoiceKey);
                         isMatched = true;
+                    } else {
+                        const altKey = cleanKey(invoiceKey);
+                        if (altKey !== "" && dataMap.has(altKey)) {
+                            lookupVal = dataMap.get(altKey);
+                            isMatched = true;
+                        }
                     }
 
                     // 4. Multi-Date Range Filter against Column W (lookupVal)
