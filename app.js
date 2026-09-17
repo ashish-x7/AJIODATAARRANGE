@@ -5300,10 +5300,17 @@ function doPost(e) {
         tax: null
     };
 
+    const defaultSepZipNames = {
+        simple: 'ajio_simple_seprate_bundle.zip',
+        details: 'ajio_details_seprate_bundle.zip',
+        summary: 'ajio_summary_seprate_bundle.zip',
+        tax: 'ajio_tax_seprate_bundle.zip'
+    };
+
     const sepVariantResults = {
         simple: { label: '1. SIMPLE', files: [], zipBlob: null, zipName: 'ajio_simple_seprate_bundle.zip', color: '#8b5cf6' },
         details: { label: '2. DETAILS', files: [], zipBlob: null, zipName: 'ajio_details_seprate_bundle.zip', color: '#4f46e5' },
-        summary: { label: '3. SUMMARY', files: [], zipBlob: null, zipName: 'ajio_summry_seprate_bundle.zip', color: '#2563eb' },
+        summary: { label: '3. SUMMARY', files: [], zipBlob: null, zipName: 'ajio_summary_seprate_bundle.zip', color: '#2563eb' },
         tax: { label: '4. TAX SPLIT', files: [], zipBlob: null, zipName: 'ajio_tax_seprate_bundle.zip', color: '#0d9488' }
     };
 
@@ -5444,6 +5451,9 @@ function doPost(e) {
         const vData = sepVariantResults[variantKey];
         if (!vData) return;
         try {
+            if (!vData.zipName) {
+                vData.zipName = defaultSepZipNames[variantKey] || `ajio_${variantKey}_seprate_bundle.zip`;
+            }
             if (!vData.files || vData.files.length === 0) {
                 vData.zipBlob = null;
                 return;
@@ -5576,9 +5586,11 @@ function doPost(e) {
         separateLog(`Downloading ${activeKeys.length} ZIP packages...`, 'process');
         activeKeys.forEach((k, idx) => {
             const vData = sepVariantResults[k];
+            const targetZipName = vData.zipName || defaultSepZipNames[k] || `ajio_${k}_seprate_bundle.zip`;
+            vData.zipName = targetZipName;
             setTimeout(() => {
-                triggerDownload(vData.zipBlob, vData.zipName);
-                separateLog(`Downloaded ZIP package: ${vData.zipName}`, 'info');
+                triggerDownload(vData.zipBlob, targetZipName);
+                separateLog(`Downloaded ZIP package: ${targetZipName}`, 'info');
             }, idx * 350);
         });
     }
@@ -5765,6 +5777,7 @@ function doPost(e) {
                     }
 
                     vData.files = splitFiles;
+                    vData.zipName = defaultSepZipNames[vKey] || `ajio_${vKey}_seprate_bundle.zip`;
                     vData.zipBlob = await pipelineZip.generateAsync({ type: 'blob' });
                     totalProcessedVariants++;
 
@@ -5927,8 +5940,10 @@ function doPost(e) {
             if (dlZipBtn) {
                 dlZipBtn.addEventListener('click', () => {
                     if (vData.zipBlob) {
-                        triggerDownload(vData.zipBlob, vData.zipName);
-                        separateLog(`Downloaded ZIP: ${vData.zipName}`, 'info');
+                        const targetZipName = vData.zipName || defaultSepZipNames[k] || `ajio_${k}_seprate_bundle.zip`;
+                        vData.zipName = targetZipName;
+                        triggerDownload(vData.zipBlob, targetZipName);
+                        separateLog(`Downloaded ZIP: ${targetZipName}`, 'info');
                     }
                 });
             }
@@ -6461,8 +6476,10 @@ function doPost(e) {
             if (sepModalCurrentFilter !== 'all' && sepVariantResults[sepModalCurrentFilter]) {
                 const vData = sepVariantResults[sepModalCurrentFilter];
                 if (vData.zipBlob) {
-                    triggerDownload(vData.zipBlob, vData.zipName);
-                    separateLog(`Downloaded ZIP package: ${vData.zipName}`, 'info');
+                    const targetZipName = vData.zipName || defaultSepZipNames[sepModalCurrentFilter] || `ajio_${sepModalCurrentFilter}_seprate_bundle.zip`;
+                    vData.zipName = targetZipName;
+                    triggerDownload(vData.zipBlob, targetZipName);
+                    separateLog(`Downloaded ZIP package: ${targetZipName}`, 'info');
                 }
             } else {
                 downloadAllSepZips();
@@ -6501,6 +6518,7 @@ function doPost(e) {
                             variantColor: f.variantColor || sepVariantResults[k].color
                         }));
                         sepVariantResults[k].zipBlob = saved.results[k].zipBlob;
+                        sepVariantResults[k].zipName = (saved.results[k] && saved.results[k].zipName) ? saved.results[k].zipName : (defaultSepZipNames[k] || `ajio_${k}_seprate_bundle.zip`);
                         hasFiles = true;
                     }
                 });
@@ -14398,7 +14416,7 @@ function doPost(e) {
                 ['simple', 'details', 'summary', 'tax'].forEach(k => {
                     sepUploadedFiles[k] = null;
                     const prevVariant = sepVariantResults[k] || {};
-                    sepVariantResults[k] = { label: prevVariant.label || '', color: prevVariant.color || '', files: [], zipBlob: null, zipName: '' };
+                    sepVariantResults[k] = { label: prevVariant.label || '', color: prevVariant.color || '', files: [], zipBlob: null, zipName: (defaultSepZipNames && defaultSepZipNames[k]) ? defaultSepZipNames[k] : `ajio_${k}_seprate_bundle.zip` };
                     const input = document.getElementById(`sepFileInput${k.charAt(0).toUpperCase() + k.slice(1)}`);
                     const display = document.getElementById(`sepFileDisplay${k.charAt(0).toUpperCase() + k.slice(1)}`);
                     const dropzone = document.getElementById(`sepDropzone${k.charAt(0).toUpperCase() + k.slice(1)}`);
@@ -15101,10 +15119,10 @@ function doPost(e) {
         }
         
         let zipName = "Split_Files_Package.zip";
-        if (choice === 1 || choice === "1") zipName = "ajio_simple_seprate_budle.zip";
-        else if (choice === 2 || choice === "2") zipName = "ajio_details_seprate_budle.zip";
-        else if (choice === 3 || choice === "3") zipName = "ajio_summry_seprate_budle.zip";
-        else if (choice === 4 || choice === "4") zipName = "ajio_tax_seprate_budle.zip";
+        if (choice === 1 || choice === "1") zipName = "ajio_simple_seprate_bundle.zip";
+        else if (choice === 2 || choice === "2") zipName = "ajio_details_seprate_bundle.zip";
+        else if (choice === 3 || choice === "3") zipName = "ajio_summary_seprate_bundle.zip";
+        else if (choice === 4 || choice === "4") zipName = "ajio_tax_seprate_bundle.zip";
 
         const zip = new JSZip();
         zip.file("test_separated_file.txt", "This is a mock separated file inside the ZIP package.");
