@@ -295,6 +295,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Memory cache for the download-all zip blob
     let batchProcessedZipBlob = null;
     let batchUploadedZipName = "";
+    let batchGstZipBlob = null;
+    let batchGstZipName = "";
     let isBatchZipMode = false;
     let currentUploadedFolderName = "";
 
@@ -355,6 +357,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const processedCount = document.getElementById('processedCount');
     const procSearchInput = document.getElementById('procSearchInput');
     const downloadAllBtn = document.getElementById('downloadAllBtn');
+    const downloadGstZipBtn = document.getElementById('downloadGstZipBtn');
+    const gstZipCount = document.getElementById('gstZipCount');
     const procFilesTbody = document.getElementById('procFilesTbody');
 
     // Logger Elements
@@ -1047,7 +1051,11 @@ document.addEventListener('DOMContentLoaded', () => {
         processedReportsList = [];
         batchProcessedZipBlob = null;
         batchUploadedZipName = "";
+        batchGstZipBlob = null;
+        batchGstZipName = "";
         currentUploadedFolderName = "";
+        if (downloadGstZipBtn) downloadGstZipBtn.style.display = 'none';
+        if (gstZipCount) gstZipCount.innerText = '0';
 
         if (fileInput) fileInput.value = '';
         if (zipInput) zipInput.value = '';
@@ -1193,6 +1201,10 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (fileObj.category === 'Summary') {
                 catColor = '#059669';
                 catBg = '#ecfdf5';
+            } else if (fileObj.category === 'GST Missing') {
+                badgeClass = 'border-unmatched';
+                catColor = '#d97706';
+                catBg = '#fef3c7';
             }
 
             tr.style.borderBottom = '1px solid #f1f5f9';
@@ -1288,6 +1300,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const name = batchUploadedZipName || getAjioSummaryFilename('ajio_processed_package').replace('.xlsx', '.zip');
             triggerDownload(batchProcessedZipBlob, name);
             log(`Downloaded full package: ${name}`, 'success');
+        });
+    }
+
+    if (downloadGstZipBtn) {
+        downloadGstZipBtn.addEventListener('click', () => {
+            if (!batchGstZipBlob) {
+                showToast("No GST Not Applicable package available to download.", "warning");
+                return;
+            }
+            const name = batchGstZipName || 'GST_NOT_APPLICABLE.zip';
+            triggerDownload(batchGstZipBlob, name);
+            log(`Downloaded GST package: ${name}`, 'success');
         });
     }
 
@@ -1406,6 +1430,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (progressStepText) progressStepText.innerText = 'Transforming DropShip data to 44-Column OD Master and DT Reports...';
 
                 const outputZip = new JSZip();
+                const gstZip = new JSZip();
+                let gstFilesTotalCount = 0;
+                batchGstZipBlob = null;
+                batchGstZipName = "";
+                if (downloadGstZipBtn) downloadGstZipBtn.style.display = 'none';
+                if (gstZipCount) gstZipCount.innerText = '0';
                 processedReportsList = [];
                 let totalOrdersCount = 0;
                 let totalOdFilesCount = 0;
@@ -1810,19 +1840,22 @@ document.addEventListener('DOMContentLoaded', () => {
                             XLSX.utils.book_append_sheet(gstWb, gstWs, "GST NOT APPLICABLE");
                             const gstBuffer = XLSX.write(gstWb, { bookType: 'xlsx', type: 'array' });
                             const gstBlob = new Blob([gstBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-                            const gstFilename = "GST NOT APPLICABLE.xlsx";
+                            const gstFilename = `${subfolderName}_GST_NOT_APPLICABLE.xlsx`;
 
                             outputZip.file(`${pathPrefix}${gstFilename}`, gstBuffer);
+                            gstZip.file(gstFilename, gstBuffer);
+                            gstFilesTotalCount++;
+
                             processedReportsList.push({
                                 id: Math.random().toString(36).substring(2, 9),
                                 source: partyName,
                                 category: 'GST Missing',
-                                name: `${partyName}_GST_NOT_APPLICABLE.xlsx`,
+                                name: gstFilename,
                                 rowCount: Math.max(0, gstRows.length - 1),
                                 blob: gstBlob,
                                 aoa: gstRows
                             });
-                            log(`[${partyName}] Generated GST NOT APPLICABLE.xlsx with ${gstRows.length - 1} records.`, 'warning');
+                            log(`[${partyName}] Generated ${gstFilename} with ${gstRows.length - 1} records.`, 'warning');
                         }
                 }
 
@@ -1954,6 +1987,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 batchUploadedZipName = `${zipBaseName}_Arranged.zip`;
                 log(`Final ZIP package generated: [${batchUploadedZipName}] (${formatBytes(batchProcessedZipBlob.size)})`, 'success');
 
+                // Compile Separate GST ZIP (if any GST files created)
+                if (gstFilesTotalCount > 0) {
+                    batchGstZipBlob = await gstZip.generateAsync({ type: 'blob' });
+                    batchGstZipName = `${zipBaseName}_GST_NOT_APPLICABLE.zip`;
+                    if (downloadGstZipBtn) {
+                        downloadGstZipBtn.style.display = 'inline-flex';
+                    }
+                    if (gstZipCount) {
+                        gstZipCount.innerText = gstFilesTotalCount;
+                    }
+                    log(`GST ZIP package generated: [${batchGstZipName}] with ${gstFilesTotalCount} file(s) (${formatBytes(batchGstZipBlob.size)})`, 'success');
+                } else {
+                    batchGstZipBlob = null;
+                    batchGstZipName = "";
+                    if (downloadGstZipBtn) {
+                        downloadGstZipBtn.style.display = 'none';
+                    }
+                    if (gstZipCount) {
+                        gstZipCount.innerText = '0';
+                    }
+                }
+
                 // Update Dashboard Cards
                 if (statTotal) statTotal.innerText = totalOrdersCount.toLocaleString();
                 if (statOd) statOd.innerText = totalOdFilesCount.toString();
@@ -1995,7 +2050,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 // Note: Auto download disabled per user request. User can click "Download All (ZIP)" button.
-                log(`Pipeline finished! Click "Download All (ZIP)" to download [${batchUploadedZipName}].`, 'success');
+                if (gstFilesTotalCount > 0) {
+                    log(`Pipeline finished! Click "Download All (ZIP)" to download [${batchUploadedZipName}] or "Download GST (ZIP)" to download [${batchGstZipName}].`, 'success');
+                } else {
+                    log(`Pipeline finished! Click "Download All (ZIP)" to download [${batchUploadedZipName}].`, 'success');
+                }
 
                 // Auto push to Google Sheets if configured
                 const apiUrl = GOOGLE_SHEETS_SCRIPT_URL;
