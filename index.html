@@ -1366,6 +1366,9 @@
                     </div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                    <button class="btn" id="modalHeaderDeleteSelectedBtn" type="button" style="display: none; background: linear-gradient(135deg, #ef4444, #dc2626); color: white; font-size: 0.82rem; padding: 0.45rem 0.9rem; align-items: center; gap: 0.4rem; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.25);" title="Delete selected files">
+                        <i class="fa-solid fa-trash-can"></i> Delete Selected (<span id="modalHeaderSelectedCount">0</span>)
+                    </button>
                     <button class="btn" id="modalHeaderMoveToMergeBtn" type="button" style="background: linear-gradient(135deg, #0ea5e9, #0284c7); color: white; font-size: 0.82rem; padding: 0.45rem 0.9rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; box-shadow: 0 2px 4px rgba(14, 165, 233, 0.25);">
                         <i class="fa-solid fa-code-merge"></i> Move to Merge
                     </button>
@@ -1399,6 +1402,9 @@
                     <table class="rename-table">
                         <thead>
                             <tr>
+                                <th style="width: 42px; text-align: center;">
+                                    <input type="checkbox" id="modalRenSelectAllCheckbox" title="Select All Visible Files" style="cursor: pointer; width: 16px; height: 16px; accent-color: #ef4444; vertical-align: middle;">
+                                </th>
                                 <th style="width: 45px; text-align: center;">#</th>
                                 <th style="width: 135px;">Status</th>
                                 <th style="width: 105px;">Suffix Code</th>
@@ -1422,6 +1428,9 @@
                     Showing 0 files
                 </div>
                 <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button type="button" class="btn" id="modalFooterDeleteSelectedBtn" style="display: none; background: linear-gradient(135deg, #ef4444, #dc2626); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; border: none; cursor: pointer; align-items: center; gap: 0.45rem; box-shadow: 0 2px 6px rgba(239, 68, 68, 0.3);" title="Delete selected files">
+                        <i class="fa-solid fa-trash-can"></i> Delete Selected (<span id="modalFooterSelectedCount">0</span>)
+                    </button>
                     <button type="button" class="btn" id="modalFooterMoveToMergeBtn" style="background: linear-gradient(135deg, #0ea5e9, #0284c7); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 0.45rem; box-shadow: 0 2px 6px rgba(14, 165, 233, 0.3);">
                         <i class="fa-solid fa-code-merge"></i> Move to Merge
                     </button>
@@ -1457,6 +1466,9 @@
                     </div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                    <button class="btn" id="modalGmHeaderDeleteSelectedBtn" type="button" style="display: none; background: linear-gradient(135deg, #ef4444, #dc2626); color: white; font-size: 0.82rem; padding: 0.45rem 0.9rem; align-items: center; gap: 0.4rem; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.25);" title="Delete selected files">
+                        <i class="fa-solid fa-trash-can"></i> Delete Selected (<span id="modalGmHeaderSelectedCount">0</span>)
+                    </button>
                     <button class="btn btn-success" id="modalGmHeaderMoveToFolderBtn" type="button" style="background: linear-gradient(135deg, #059669, #10b981); color: white; font-size: 0.82rem; padding: 0.45rem 0.9rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; box-shadow: 0 2px 4px rgba(5, 150, 105, 0.25);">
                         <i class="fa-solid fa-folder-plus"></i> Move to Folder Create
                     </button>
@@ -1483,6 +1495,9 @@
                     <table class="rename-table">
                         <thead>
                             <tr>
+                                <th style="width: 42px; text-align: center;">
+                                    <input type="checkbox" id="modalGmSelectAllCheckbox" title="Select All Visible Files" style="cursor: pointer; width: 16px; height: 16px; accent-color: #ef4444; vertical-align: middle;">
+                                </th>
                                 <th style="width: 45px; text-align: center;">#</th>
                                 <th style="width: 130px; text-align: center;">Group Code</th>
                                 <th style="min-width: 320px;">Merged File Name</th>
@@ -1505,6 +1520,9 @@
                     Showing 0 files
                 </div>
                 <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button type="button" class="btn" id="modalGmFooterDeleteSelectedBtn" style="display: none; background: linear-gradient(135deg, #ef4444, #dc2626); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; border: none; cursor: pointer; align-items: center; gap: 0.45rem; box-shadow: 0 2px 6px rgba(239, 68, 68, 0.3);" title="Delete selected files">
+                        <i class="fa-solid fa-trash-can"></i> Delete Selected (<span id="modalGmFooterSelectedCount">0</span>)
+                    </button>
                     <button type="button" class="btn" id="modalGmFooterMoveToFolderBtn" style="background: linear-gradient(135deg, #059669, #10b981); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 0.45rem; box-shadow: 0 2px 6px rgba(5, 150, 105, 0.3);">
                         <i class="fa-solid fa-folder-plus"></i> Move to Folder Create
                     </button>
@@ -1540,6 +1558,9 @@
                     </div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                    <button class="btn" id="modalSepHeaderDeleteSelectedBtn" type="button" style="display: none; background: linear-gradient(135deg, #ef4444, #dc2626); color: white; font-size: 0.82rem; padding: 0.45rem 0.9rem; align-items: center; gap: 0.4rem; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.25);" title="Delete selected files">
+                        <i class="fa-solid fa-trash-can"></i> Delete Selected (<span id="modalSepHeaderSelectedCount">0</span>)
+                    </button>
                     <button class="btn btn-success" id="modalSepMoveToFolderBtn" style="background: linear-gradient(135deg, #059669, #10b981); font-size: 0.82rem; padding: 0.45rem 0.9rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 8px; color: white; border: none; cursor: pointer;">
                         <i class="fa-solid fa-folder-plus"></i> Move to Folder Create
                     </button>
@@ -1573,6 +1594,9 @@
                     <table class="rename-table">
                         <thead>
                             <tr>
+                                <th style="width: 42px; text-align: center;">
+                                    <input type="checkbox" id="modalSepSelectAllCheckbox" title="Select All Visible Files" style="cursor: pointer; width: 16px; height: 16px; accent-color: #ef4444; vertical-align: middle;">
+                                </th>
                                 <th style="width: 45px; text-align: center;">#</th>
                                 <th style="width: 120px;">Variant</th>
                                 <th style="min-width: 280px;">File Name (Separated)</th>
@@ -1595,6 +1619,9 @@
                     Showing 0 files
                 </div>
                 <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button type="button" class="btn" id="modalSepFooterDeleteSelectedBtn" style="display: none; background: linear-gradient(135deg, #ef4444, #dc2626); color: white; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; border: none; cursor: pointer; align-items: center; gap: 0.45rem; box-shadow: 0 2px 6px rgba(239, 68, 68, 0.3);" title="Delete selected files">
+                        <i class="fa-solid fa-trash-can"></i> Delete Selected (<span id="modalSepFooterSelectedCount">0</span>)
+                    </button>
                     <button type="button" class="btn" id="modalSepFooterCloseBtn" style="background: #f1f5f9; color: #475569; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1.25rem; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer;">
                         Close Window
                     </button>

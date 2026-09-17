@@ -826,14 +826,51 @@ document.addEventListener('DOMContentLoaded', () => {
 
     
     /* ==========================================================================
-       VENDOR / PARTY CODE DETECTOR
+       VENDOR / PARTY CODE NORMALIZER & DETECTOR
        ========================================================================== */
+    function normalizeVendorCode(code) {
+        if (!code) return "";
+        let clean = String(code).trim();
+        // Check for AJ27S or state+S prefix (e.g. AJ27SJ02 -> J02, AJ27SJ22 -> J22, AJ27S2 -> 2, AJ27SAJ2 -> AJ2)
+        const ajPrefixMatch = clean.match(/^(?:AJ\d{2}S|[A-Z]{2}\d{2}S|S)(.+)$/i);
+        if (ajPrefixMatch) {
+            clean = ajPrefixMatch[1].trim();
+        }
+        const upper = clean.toUpperCase();
+        // AJ2 variations: AJ27SJ02, J02, 02, 2, J2, AJ2, AJ02, SJ02, S02
+        if (upper === "2" || upper === "02" || upper === "J2" || upper === "J02" || upper === "AJ2" || upper === "AJ02" || upper === "SJ02" || upper === "S02" || upper === "SJ2" || upper === "S2") {
+            return "AJ2";
+        }
+        // AJ22 variations: AJ27SJ22, J22, 22, AJ22, SJ22, S22
+        if (upper === "22" || upper === "J22" || upper === "AJ22" || upper === "SJ22" || upper === "S22") {
+            return "AJ22";
+        }
+        if (/^J0?(\d+)$/i.test(upper)) {
+            const num = parseInt(upper.replace(/^J/i, ''), 10);
+            return "AJ" + num;
+        }
+        // If it starts with 2-, 02-, J02-, J2-, AJ2-, AJ02-
+        if (/^(?:AJ0?2|J0?2|0?2)(-.*)$/i.test(clean)) {
+            return "AJ2" + RegExp.$1;
+        }
+        // If it starts with 22-, J22-, AJ22-
+        if (/^(?:AJ22|J22|22)(-.*)$/i.test(clean)) {
+            return "AJ22" + RegExp.$1;
+        }
+        // Match against vendorParties if available
+        if (typeof vendorParties !== "undefined" && Array.isArray(vendorParties) && vendorParties.length > 0) {
+            const exactMatch = vendorParties.find(v => String(v.code).trim().toUpperCase() === upper);
+            if (exactMatch) return String(exactMatch.code).trim().toUpperCase();
+        }
+        return upper;
+    }
+
     function detectVendorCode(name, relativePath) {
         if (!name && !relativePath) return null;
         const cleanName = String(name || "").trim();
         const cleanPath = String(relativePath || "").trim();
 
-        // 1. Check relative path subfolders first (e.g. "101/DropShip.xlsx" -> "101")
+        // 1. Check relative path subfolders first (e.g. "AJ2/DropShip.xlsx" -> "AJ2", "101/DropShip.xlsx" -> "101")
         if (cleanPath) {
             const normPath = cleanPath.replace(/\\/g, '/');
             const parts = normPath.split('/');
@@ -842,31 +879,42 @@ document.addEventListener('DOMContentLoaded', () => {
                 const potentialCode = cleanParts[cleanParts.length - 2].trim();
                 const m = potentialCode.match(/^([A-Za-z0-9]+)/);
                 if (m) {
-                    const code = m[1];
-                    const ajMatch = code.match(/^AJ27S(.+)$/i);
-                    if (ajMatch) return ajMatch[1].toUpperCase();
-                    return code.toUpperCase();
+                    return normalizeVendorCode(m[1]);
                 }
             }
         }
 
-        // 2. Check for AJ27S prefix in the filename (e.g. "AJ27SJ22.xlsx" or "AJ27S101-DropShip...")
-        const ajMatch = cleanName.match(/AJ27S([A-Za-z0-9]+)/i);
-        if (ajMatch) {
-            return ajMatch[1].toUpperCase();
-        }
-
-        // 3. Check filename prefix (e.g., "101-BHARVITA-AJIO..." -> "101")
+        // 2. Check filename prefix first (e.g., "AJ2-DropShip...", "AJ22-DropShip...", "101-BHARVITA-AJIO..." -> "AJ2", "AJ22", "101")
         const prefixMatch = cleanName.match(/^([A-Za-z0-9]+)-/);
         if (prefixMatch) {
-            return prefixMatch[1].toUpperCase();
+            return normalizeVendorCode(prefixMatch[1]);
         }
 
-        // 4. Fallback check: try to find any word in the filename that matches vendor codes
+        // 3. Check for AJ27S prefix in the filename (e.g. "AJ27SJ02.xlsx", "AJ27SJ22.xlsx", "AJ27S22.xlsx", "AJ27S2.xlsx")
+        const ajMatch = cleanName.match(/AJ27S([A-Za-z0-9]+)/i);
+        if (ajMatch) {
+            return normalizeVendorCode(ajMatch[1]);
+        }
+
+        // 4. Check against vendorParties database
+        if (typeof vendorParties !== "undefined" && Array.isArray(vendorParties) && vendorParties.length > 0) {
+            for (let i = 0; i < vendorParties.length; i++) {
+                const item = vendorParties[i];
+                if (!item || !item.code) continue;
+                const codeStr = String(item.code).trim();
+                if (!codeStr) continue;
+                const reg = new RegExp(`(?:^|\\b|-|_)${codeStr}(?:-|\\b|_|\\.|$)`, 'i');
+                if (reg.test(cleanName)) {
+                    return normalizeVendorCode(codeStr);
+                }
+            }
+        }
+
+        // 5. Fallback check: try to find any word in the filename that matches vendor codes
         const words = cleanName.split(/[-_\\s.]+/);
         for (const word of words) {
-            if (/^(101|AJ2|AJ22)$/i.test(word)) {
-                return word.toUpperCase();
+            if (/^(101|AJ2|AJ22|2|22|02|J2|J22|J02|AJ02)$/i.test(word)) {
+                return normalizeVendorCode(word);
             }
         }
 
@@ -1330,6 +1378,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (detectedCode) {
                         pName = detectedCode;
                     }
+                    pName = normalizeVendorCode(pName);
 
                     if (!partyGroups.has(pName)) {
                         partyGroups.set(pName, []);
@@ -1886,7 +1935,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 let zipBaseName = "";
                 if (validPartyKeys.length > 0) {
-                    zipBaseName = validPartyKeys.join('-');
+                    if (validPartyKeys.length === 1) {
+                        zipBaseName = validPartyKeys[0];
+                    } else {
+                        zipBaseName = `${validPartyKeys[0]}-${validPartyKeys[validPartyKeys.length - 1]}`;
+                    }
                 } else {
                     if (selectedFiles && selectedFiles.length > 0) {
                         const zf = selectedFiles.find(f => f.name && f.name.toLowerCase().endsWith('.zip'));
@@ -2184,17 +2237,17 @@ document.addEventListener('DOMContentLoaded', () => {
                             const outputRangeFilename = lastRangeStr !== "N/A" ? `${lastRangeStr}` : "Cleaned_OD";
                             
                             // Fallback to extract vendor code from invoice prefix
-                            let vendorCode = groupKey;
-                            if (vendorCode === "UNKNOWN") {
+                            let vendorCode = normalizeVendorCode(groupKey);
+                            if (vendorCode === "UNKNOWN" || !vendorCode) {
                                 if (invoicePrefix) {
                                     const codeMatch = invoicePrefix.match(/^AJ27S(.+)$/i);
                                     if (codeMatch) {
-                                        vendorCode = codeMatch[1].toUpperCase();
+                                        vendorCode = normalizeVendorCode(codeMatch[1]);
                                     } else {
-                                        vendorCode = invoicePrefix.toUpperCase();
+                                        vendorCode = normalizeVendorCode(invoicePrefix);
                                     }
                                 } else if (currentUploadedFolderName && /^[A-Za-z0-9]+$/.test(currentUploadedFolderName)) {
-                                    vendorCode = currentUploadedFolderName.toUpperCase();
+                                    vendorCode = normalizeVendorCode(currentUploadedFolderName);
                                 } else {
                                     vendorCode = "OUTPUT";
                                 }
@@ -2450,7 +2503,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     let zipBaseName = "";
                     if (validVendorCodes.length > 0) {
-                        zipBaseName = validVendorCodes.join('-');
+                        if (validVendorCodes.length === 1) {
+                            zipBaseName = validVendorCodes[0];
+                        } else {
+                            zipBaseName = `${validVendorCodes[0]}-${validVendorCodes[validVendorCodes.length - 1]}`;
+                        }
                     } else if (selectedFiles.length === 1 && selectedFiles[0].name.split('.').pop().toLowerCase() === 'zip') {
                         zipBaseName = selectedFiles[0].name.replace(/\.zip$/i, '').replace(/[-_]?(?:processed|arranged)$/i, '');
                     } else if (currentUploadedFolderName) {
@@ -3320,17 +3377,17 @@ function jsonResponse(data) {
             mergerProgressStepText.innerText = 'Step 5: Generating Excel sheets & packing ZIP...';
 
             // Derive vendor code from folder name or from invoice prefix
-            let folderPrefix = currentUploadedFolderName;
+            let folderPrefix = currentUploadedFolderName ? normalizeVendorCode(currentUploadedFolderName) : "";
             if (!folderPrefix) {
-                // Try to extract from invoice prefix (e.g., "AJ27S101" → "101", "AJ27SJ22" → "J22")
+                // Try to extract from invoice prefix (e.g., "AJ27S101" → "101", "AJ27SJ22" → "AJ22")
                 const invoiceKeys = Object.keys(rangeDict);
                 if (invoiceKeys.length > 0) {
                     const firstKey = invoiceKeys[0]; // e.g., "AJ27SJ22"
                     const codeMatch = firstKey.match(/^AJ27S(.+)$/i);
                     if (codeMatch) {
-                        folderPrefix = codeMatch[1]; // e.g., "J22"
+                        folderPrefix = normalizeVendorCode(codeMatch[1]); // e.g., "AJ22"
                     } else {
-                        folderPrefix = firstKey; // use full prefix as fallback
+                        folderPrefix = normalizeVendorCode(firstKey); // use full prefix as fallback
                     }
                 } else {
                     folderPrefix = "OUTPUT";
@@ -3557,11 +3614,12 @@ function jsonResponse(data) {
 
     // Helper: Find party name from local synced list, local storage cache, or filename patterns
     function getPartyNameForCode(code, filesList = []) {
-        const strCode = String(code).trim();
+        const strCode = normalizeVendorCode(code);
+        if (!strCode) return "Unknown";
         
         // 1. Check in active vendorParties
         if (Array.isArray(vendorParties) && vendorParties.length > 0) {
-            const match = vendorParties.find(v => String(v.code).trim() === strCode);
+            const match = vendorParties.find(v => normalizeVendorCode(v.code) === strCode);
             if (match && match.name && !match.name.toLowerCase().includes('unknown')) {
                 return match.name;
             }
@@ -3571,9 +3629,9 @@ function jsonResponse(data) {
         try {
             const cached = JSON.parse(localStorage.getItem('cachedVendorParties') || '[]');
             if (Array.isArray(cached) && cached.length > 0) {
-                const match = cached.find(v => String(v.code).trim() === strCode);
+                const match = cached.find(v => normalizeVendorCode(v.code) === strCode);
                 if (match && match.name && !match.name.toLowerCase().includes('unknown')) {
-                    if (!vendorParties.some(v => String(v.code).trim() === strCode)) {
+                    if (!vendorParties.some(v => normalizeVendorCode(v.code) === strCode)) {
                         vendorParties.push(match);
                     }
                     return match.name;
@@ -3583,6 +3641,13 @@ function jsonResponse(data) {
 
         // Known parties dictionary fallback
         const defaultKnownParties = {
+            "AJ2": "AJ2",
+            "AJ22": "AJ22",
+            "J02": "AJ2",
+            "02": "AJ2",
+            "2": "AJ2",
+            "J22": "AJ22",
+            "22": "AJ22",
             "101": "101-BHARVITA",
             "509": "509-VIVATRA",
             "128": "128-BAGHADELLO",
@@ -3824,7 +3889,7 @@ function jsonResponse(data) {
                 const normPath = path.replace(/\\/g, '/');
                 const parts = normPath.split('/');
                 if (parts.length > 1) {
-                    const vendorCode = parts[0].trim();
+                    const vendorCode = normalizeVendorCode(parts[0]);
                     if (!groups[vendorCode]) {
                         groups[vendorCode] = [];
                     }
@@ -4190,9 +4255,14 @@ function jsonResponse(data) {
             mergerProgressPercent.innerText = '95%';
             mergerProgressStepText.innerText = 'Compiling output ZIP package...';
 
-            const validMergerCodes = vendorCodes.filter(k => k && k !== "UNKNOWN" && k !== "Main" && k !== "All Parties");
-            validMergerCodes.sort((a, b) => (isNaN(a) || isNaN(b)) ? a.localeCompare(b, undefined, { numeric: true }) : Number(a) - Number(b));
-            const mergerZipBase = validMergerCodes.length > 0 ? validMergerCodes.join('-') : 'Batch_Merger';
+            let mergerZipBase = "Batch_Merger";
+            if (validMergerCodes.length > 0) {
+                if (validMergerCodes.length === 1) {
+                    mergerZipBase = validMergerCodes[0];
+                } else {
+                    mergerZipBase = `${validMergerCodes[0]}-${validMergerCodes[validMergerCodes.length - 1]}`;
+                }
+            }
             batchUploadedZipName = `${mergerZipBase}_Arranged.zip`;
 
             batchProcessedZipBlob = await outputZip.generateAsync({ type: 'blob' });
@@ -5410,6 +5480,14 @@ function doPost(e) {
             await rebuildSepVariantZip(vKey);
         }
 
+        const fileKey = fileObj.id || fileObj.name;
+        if (typeof selectedSepModalIds !== 'undefined') {
+            selectedSepModalIds.delete(fileKey);
+            if (typeof updateSepModalSelectionUI === 'function') {
+                updateSepModalSelectionUI();
+            }
+        }
+
         renderSeparateDashboard();
         const modal = document.getElementById('sepFullscreenModal');
         if (modal && modal.classList.contains('show')) {
@@ -5581,20 +5659,26 @@ function doPost(e) {
                         if (hyphenIdx !== -1) {
                             const prefixPart = keyVal.substring(0, hyphenIdx);
                             if (prefixPart.length === 5 && /^[A-Za-z]{2}\d{3}$/.test(prefixPart)) {
-                                displayKey = keyVal.substring(2);
+                                if (!/^AJ(?:2|22)$/i.test(prefixPart)) {
+                                    displayKey = keyVal.substring(2);
+                                }
                             }
                         } else {
                             if (keyVal.length === 5 && /^[A-Za-z]{2}\d{3}$/.test(keyVal)) {
-                                displayKey = keyVal.substring(2);
+                                if (!/^AJ(?:2|22)$/i.test(keyVal)) {
+                                    displayKey = keyVal.substring(2);
+                                }
                             }
                         }
 
                         let finalName = "";
                         if (vKey === "tax") {
-                            const firstNum = displayKey.split("-")[0];
+                            let firstNum = displayKey.split("-")[0];
+                            firstNum = normalizeVendorCode(firstNum);
                             finalName = `${firstNum}-Tax-${displayKey}-AJIO`;
                         } else {
-                            finalName = `${displayKey}${nameSuffix}`;
+                            const normKey = normalizeVendorCode(displayKey);
+                            finalName = `${normKey}${nameSuffix}`;
                         }
 
                         const outFilename = `${finalName} ${dtStamp}_${String(fileCounter).padStart(2, '0')}.xlsx`;
@@ -5854,7 +5938,9 @@ function doPost(e) {
         const searchInput = document.getElementById('modalSepSearchInput');
         if (searchInput) searchInput.value = '';
 
+        selectedSepModalIds.clear();
         renderSepModalTableRows();
+        updateSepModalSelectionUI();
         modal.classList.add('show');
     }
 
@@ -5863,6 +5949,68 @@ function doPost(e) {
         if (modal) {
             modal.classList.remove('show');
         }
+    }
+
+    let selectedSepModalIds = new Set();
+    let currentSepModalFilteredFiles = [];
+
+    function updateSepModalSelectionUI() {
+        const count = selectedSepModalIds.size;
+        const hCount = document.getElementById('modalSepHeaderSelectedCount');
+        const fCount = document.getElementById('modalSepFooterSelectedCount');
+        if (hCount) hCount.textContent = count;
+        if (fCount) fCount.textContent = count;
+
+        const hBtn = document.getElementById('modalSepHeaderDeleteSelectedBtn');
+        const fBtn = document.getElementById('modalSepFooterDeleteSelectedBtn');
+        if (hBtn) hBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+        if (fBtn) fBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+
+        const chkAll = document.getElementById('modalSepSelectAllCheckbox');
+        if (chkAll) {
+            const has = currentSepModalFilteredFiles.length > 0;
+            const all = has && currentSepModalFilteredFiles.every(f => selectedSepModalIds.has(f.id || f.name));
+            const some = has && currentSepModalFilteredFiles.some(f => selectedSepModalIds.has(f.id || f.name));
+            chkAll.checked = all;
+            chkAll.indeterminate = !all && some;
+        }
+    }
+
+    async function deleteSelectedSepFiles() {
+        const count = selectedSepModalIds.size;
+        if (count === 0) return;
+
+        const ok = await showCustomConfirm(
+            'Delete Selected Files',
+            `Are you sure you want to delete ${count} selected separated file(s)? This will update the ZIP archives.`,
+            'danger',
+            `Delete ${count} Files`
+        );
+        if (!ok) return;
+
+        const affectedVariants = new Set();
+
+        ['simple', 'details', 'summary', 'tax'].forEach(k => {
+            if (sepVariantResults[k] && Array.isArray(sepVariantResults[k].files)) {
+                const beforeLen = sepVariantResults[k].files.length;
+                sepVariantResults[k].files = sepVariantResults[k].files.filter(f => !selectedSepModalIds.has(f.id || f.name));
+                if (sepVariantResults[k].files.length !== beforeLen) {
+                    affectedVariants.add(k);
+                }
+            }
+        });
+
+        selectedSepModalIds.clear();
+
+        for (const vKey of affectedVariants) {
+            await rebuildSepVariantZip(vKey);
+        }
+
+        renderSeparateDashboard();
+        renderSepModalTableRows();
+        updateSepModalSelectionUI();
+        saveTabSession('separate_tab', { results: sepVariantResults });
+        separateLog(`Deleted ${count} file(s) across separated variants.`, 'info');
     }
 
     function renderSepModalTableRows() {
@@ -5915,24 +6063,39 @@ function doPost(e) {
             return file.name.toLowerCase().includes(query) || (file.variantLabel && file.variantLabel.toLowerCase().includes(query));
         });
 
+        // 🌟 Missing prefix / unknown files come FIRST at the TOP!
+        filtered.sort((a, b) => {
+            const aMissing = (/^(?:UNKNOWN|NONE|NOT FOUND)/i.test(a.name) || !/^\w+[-_]/i.test(a.name));
+            const bMissing = (/^(?:UNKNOWN|NONE|NOT FOUND)/i.test(b.name) || !/^\w+[-_]/i.test(b.name));
+            if (aMissing && !bMissing) return -1;
+            if (!aMissing && bMissing) return 1;
+            return 0;
+        });
+
+        currentSepModalFilteredFiles = filtered;
         tableBody.innerHTML = '';
 
         if (filtered.length === 0) {
             tableBody.innerHTML = `
                 <tr>
-                    <td colspan="7" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+                    <td colspan="8" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
                         <i class="fa-solid fa-filter-circle-xmark" style="font-size: 2rem; margin-bottom: 0.5rem; display: block; opacity: 0.5;"></i>
                         No separated files found for current filter.
                     </td>
                 </tr>
             `;
             if (summaryText) summaryText.innerText = `Showing 0 of ${allFiles.length} files`;
+            updateSepModalSelectionUI();
             return;
         }
 
         filtered.forEach((file, index) => {
+            const fileKey = file.id || file.name;
+            const isChecked = selectedSepModalIds.has(fileKey);
+            const isMissing = (/^(?:UNKNOWN|NONE|NOT FOUND)/i.test(file.name) || !/^\w+[-_]/i.test(file.name));
+
             const tr = document.createElement('tr');
-            tr.className = 'rename-row-ok';
+            tr.className = isMissing ? 'rename-row-error' : (isChecked ? 'rename-row-ok rename-row-selected' : 'rename-row-ok');
 
             const lastDot = file.name.lastIndexOf('.');
             const baseName = lastDot !== -1 ? file.name.substring(0, lastDot) : file.name;
@@ -5944,6 +6107,9 @@ function doPost(e) {
                 file.variantKey === 'summary' ? '#2563eb' : '#0d9488';
 
             tr.innerHTML = `
+                <td style="text-align: center;">
+                    <input type="checkbox" class="modal-sep-checkbox" data-id="${fileKey}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 16px; height: 16px; accent-color: #ef4444; vertical-align: middle;">
+                </td>
                 <td style="text-align: center; font-weight: 700; color: var(--text-muted);">${index + 1}</td>
                 <td>
                     <span style="background: ${file.color || '#f1f5f9'}; border: 1px solid rgba(0,0,0,0.1); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 0.75rem; color: #1e293b; display: inline-flex; align-items: center; gap: 4px;">
@@ -5998,6 +6164,24 @@ function doPost(e) {
                 </td>
             `;
 
+            // Checkbox change listener
+            const chk = tr.querySelector('.modal-sep-checkbox');
+            if (chk) {
+                chk.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        selectedSepModalIds.add(fileKey);
+                    } else {
+                        selectedSepModalIds.delete(fileKey);
+                    }
+                    if (isMissing) {
+                        tr.className = 'rename-row-error';
+                    } else {
+                        tr.className = e.target.checked ? 'rename-row-ok rename-row-selected' : 'rename-row-ok';
+                    }
+                    updateSepModalSelectionUI();
+                });
+            }
+
             // Inline Rename Edit Triggers
             const displayBox = tr.querySelector('.display-name-box');
             const editBox = tr.querySelector('.edit-name-box');
@@ -6051,7 +6235,9 @@ function doPost(e) {
             if (delBtn) {
                 delBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
+                    selectedSepModalIds.delete(fileKey);
                     deleteSepFile(file);
+                    updateSepModalSelectionUI();
                 });
             }
 
@@ -6102,6 +6288,7 @@ function doPost(e) {
         if (summaryText) {
             summaryText.innerText = `Showing ${filtered.length} of ${allFiles.length} files`;
         }
+        updateSepModalSelectionUI();
     }
 
     // Bind Separate Fullscreen Modal triggers
@@ -6110,6 +6297,28 @@ function doPost(e) {
 
     const modalSepFooterCloseBtn = document.getElementById('modalSepFooterCloseBtn');
     if (modalSepFooterCloseBtn) modalSepFooterCloseBtn.addEventListener('click', closeSepFullscreenModal);
+
+    const modalSepSelectAllCheckbox = document.getElementById('modalSepSelectAllCheckbox');
+    if (modalSepSelectAllCheckbox) {
+        modalSepSelectAllCheckbox.addEventListener('change', () => {
+            const shouldCheck = modalSepSelectAllCheckbox.checked;
+            currentSepModalFilteredFiles.forEach(f => {
+                const key = f.id || f.name;
+                if (shouldCheck) {
+                    selectedSepModalIds.add(key);
+                } else {
+                    selectedSepModalIds.delete(key);
+                }
+            });
+            renderSepModalTableRows();
+        });
+    }
+
+    const modalSepHeaderDeleteSelectedBtn = document.getElementById('modalSepHeaderDeleteSelectedBtn');
+    if (modalSepHeaderDeleteSelectedBtn) modalSepHeaderDeleteSelectedBtn.addEventListener('click', deleteSelectedSepFiles);
+
+    const modalSepFooterDeleteSelectedBtn = document.getElementById('modalSepFooterDeleteSelectedBtn');
+    if (modalSepFooterDeleteSelectedBtn) modalSepFooterDeleteSelectedBtn.addEventListener('click', deleteSelectedSepFiles);
 
     const sepFullscreenModal = document.getElementById('sepFullscreenModal');
     if (sepFullscreenModal) {
@@ -6683,14 +6892,9 @@ function doPost(e) {
             const cellVal = String(row[colIndex] || "").trim();
             if (cellVal !== "") {
                 const firstPart = cellVal.split("-")[0].trim();
-                let code = firstPart.slice(-3);
-                if (code.toUpperCase().startsWith("J")) {
-                    const num = parseInt(code.substring(1), 10);
-                    if (!isNaN(num)) {
-                        code = "AJ" + num;
-                    }
-                }
-                return code;
+                const sMatch = firstPart.match(/(?:AJ\d{2}S|[A-Z]{2}\d{2}S|S)([A-Za-z0-9]+)$/i);
+                let code = sMatch ? sMatch[1] : firstPart.slice(-3);
+                return normalizeVendorCode(code);
             }
         }
         return "";
@@ -6698,49 +6902,20 @@ function doPost(e) {
 
     // Helper: Extract party code for Option B (Column G / Tax files)
     function extractCodeFromColG(colGVal, fileName, colAVal = "") {
-        // 1. Check Column A (Company Name, e.g. "198-Gufrina (Admin)")
+        // 1. Check Column A (Company Name, e.g. "198-Gufrina (Admin)" or "AJ2-...")
         if (colAVal) {
             const cleanA = String(colAVal).trim();
-            const matchA = cleanA.match(/^(\d{2,5})[-_\s]/);
+            const matchA = cleanA.match(/^([A-Za-z0-9]+)[-_\s]/);
             if (matchA) {
-                return matchA[1];
+                const cand = normalizeVendorCode(matchA[1]);
+                if (cand) return cand;
             }
         }
 
         const cleanVal = String(colGVal || "").trim();
 
         if (cleanVal !== "") {
-            // Pattern A: Standard invoice prefix: AJ27S101-29337 or MY27S198-1578 -> extract "101" or "198"
-            const invoicePrefixMatch = cleanVal.match(/S(\d{2,5})[-_]/i);
-            if (invoicePrefixMatch) {
-                return invoicePrefixMatch[1];
-            }
-
-            // Pattern B: Starts with CGJ1 (e.g. CGJ12627-295 or CGJ1-178-INV001 -> extract 2627 or 178)
-            const cgjMatch = cleanVal.match(/CGJ1?-?(\d{2,5})[-_]/i);
-            if (cgjMatch) {
-                return cgjMatch[1];
-            }
-
-            // Pattern C: Digits immediately preceding hyphen followed by digits e.g. 198-1578 -> "198"
-            const preHyphenMatch = cleanVal.match(/(\d{2,5})-(?=\d+)/);
-            if (preHyphenMatch) {
-                return preHyphenMatch[1];
-            }
-
-            // Pattern D: Starts with digits followed by hyphen e.g. 178-INV001 -> "178"
-            if (cleanVal.includes('-')) {
-                const parts = cleanVal.split('-');
-                const firstPart = parts[0].trim();
-                if (firstPart !== "" && firstPart.toUpperCase() !== "CGJ1") {
-                    const numPart = firstPart.match(/\d{2,5}/);
-                    if (numPart) {
-                        return numPart[0];
-                    }
-                }
-            }
-
-            // Pattern E: Match against vendorParties database
+            // Check against vendorParties database first
             if (typeof vendorParties !== "undefined" && vendorParties && vendorParties.length > 0) {
                 const prefixPart = cleanVal.includes('-') ? cleanVal.split('-')[0] : cleanVal;
                 for (let i = 0; i < vendorParties.length; i++) {
@@ -6751,23 +6926,50 @@ function doPost(e) {
 
                     const codeRegex = new RegExp(`(?:^|S|\\b|-|_)${codeStr}(?:-|\\b|_|$)(?!\\d)`, 'i');
                     if (codeRegex.test(prefixPart) || codeRegex.test(cleanVal)) {
-                        return codeStr;
+                        return normalizeVendorCode(codeStr);
                     }
+                }
+            }
+
+            // Pattern A: Standard invoice prefix: AJ27S101-29337, AJ27S22-123, AJ27S2-123, AJ27SJ22-123, MY27S198-1578
+            const invoicePrefixMatch = cleanVal.match(/(?:AJ\d{2}S|[A-Z]{2}\d{2}S|S)([A-Za-z0-9]+)[-_]/i);
+            if (invoicePrefixMatch) {
+                return normalizeVendorCode(invoicePrefixMatch[1]);
+            }
+
+            // Pattern B: Starts with CGJ1 (e.g. CGJ12627-295 or CGJ1-178-INV001 -> extract 2627 or 178)
+            const cgjMatch = cleanVal.match(/CGJ1?-?(\d{2,5})[-_]/i);
+            if (cgjMatch) {
+                return normalizeVendorCode(cgjMatch[1]);
+            }
+
+            // Pattern C: Digits/code immediately preceding hyphen followed by digits e.g. 198-1578 -> "198"
+            const preHyphenMatch = cleanVal.match(/([A-Za-z0-9]+)-(?=\d+)/);
+            if (preHyphenMatch) {
+                return normalizeVendorCode(preHyphenMatch[1]);
+            }
+
+            // Pattern D: Starts with digits followed by hyphen e.g. 178-INV001 -> "178"
+            if (cleanVal.includes('-')) {
+                const parts = cleanVal.split('-');
+                const firstPart = parts[0].trim();
+                if (firstPart !== "" && firstPart.toUpperCase() !== "CGJ1") {
+                    return normalizeVendorCode(firstPart);
                 }
             }
 
             // Pattern F: Match numeric sequence of 2-5 digits
             const numMatch = cleanVal.match(/\b\d{2,5}\b/);
             if (numMatch) {
-                return numMatch[0];
+                return normalizeVendorCode(numMatch[0]);
             }
         }
 
-        // 2. Fallback: Search filename starting digits or vendorParties match
+        // 2. Fallback: Search filename
         if (fileName) {
             const cleanName = String(fileName).trim();
-            const match = cleanName.match(/^\d{2,5}/);
-            if (match) return match[0];
+            const codeFromFn = detectVendorCode(fileName, "");
+            if (codeFromFn) return normalizeVendorCode(codeFromFn);
 
             if (typeof vendorParties !== "undefined" && vendorParties && vendorParties.length > 0) {
                 for (let i = 0; i < vendorParties.length; i++) {
@@ -6775,7 +6977,7 @@ function doPost(e) {
                     if (!item || !item.code) continue;
                     const codeStr = String(item.code).trim();
                     if (codeStr && new RegExp(`(?:^|\\b|-|_)${codeStr}(?:-|\\b|_|$)`, 'i').test(cleanName)) {
-                        return codeStr;
+                        return normalizeVendorCode(codeStr);
                     }
                 }
             }
@@ -7624,6 +7826,7 @@ function doPost(e) {
         const ok = await showCustomConfirm('Delete File', `Are you sure you want to delete "${displayName}"?`, 'danger', 'Delete');
         if (!ok) return;
 
+        selectedRenModalIds.delete(fileObj.id);
         renFiles = renFiles.filter(f => f.id !== fileObj.id);
         activeRenamedFiles = activeRenamedFiles.filter(f => f.id !== fileObj.id);
 
@@ -7636,6 +7839,7 @@ function doPost(e) {
             renIsProcessed = false;
         }
 
+        updateRenModalSelectionUI();
         updateRenUploadBadges();
         renderRenameState();
         renderModalTableRows();
@@ -7658,13 +7862,76 @@ function doPost(e) {
     const modalFooterMoveToMergeBtn = document.getElementById('modalFooterMoveToMergeBtn');
     const modalFooterCloseBtn = document.getElementById('modalFooterCloseBtn');
     const modalFooterDownloadBtn = document.getElementById('modalFooterDownloadBtn');
+    const modalHeaderDeleteSelectedBtn = document.getElementById('modalHeaderDeleteSelectedBtn');
+    const modalFooterDeleteSelectedBtn = document.getElementById('modalFooterDeleteSelectedBtn');
+    const modalRenSelectAllCheckbox = document.getElementById('modalRenSelectAllCheckbox');
+
+    let selectedRenModalIds = new Set();
+    let currentModalFilteredFiles = [];
+
+    function updateRenModalSelectionUI() {
+        const count = selectedRenModalIds.size;
+        const headerCountEl = document.getElementById('modalHeaderSelectedCount');
+        const footerCountEl = document.getElementById('modalFooterSelectedCount');
+        if (headerCountEl) headerCountEl.textContent = count;
+        if (footerCountEl) footerCountEl.textContent = count;
+
+        if (modalHeaderDeleteSelectedBtn) {
+            modalHeaderDeleteSelectedBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+        }
+        if (modalFooterDeleteSelectedBtn) {
+            modalFooterDeleteSelectedBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+        }
+
+        if (modalRenSelectAllCheckbox) {
+            const hasFiles = currentModalFilteredFiles.length > 0;
+            const allSelected = hasFiles && currentModalFilteredFiles.every(f => selectedRenModalIds.has(f.id));
+            const someSelected = hasFiles && currentModalFilteredFiles.some(f => selectedRenModalIds.has(f.id));
+            modalRenSelectAllCheckbox.checked = allSelected;
+            modalRenSelectAllCheckbox.indeterminate = !allSelected && someSelected;
+        }
+    }
+
+    async function deleteSelectedRenamedFiles() {
+        const count = selectedRenModalIds.size;
+        if (count === 0) return;
+
+        const ok = await showCustomConfirm(
+            'Delete Selected Files',
+            `Are you sure you want to delete ${count} selected file(s)? This action cannot be undone.`,
+            'danger',
+            `Delete ${count} Files`
+        );
+        if (!ok) return;
+
+        renFiles = renFiles.filter(f => !selectedRenModalIds.has(f.id));
+        activeRenamedFiles = activeRenamedFiles.filter(f => !selectedRenModalIds.has(f.id));
+        selectedRenModalIds.clear();
+
+        if (activeRenamedFiles.length > 0) {
+            await rebuildRenZip();
+        } else {
+            renZipBlob = null;
+            renOrderZipBlob = null;
+            renTaxZipBlob = null;
+            renIsProcessed = false;
+        }
+
+        updateRenModalSelectionUI();
+        updateRenUploadBadges();
+        renderRenameState();
+        renderModalTableRows();
+        renLog(`Deleted ${count} selected file(s)`, 'info');
+    }
 
     function openRenameModal(files, defaultFilter = 'all') {
         if (!renFullscreenModal) return;
         renModalCurrentFilter = defaultFilter;
         updateModalFilterTabsUI();
         if (modalRenSearchInput) modalRenSearchInput.value = '';
+        selectedRenModalIds.clear();
         renderModalTableRows();
+        updateRenModalSelectionUI();
         renFullscreenModal.classList.add('show');
     }
 
@@ -7698,6 +7965,23 @@ function doPost(e) {
             renderModalTableRows();
         });
     }
+
+    if (modalRenSelectAllCheckbox) {
+        modalRenSelectAllCheckbox.addEventListener('change', () => {
+            const shouldCheck = modalRenSelectAllCheckbox.checked;
+            currentModalFilteredFiles.forEach(f => {
+                if (shouldCheck) {
+                    selectedRenModalIds.add(f.id);
+                } else {
+                    selectedRenModalIds.delete(f.id);
+                }
+            });
+            renderModalTableRows();
+        });
+    }
+
+    if (modalHeaderDeleteSelectedBtn) modalHeaderDeleteSelectedBtn.addEventListener('click', deleteSelectedRenamedFiles);
+    if (modalFooterDeleteSelectedBtn) modalFooterDeleteSelectedBtn.addEventListener('click', deleteSelectedRenamedFiles);
 
     if (modalDownloadAllZipBtn) modalDownloadAllZipBtn.addEventListener('click', () => downloadRenZip('all'));
     if (modalFooterDownloadBtn) modalFooterDownloadBtn.addEventListener('click', () => downloadRenZip('all'));
@@ -7751,18 +8035,31 @@ function doPost(e) {
             return true;
         });
 
+        // 🌟 Missing Suffix / Prefix files come FIRST at the TOP!
+        filtered.sort((a, b) => {
+            const aMissing = (!a.hasSuffix || !a.renameCode || a.renameCode === "Not Found");
+            const bMissing = (!b.hasSuffix || !b.renameCode || b.renameCode === "Not Found");
+            if (aMissing && !bMissing) return -1;
+            if (!aMissing && bMissing) return 1;
+            return 0;
+        });
+
+        currentModalFilteredFiles = filtered;
+
         tableBody.innerHTML = '';
 
         if (filtered.length === 0) {
-            tableBody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem; font-size: 0.85rem;">No files found matching criteria.</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem; font-size: 0.85rem;">No files found matching criteria.</td></tr>`;
             if (summaryText) summaryText.innerText = `Showing 0 of ${activeRenamedFiles.length} files`;
+            updateRenModalSelectionUI();
             return;
         }
 
         filtered.forEach((file, idx) => {
             const isMissing = !file.hasSuffix || !file.renameCode || file.renameCode === "Not Found";
+            const isChecked = selectedRenModalIds.has(file.id);
             const tr = document.createElement('tr');
-            tr.className = isMissing ? 'row-missing-suffix' : 'row-valid-suffix';
+            tr.className = isMissing ? 'rename-row-error' : (isChecked ? 'rename-row-ok rename-row-selected' : 'rename-row-ok');
 
             const statusBadge = isMissing
                 ? `<span class="rename-table-badge danger"><i class="fa-solid fa-circle-xmark"></i> Missing Suffix</span>`
@@ -7773,6 +8070,9 @@ function doPost(e) {
                 : `<span style="color: #dc2626; font-weight: 600; font-size: 0.75rem;">None</span>`;
 
             tr.innerHTML = `
+                <td style="text-align: center;">
+                    <input type="checkbox" class="modal-ren-checkbox" data-id="${file.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 16px; height: 16px; accent-color: #ef4444; vertical-align: middle;">
+                </td>
                 <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
                 <td>${statusBadge}</td>
                 <td>${codeDisplay}</td>
@@ -7799,6 +8099,23 @@ function doPost(e) {
                 </td>
             `;
 
+            const chk = tr.querySelector('.modal-ren-checkbox');
+            if (chk) {
+                chk.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        selectedRenModalIds.add(file.id);
+                    } else {
+                        selectedRenModalIds.delete(file.id);
+                    }
+                    if (isMissing) {
+                        tr.className = 'rename-row-error';
+                    } else {
+                        tr.className = e.target.checked ? 'rename-row-ok rename-row-selected' : 'rename-row-ok';
+                    }
+                    updateRenModalSelectionUI();
+                });
+            }
+
             const inspectBtn = tr.querySelector('.modal-inspect-btn');
             if (inspectBtn) inspectBtn.addEventListener('click', () => openExcelDataViewer(file));
 
@@ -7821,6 +8138,7 @@ function doPost(e) {
         if (summaryText) {
             summaryText.innerText = `Showing ${filtered.length} of ${activeRenamedFiles.length} files`;
         }
+        updateRenModalSelectionUI();
     }
 
 
@@ -8391,7 +8709,8 @@ function doPost(e) {
         const extIdx = filename.lastIndexOf('.');
         const baseName = extIdx !== -1 ? filename.substring(0, extIdx) : filename;
         const parts = baseName.split('-');
-        return parts[parts.length - 1].trim();
+        const last = parts[parts.length - 1].trim();
+        return normalizeVendorCode(last);
     }
 
     function moveToFolderCreateFromMerge() {
@@ -8452,6 +8771,14 @@ function doPost(e) {
         const displayName = fileObj.name || 'this merged file';
         const ok = await showCustomConfirm('Delete Merged File', `Are you sure you want to delete "${displayName}"?`, 'danger', 'Delete');
         if (!ok) return;
+
+        const fileKey = fileObj.id || fileObj.name;
+        if (typeof selectedGmModalIds !== 'undefined') {
+            selectedGmModalIds.delete(fileKey);
+            if (typeof updateGmModalSelectionUI === 'function') {
+                updateGmModalSelectionUI();
+            }
+        }
 
         gmMergedList = gmMergedList.filter(f => f !== fileObj && f.name !== fileObj.name);
         await rebuildGmZip();
@@ -8631,6 +8958,73 @@ function doPost(e) {
         }
     }
 
+    let selectedGmModalIds = new Set();
+    let currentGmModalFilteredFiles = [];
+
+    function updateGmModalSelectionUI() {
+        const count = selectedGmModalIds.size;
+        const hCount = document.getElementById('modalGmHeaderSelectedCount');
+        const fCount = document.getElementById('modalGmFooterSelectedCount');
+        if (hCount) hCount.textContent = count;
+        if (fCount) fCount.textContent = count;
+
+        const hBtn = document.getElementById('modalGmHeaderDeleteSelectedBtn');
+        const fBtn = document.getElementById('modalGmFooterDeleteSelectedBtn');
+        if (hBtn) hBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+        if (fBtn) fBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+
+        const chkAll = document.getElementById('modalGmSelectAllCheckbox');
+        if (chkAll) {
+            const has = currentGmModalFilteredFiles.length > 0;
+            const all = has && currentGmModalFilteredFiles.every(f => selectedGmModalIds.has(f.id || f.name));
+            const some = has && currentGmModalFilteredFiles.some(f => selectedGmModalIds.has(f.id || f.name));
+            chkAll.checked = all;
+            chkAll.indeterminate = !all && some;
+        }
+    }
+
+    async function deleteSelectedMergedFiles() {
+        const count = selectedGmModalIds.size;
+        if (count === 0) return;
+
+        const ok = await showCustomConfirm(
+            'Delete Selected Merged Files',
+            `Are you sure you want to delete ${count} selected merged file(s)? This action cannot be undone.`,
+            'danger',
+            `Delete ${count} Files`
+        );
+        if (!ok) return;
+
+        gmMergedList = gmMergedList.filter(f => !selectedGmModalIds.has(f.id || f.name));
+        selectedGmModalIds.clear();
+
+        await rebuildGmZip();
+
+        if (gmMergedList.length === 0) {
+            gmZipBlob = null;
+            closeGmModal();
+            if (gmOutputContainer) {
+                gmOutputContainer.innerHTML = `
+                    <div class="empty-output-state">
+                        <i class="fa-solid fa-code-merge placeholder-icon"></i>
+                        <p>Upload files and click process to merge by filename suffix.</p>
+                    </div>
+                `;
+                gmOutputContainer.className = 'processed-container empty';
+            }
+            if (gmStatus) {
+                gmStatus.className = 'status-indicator idle';
+                gmStatus.innerText = 'Idle';
+            }
+        } else {
+            renderGmDashboard(gmMergedList);
+            renderGmModalTableRows();
+        }
+
+        updateGmModalSelectionUI();
+        gmLog(`Deleted ${count} merged file(s).`, 'info');
+    }
+
     function openGmModal(files) {
         const modal = document.getElementById('gmFullscreenModal');
         if (!modal) return;
@@ -8648,7 +9042,9 @@ function doPost(e) {
         const searchInput = document.getElementById('modalGmSearchInput');
         if (searchInput) searchInput.value = '';
 
+        selectedGmModalIds.clear();
         renderGmModalTableRows();
+        updateGmModalSelectionUI();
         modal.classList.add('show');
     }
 
@@ -8673,30 +9069,48 @@ function doPost(e) {
                    (file.groupKey && file.groupKey.toLowerCase().includes(query));
         });
 
+        // 🌟 Missing / Unknown prefix or groupKey files come FIRST at the top!
+        filtered.sort((a, b) => {
+            const aMissing = (!a.groupKey || a.groupKey === 'UNKNOWN' || a.groupKey === 'Not Found' || a.groupKey === 'None');
+            const bMissing = (!b.groupKey || b.groupKey === 'UNKNOWN' || b.groupKey === 'Not Found' || b.groupKey === 'None');
+            if (aMissing && !bMissing) return -1;
+            if (!aMissing && bMissing) return 1;
+            return 0;
+        });
+
+        currentGmModalFilteredFiles = filtered;
         tableBody.innerHTML = '';
 
         if (filtered.length === 0) {
             tableBody.innerHTML = `
                 <tr>
-                    <td colspan="7" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+                    <td colspan="8" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
                         <i class="fa-solid fa-filter-circle-xmark" style="font-size: 2rem; margin-bottom: 0.5rem; display: block; opacity: 0.5;"></i>
                         No merged files matching current criteria.
                     </td>
                 </tr>
             `;
             if (summaryText) summaryText.innerText = `Showing 0 of ${gmMergedList.length} files`;
+            updateGmModalSelectionUI();
             return;
         }
 
         filtered.forEach((file, index) => {
+            const fileKey = file.id || file.name;
+            const isChecked = selectedGmModalIds.has(fileKey);
+            const isMissing = (!file.groupKey || file.groupKey === 'UNKNOWN' || file.groupKey === 'Not Found' || file.groupKey === 'None');
+
             const tr = document.createElement('tr');
-            tr.className = 'rename-row-ok';
+            tr.className = isMissing ? 'rename-row-error' : (isChecked ? 'rename-row-ok rename-row-selected' : 'rename-row-ok');
 
             tr.innerHTML = `
+                <td style="text-align: center;">
+                    <input type="checkbox" class="modal-gm-checkbox" data-id="${fileKey}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 16px; height: 16px; accent-color: #ef4444; vertical-align: middle;">
+                </td>
                 <td style="text-align: center; font-weight: 700; color: var(--text-muted);">${index + 1}</td>
                 <td style="text-align: center;">
-                    <span style="font-family: monospace; font-weight: 700; background: #ede9fe; color: #6d28d9; border: 1px solid #d8b4fe; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">
-                        ${file.groupKey || 'GROUP'}
+                    <span style="font-family: monospace; font-weight: 700; background: ${isMissing ? '#fee2e2' : '#ede9fe'}; color: ${isMissing ? '#b91c1c' : '#6d28d9'}; border: 1px solid ${isMissing ? '#fca5a5' : '#d8b4fe'}; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">
+                        ${file.groupKey || 'UNKNOWN'}
                     </span>
                 </td>
                 <td>
@@ -8727,6 +9141,24 @@ function doPost(e) {
                 </td>
             `;
 
+            // Checkbox change listener
+            const chk = tr.querySelector('.modal-gm-checkbox');
+            if (chk) {
+                chk.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        selectedGmModalIds.add(fileKey);
+                    } else {
+                        selectedGmModalIds.delete(fileKey);
+                    }
+                    if (isMissing) {
+                        tr.className = 'rename-row-error';
+                    } else {
+                        tr.className = e.target.checked ? 'rename-row-ok rename-row-selected' : 'rename-row-ok';
+                    }
+                    updateGmModalSelectionUI();
+                });
+            }
+
             const nameText = tr.querySelector('.gm-file-name-text');
             if (nameText) {
                 nameText.addEventListener('click', (e) => {
@@ -8756,7 +9188,9 @@ function doPost(e) {
             if (delBtn) {
                 delBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
+                    selectedGmModalIds.delete(fileKey);
                     await deleteMergedFile(file);
+                    updateGmModalSelectionUI();
                 });
             }
 
@@ -8766,6 +9200,7 @@ function doPost(e) {
         if (summaryText) {
             summaryText.innerText = `Showing ${filtered.length} of ${gmMergedList.length} files`;
         }
+        updateGmModalSelectionUI();
     }
 
     // Bind Merge Full View Modal Controls
@@ -8774,6 +9209,28 @@ function doPost(e) {
 
     const modalGmFooterCloseBtn = document.getElementById('modalGmFooterCloseBtn');
     if (modalGmFooterCloseBtn) modalGmFooterCloseBtn.addEventListener('click', closeGmModal);
+
+    const modalGmSelectAllCheckbox = document.getElementById('modalGmSelectAllCheckbox');
+    if (modalGmSelectAllCheckbox) {
+        modalGmSelectAllCheckbox.addEventListener('change', () => {
+            const shouldCheck = modalGmSelectAllCheckbox.checked;
+            currentGmModalFilteredFiles.forEach(f => {
+                const key = f.id || f.name;
+                if (shouldCheck) {
+                    selectedGmModalIds.add(key);
+                } else {
+                    selectedGmModalIds.delete(key);
+                }
+            });
+            renderGmModalTableRows();
+        });
+    }
+
+    const modalGmHeaderDeleteSelectedBtn = document.getElementById('modalGmHeaderDeleteSelectedBtn');
+    if (modalGmHeaderDeleteSelectedBtn) modalGmHeaderDeleteSelectedBtn.addEventListener('click', deleteSelectedMergedFiles);
+
+    const modalGmFooterDeleteSelectedBtn = document.getElementById('modalGmFooterDeleteSelectedBtn');
+    if (modalGmFooterDeleteSelectedBtn) modalGmFooterDeleteSelectedBtn.addEventListener('click', deleteSelectedMergedFiles);
 
     const modalGmHeaderMoveToFolderBtn = document.getElementById('modalGmHeaderMoveToFolderBtn');
     if (modalGmHeaderMoveToFolderBtn) modalGmHeaderMoveToFolderBtn.addEventListener('click', () => {
@@ -9206,18 +9663,6 @@ function doPost(e) {
                     finalHeader[targetColDetails] = "Zoho Status"; 
                 }
                 processedDetailsAoa.push(finalHeader);
-
-                // Parse date range values
-                let fromDate = null;
-                let toDate = null;
-                if (fromDateVal) {
-                    fromDate = new Date(fromDateVal);
-                    fromDate.setHours(0, 0, 0, 0);
-                }
-                if (toDateVal) {
-                    toDate = new Date(toDateVal);
-                    toDate.setHours(23, 59, 59, 999);
-                }
 
                 // Date parsing helper
                 function parseExcelDate(val) {
@@ -12027,8 +12472,9 @@ function doPost(e) {
                     fcFiles.forEach(fileObj => {
                         const filename = fileObj.name;
                         if (filename.includes('-')) {
-                            const prefix = filename.split('-')[0].trim();
+                            let prefix = filename.split('-')[0].trim();
                             if (prefix !== "") {
+                                prefix = normalizeVendorCode(prefix);
                                 if (!groups[prefix]) {
                                     groups[prefix] = [];
                                 }
@@ -12046,8 +12492,9 @@ function doPost(e) {
                     }
                 } else {
                     fcFiles.forEach(fileObj => {
-                        const folderName = fileObj.folderName;
+                        let folderName = fileObj.folderName;
                         if (folderName) {
+                            folderName = normalizeVendorCode(folderName);
                             if (!groups[folderName]) {
                                 groups[folderName] = [];
                             }

@@ -2130,6 +2130,19 @@ input:checked + .slider:before {
     color: #991b1b;
 }
 
+.rename-row-selected {
+    background: #f5f3ff !important;
+}
+
+.rename-row-selected:hover {
+    background: #ede9fe !important;
+}
+
+.rename-row-error.rename-row-selected {
+    background: #fee2e2 !important;
+    border-left: 5px solid #b91c1c !important;
+}
+
 .rename-modal-footer {
     padding: 0.85rem 1.5rem;
     border-top: 1px solid var(--border-color);
