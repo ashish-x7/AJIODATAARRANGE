@@ -706,9 +706,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const sellingPrice = drFields.B2B_Selling_Price !== "" ? (Number(drFields.B2B_Selling_Price) || drFields.B2B_Selling_Price) : "";
             const totalPrice = drFields.B2B_Base_Price !== "" ? (Number(drFields.B2B_Base_Price) || 0) : 0; // Col AF
             
-            // Col AE = Col AF / Col V
-            const basePriceNum = shippedQty > 0 ? (totalPrice / shippedQty) : totalPrice;
-            const basePrice = Math.round(basePriceNum * 100) / 100;
+            // Col AE (Base Price) = Direct Total Price (Col AF)
+            const basePrice = Math.round(totalPrice * 100) / 100;
 
             // GST Rule: If Base Price < 2500 -> 2.5%, else 9%
             const gstPct = basePrice < 2500 ? 2.5 : 9.0;
@@ -3092,6 +3091,96 @@ function jsonResponse(data) {
             reader.onerror = (e) => reject(e.target.error);
             reader.readAsArrayBuffer(file);
         });
+    }
+
+    // Universal Spreadsheet or CSV Parser (returns Array-of-Arrays / AOA)
+    async function parseSpreadsheetOrCsv(file) {
+        if (!file) return [];
+        const fileName = (file.name || "").toLowerCase();
+
+        // 1. Check file magic bytes to detect true binary Excel format (XLS or XLSX) even if named .csv!
+        let isBinaryExcel = false;
+        try {
+            const headBuf = await file.slice(0, 16).arrayBuffer();
+            const bytes = new Uint8Array(headBuf);
+            // PK.. (ZIP / XLSX): 0x50 0x4B 0x03 0x04
+            const isZip = bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4B && bytes[2] === 0x03 && bytes[3] === 0x04;
+            // OLE2 / XLS (Excel 97-2004 binary): 0xD0 0xCF 0x11 0xE0 0xA1 0xB1 0x1A 0xE1
+            const isOle = bytes.length >= 8 && bytes[0] === 0xD0 && bytes[1] === 0xCF && bytes[2] === 0x11 && bytes[3] === 0xE0 && bytes[4] === 0xA1 && bytes[5] === 0xB1;
+            if (isZip || isOle) {
+                isBinaryExcel = true;
+            }
+        } catch (e) {
+            console.warn("Could not check magic bytes:", e);
+        }
+
+        // If it's a binary Excel file (or extension is .xlsx/.xls)
+        if (isBinaryExcel || fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+            try {
+                const buffer = await readFileAsArrayBuffer(file);
+                const wb = XLSX.read(buffer, { type: 'array', cellDates: true, defval: "" });
+                let sheetName = wb.SheetNames[0];
+                if (wb.SheetNames.length > 1) {
+                    for (const s of wb.SheetNames) {
+                        const low = s.toLowerCase();
+                        if (low.includes('data') || low.includes('ajio') || low.includes('details') || low.includes('order')) {
+                            sheetName = s;
+                            break;
+                        }
+                    }
+                }
+                const ws = wb.Sheets[sheetName];
+                const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+                if (aoa && aoa.length > 0) {
+                    return aoa;
+                }
+            } catch (err) {
+                console.warn("XLSX.read failed, checking if plain text CSV:", err);
+            }
+        }
+
+        // 2. Parse plain text CSV via PapaParse
+        if (typeof Papa !== 'undefined') {
+            return new Promise((resolve, reject) => {
+                Papa.parse(file, {
+                    header: false,
+                    skipEmptyLines: false,
+                    dynamicTyping: false,
+                    complete: (results) => {
+                        const rows = (results.data || []).map(r => 
+                            Array.isArray(r) ? r.map(c => c === null || c === undefined ? "" : String(c)) : []
+                        );
+                        // If output contains NUL bytes or binary artifacts, fallback to XLSX.read
+                        if (rows.length > 0 && rows[0].some(cell => typeof cell === 'string' && cell.includes('\x00'))) {
+                            readFileAsArrayBuffer(file).then(buf => {
+                                try {
+                                    const wb = XLSX.read(buf, { type: 'array', cellDates: true, defval: "" });
+                                    const ws = wb.Sheets[wb.SheetNames[0]];
+                                    resolve(XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }));
+                                } catch (e) {
+                                    resolve(rows);
+                                }
+                            }).catch(() => resolve(rows));
+                            return;
+                        }
+                        resolve(rows);
+                    },
+                    error: (err) => {
+                        console.warn("Papa.parse error, falling back to XLSX.read:", err);
+                        readFileAsArrayBuffer(file).then(buf => {
+                            try {
+                                const wb = XLSX.read(buf, { type: 'array', cellDates: true, defval: "" });
+                                const ws = wb.Sheets[wb.SheetNames[0]];
+                                resolve(XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }));
+                            } catch (e) {
+                                reject(e);
+                            }
+                        }).catch(reject);
+                    }
+                });
+            });
+        }
+        return [];
     }
 
     // Smart Status Normalizer
@@ -6906,6 +6995,14 @@ function doPost(e) {
         const extIdx = file.name.lastIndexOf('.');
         const ext = extIdx !== -1 ? file.name.substring(extIdx + 1) : 'xlsx';
 
+        // Pre-compute initial renameCode so staged table immediately displays detected code
+        let initialCode = "";
+        if (methodType === 'p2') {
+            initialCode = extractCodeFromColF(aoa);
+        } else {
+            initialCode = extractCodeFromColG(colGVal, file.name, colAVal);
+        }
+
         renFiles.push({
             id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
             name: file.name,
@@ -6917,7 +7014,7 @@ function doPost(e) {
             rowCount: aoa ? Math.max(0, aoa.length - 1) : 0,
             colGValue: colGVal,
             colAValue: colAVal,
-            renameCode: "",
+            renameCode: initialCode || "",
             renamedName: file.name,
             newName: file.name,
             blob: null,
@@ -6962,15 +7059,23 @@ function doPost(e) {
     // Helper: Extract party / rename code for Option A (Column F)
     function extractCodeFromColF(aoa) {
         if (!aoa || aoa.length <= 1) return "";
-        const colIndex = 5; // Column F (0-indexed)
-        for (let r = 1; r < aoa.length; r++) {
+        let colIndex = 5; // Column F (0-indexed)
+        const headerRow = aoa[0] || [];
+        for (let c = 0; c < headerRow.length; c++) {
+            const h = String(headerRow[c] || "").toLowerCase().trim();
+            if (h.includes("party") || h.includes("vendor") || h.includes("seller code")) {
+                colIndex = c;
+                break;
+            }
+        }
+        for (let r = 1; r < Math.min(aoa.length, 50); r++) {
             const row = aoa[r];
             if (!row) continue;
             const cellVal = String(row[colIndex] || "").trim();
-            if (cellVal !== "") {
+            if (cellVal !== "" && !cellVal.toLowerCase().includes("header") && !cellVal.toLowerCase().includes("party")) {
                 const firstPart = cellVal.split("-")[0].trim();
                 const sMatch = firstPart.match(/(?:AJ\d{2}S|[A-Z]{2}\d{2}S|S)([A-Za-z0-9]+)$/i);
-                let code = sMatch ? sMatch[1] : firstPart.slice(-3);
+                let code = sMatch ? sMatch[1] : (firstPart.match(/^[A-Za-z0-9]+/)?.[0] || firstPart.slice(-3));
                 return normalizeVendorCode(code);
             }
         }
@@ -6979,7 +7084,7 @@ function doPost(e) {
 
     // Helper: Extract party code for Option B (Column G / Tax files)
     function extractCodeFromColG(colGVal, fileName, colAVal = "") {
-        // 1. Check Column A (Company Name, e.g. "198-Gufrina (Admin)" or "AJ2-...")
+        // 1. Check Column A (Company Name, e.g. "198-Gufrina (Admin)" or "230-JYESHTA")
         if (colAVal) {
             const cleanA = String(colAVal).trim();
             const matchA = cleanA.match(/^([A-Za-z0-9]+)[-_\s]/);
@@ -6992,23 +7097,8 @@ function doPost(e) {
         const cleanVal = String(colGVal || "").trim();
 
         if (cleanVal !== "") {
-            // Check against vendorParties database first
-            if (typeof vendorParties !== "undefined" && vendorParties && vendorParties.length > 0) {
-                const prefixPart = cleanVal.includes('-') ? cleanVal.split('-')[0] : cleanVal;
-                for (let i = 0; i < vendorParties.length; i++) {
-                    const item = vendorParties[i];
-                    if (!item || !item.code) continue;
-                    const codeStr = String(item.code).trim();
-                    if (!codeStr) continue;
-
-                    const codeRegex = new RegExp(`(?:^|S|\\b|-|_)${codeStr}(?:-|\\b|_|$)(?!\\d)`, 'i');
-                    if (codeRegex.test(prefixPart) || codeRegex.test(cleanVal)) {
-                        return normalizeVendorCode(codeStr);
-                    }
-                }
-            }
-
-            // Pattern A: Standard invoice prefix: AJ27S101-29337, AJ27S22-123, AJ27S2-123, AJ27SJ22-123, MY27S198-1578
+            // Pattern A: Standard invoice prefix: AJ27S101-29337, AJ27S230-180, AJ27S22-123, AJ27S2-123, AJ27SJ22-123, MY27S198-1578
+            // The party code is strictly between (AJ..S/S) and the hyphen/separator '-'
             const invoicePrefixMatch = cleanVal.match(/(?:AJ\d{2}S|[A-Z]{2}\d{2}S|S)([A-Za-z0-9]+)[-_]/i);
             if (invoicePrefixMatch) {
                 return normalizeVendorCode(invoicePrefixMatch[1]);
@@ -7020,23 +7110,43 @@ function doPost(e) {
                 return normalizeVendorCode(cgjMatch[1]);
             }
 
+            // Extract the part before the first hyphen (NEVER check after hyphen, because that is the invoice bill serial number!)
+            const prefixPart = cleanVal.includes('-') ? cleanVal.split('-')[0].trim() : cleanVal;
+
+            // Pattern A2: S match at the end of prefixPart (e.g. AJ27S230 without trailing hyphen)
+            const sMatch = prefixPart.match(/(?:AJ\d{2}S|[A-Z]{2}\d{2}S|S)([A-Za-z0-9]+)$/i);
+            if (sMatch) {
+                return normalizeVendorCode(sMatch[1]);
+            }
+
+            // Check against vendorParties database - ONLY against prefixPart, NEVER cleanVal!
+            if (typeof vendorParties !== "undefined" && vendorParties && vendorParties.length > 0) {
+                for (let i = 0; i < vendorParties.length; i++) {
+                    const item = vendorParties[i];
+                    if (!item || !item.code) continue;
+                    const codeStr = String(item.code).trim();
+                    if (!codeStr) continue;
+
+                    const codeRegex = new RegExp(`(?:^|S|\\b|-|_)${codeStr}(?:-|\\b|_|$)(?!\\d)`, 'i');
+                    if (codeRegex.test(prefixPart)) {
+                        return normalizeVendorCode(codeStr);
+                    }
+                }
+            }
+
             // Pattern C: Digits/code immediately preceding hyphen followed by digits e.g. 198-1578 -> "198"
-            const preHyphenMatch = cleanVal.match(/([A-Za-z0-9]+)-(?=\d+)/);
+            const preHyphenMatch = cleanVal.match(/^([A-Za-z0-9]+)-(?=\d+)/);
             if (preHyphenMatch) {
                 return normalizeVendorCode(preHyphenMatch[1]);
             }
 
-            // Pattern D: Starts with digits followed by hyphen e.g. 178-INV001 -> "178"
-            if (cleanVal.includes('-')) {
-                const parts = cleanVal.split('-');
-                const firstPart = parts[0].trim();
-                if (firstPart !== "" && firstPart.toUpperCase() !== "CGJ1") {
-                    return normalizeVendorCode(firstPart);
-                }
+            // Pattern D: Starts with digits/code followed by hyphen e.g. 178-INV001 -> "178"
+            if (prefixPart && prefixPart.toUpperCase() !== "CGJ1") {
+                return normalizeVendorCode(prefixPart);
             }
 
-            // Pattern F: Match numeric sequence of 2-5 digits
-            const numMatch = cleanVal.match(/\b\d{2,5}\b/);
+            // Pattern F: Match numeric sequence of 2-5 digits inside prefixPart only
+            const numMatch = prefixPart.match(/\b\d{2,5}\b/);
             if (numMatch) {
                 return normalizeVendorCode(numMatch[0]);
             }
@@ -7265,6 +7375,7 @@ function doPost(e) {
                                 <tr>
                                     <th style="width: 35px; text-align: center;">#</th>
                                     <th>File Name</th>
+                                    <th style="width: 110px;">Detected Code</th>
                                     <th style="width: 80px;">Rows</th>
                                     <th style="width: 85px;">Size</th>
                                     <th style="width: 100px; text-align: center;">Action</th>
@@ -7272,11 +7383,12 @@ function doPost(e) {
                             </thead>
                             <tbody>
                                 ${fFiles.length === 0
-                                    ? `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.2rem; font-size: 0.74rem;">No Column F files loaded yet.</td></tr>`
+                                    ? `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 1.2rem; font-size: 0.74rem;">No Column F files loaded yet.</td></tr>`
                                     : fFiles.map((file, idx) => `
                                         <tr>
                                             <td style="text-align: center;"><strong>${idx + 1}</strong></td>
                                             <td><span class="file-name" style="font-weight: 600; color: var(--text-primary);">${file.name}</span></td>
+                                            <td>${file.renameCode && file.renameCode !== "Not Found" ? `<span class="badge" style="background: rgba(124, 58, 237, 0.1); color: var(--primary); border: 1px solid rgba(124, 58, 237, 0.25); font-size: 0.72rem; font-weight: 700;">${file.renameCode}</span>` : '<span style="color: var(--text-muted); font-size: 0.7rem;">None</span>'}</td>
                                             <td>${file.rowCount}</td>
                                             <td>${formatBytes(file.size)}</td>
                                             <td style="text-align: center;">
@@ -7313,7 +7425,8 @@ function doPost(e) {
                                 <tr>
                                     <th style="width: 35px; text-align: center;">#</th>
                                     <th>File Name</th>
-                                    <th style="width: 170px;">Column G Value</th>
+                                    <th style="width: 150px;">Column G Value</th>
+                                    <th style="width: 110px;">Detected Code</th>
                                     <th style="width: 80px;">Rows</th>
                                     <th style="width: 85px;">Size</th>
                                     <th style="width: 100px; text-align: center;">Action</th>
@@ -7321,12 +7434,13 @@ function doPost(e) {
                             </thead>
                             <tbody>
                                 ${gFiles.length === 0
-                                    ? `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 1.2rem; font-size: 0.74rem;">No Column G files loaded yet.</td></tr>`
+                                    ? `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 1.2rem; font-size: 0.74rem;">No Column G files loaded yet.</td></tr>`
                                     : gFiles.map((file, idx) => `
                                         <tr>
                                             <td style="text-align: center;"><strong>${idx + 1}</strong></td>
                                             <td><span class="file-name" style="font-weight: 600; color: var(--text-primary);">${file.name}</span></td>
                                             <td>${file.colGValue ? `<span style="font-family: monospace; font-weight: 700; color: #059669; font-size: 0.72rem;">${file.colGValue}</span>` : '<span style="color: var(--text-muted); font-size: 0.7rem;">None</span>'}</td>
+                                            <td>${file.renameCode && file.renameCode !== "Not Found" ? `<span class="badge" style="background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.72rem; font-weight: 700;">${file.renameCode}</span>` : '<span style="color: var(--text-muted); font-size: 0.7rem;">None</span>'}</td>
                                             <td>${file.rowCount}</td>
                                             <td>${formatBytes(file.size)}</td>
                                             <td style="text-align: center;">
@@ -9444,6 +9558,405 @@ function doPost(e) {
     const aeDateRangesContainer = document.getElementById('aeDateRangesContainer');
     const aeAddDateRangeBtn = document.getElementById('aeAddDateRangeBtn');
 
+    /* ==========================================================================
+       AJIO ERROR - TARGET PARTY SELECTION & CODE NORMALIZATION
+       ========================================================================== */
+    function normalizePartyCode(val) {
+        if (!val) return "";
+        let str = String(val).trim().toUpperCase();
+        str = str.replace(/^AJ[-_ ]?/i, '');
+        // If string contains a prefix followed by separator like "127-MORE & MORE", extract prefix code "127"
+        const prefixMatch = str.match(/^([A-Za-z0-9]+)[\-_ ]/);
+        if (prefixMatch) {
+            return prefixMatch[1].replace(/^AJ[-_ ]?/i, '').trim();
+        }
+        return str.trim();
+    }
+
+    function extractRowPartyCodes(row, warehouseCol, invoiceCol) {
+        const foundCodes = new Set();
+        
+        // 1. Check Warehouse Name (Column D / Index 3)
+        const whVal = (row && warehouseCol !== undefined && row[warehouseCol] !== undefined)
+            ? String(row[warehouseCol]).trim()
+            : "";
+        if (whVal) {
+            // E.g. "127-More & More" or "127 - MORE & MORE" -> "127"
+            const prefixMatch = whVal.match(/^([A-Za-z0-9]+)[\-_ ]/);
+            if (prefixMatch) {
+                foundCodes.add(normalizePartyCode(prefixMatch[1]));
+                foundCodes.add(prefixMatch[1].toUpperCase());
+            }
+            // E.g. "AJ264" or "264"
+            const pureMatch = whVal.match(/^(?:AJ[-_ ]?)?([A-Za-z0-9]+)$/i);
+            if (pureMatch) {
+                foundCodes.add(normalizePartyCode(whVal));
+                foundCodes.add(pureMatch[1].toUpperCase());
+            }
+            if (typeof normalizeVendorCode === 'function') {
+                const nv = normalizeVendorCode(whVal);
+                if (nv) {
+                    foundCodes.add(normalizePartyCode(nv));
+                    foundCodes.add(nv.toUpperCase());
+                }
+            }
+        }
+
+        // 2. Check Invoice No (Column B / Index 1)
+        const invVal = (row && invoiceCol !== undefined && row[invoiceCol] !== undefined)
+            ? String(row[invoiceCol]).trim()
+            : "";
+        if (invVal) {
+            const invPrefixMatch = invVal.match(/^([A-Za-z0-9]+)[\-_/]/);
+            if (invPrefixMatch) {
+                foundCodes.add(normalizePartyCode(invPrefixMatch[1]));
+                foundCodes.add(invPrefixMatch[1].toUpperCase());
+            }
+            if (typeof normalizeVendorCode === 'function') {
+                const nv = normalizeVendorCode(invVal);
+                if (nv) {
+                    foundCodes.add(normalizePartyCode(nv));
+                    foundCodes.add(nv.toUpperCase());
+                }
+            }
+        }
+
+        // 3. Match against known active vendorParties
+        const activeVendors = (typeof vendorParties !== 'undefined' && Array.isArray(vendorParties) && vendorParties.length > 0)
+            ? vendorParties
+            : JSON.parse(localStorage.getItem('cachedVendorParties') || '[]');
+
+        for (const v of activeVendors) {
+            if (!v || !v.code) continue;
+            const vCodeNorm = normalizePartyCode(v.code);
+            const vCodeRaw = String(v.code).trim().toUpperCase();
+
+            if (whVal) {
+                const whUpper = whVal.toUpperCase();
+                if (whUpper.startsWith(vCodeRaw + "-") || whUpper.startsWith(vCodeRaw + " ") || whUpper === vCodeRaw ||
+                    (vCodeNorm && (whUpper.startsWith(vCodeNorm + "-") || whUpper.startsWith(vCodeNorm + " ") || whUpper === vCodeNorm))) {
+                    foundCodes.add(vCodeNorm);
+                    foundCodes.add(vCodeRaw);
+                }
+                const vName = String(v.name || '').trim().toUpperCase();
+                const vNameClean = vName.replace(/^[A-Za-z0-9]+[\-_ ]\s*/, '').trim();
+                if (vNameClean.length >= 4) {
+                    if (whUpper.includes(vNameClean) || vNameClean.includes(whUpper)) {
+                        foundCodes.add(vCodeNorm);
+                        foundCodes.add(vCodeRaw);
+                    }
+                }
+            }
+            if (invVal) {
+                const invUpper = invVal.toUpperCase();
+                if (invUpper.startsWith(vCodeRaw + "-") || invUpper.startsWith(vCodeRaw + "/") ||
+                    (vCodeNorm && (invUpper.startsWith(vCodeNorm + "-") || invUpper.startsWith(vCodeNorm + "/")))) {
+                    foundCodes.add(vCodeNorm);
+                    foundCodes.add(vCodeRaw);
+                }
+            }
+        }
+
+        foundCodes.delete("");
+        return Array.from(foundCodes);
+    }
+
+    // Party Modal State & Handlers
+    let currentAeTargetRow = null;
+    let currentAeSelectedCodes = new Set();
+
+    const aePartyModal = document.getElementById('ae-party-select-modal');
+    const btnCloseAePartyModal = document.getElementById('btn-close-ae-party-modal');
+    const aePartyCancelBtn = document.getElementById('aePartyCancelBtn');
+    const aePartyApplyBtn = document.getElementById('aePartyApplyBtn');
+    const aePartySearchInput = document.getElementById('aePartySearchInput');
+    const aePartySelectAllBtn = document.getElementById('aePartySelectAllBtn');
+    const aePartyDeselectAllBtn = document.getElementById('aePartyDeselectAllBtn');
+    const aePartySelectedCountBadge = document.getElementById('aePartySelectedCountBadge');
+    const aePartyCheckboxesContainer = document.getElementById('aePartyCheckboxesContainer');
+
+    function getActiveVendorList() {
+        if (typeof vendorParties !== 'undefined' && Array.isArray(vendorParties) && vendorParties.length > 0) {
+            return vendorParties;
+        }
+        try {
+            return JSON.parse(localStorage.getItem('cachedVendorParties') || '[]');
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function renderAePartyCheckboxList(filterText = "") {
+        if (!aePartyCheckboxesContainer) return;
+        const vendors = getActiveVendorList();
+        const query = filterText.toLowerCase().trim();
+
+        // Sort vendors naturally by code
+        const sorted = [...vendors].sort((a, b) => {
+            const aCode = String(a.code || '');
+            const bCode = String(b.code || '');
+            return (isNaN(aCode) || isNaN(bCode)) 
+                ? aCode.localeCompare(bCode, undefined, { numeric: true }) 
+                : Number(aCode) - Number(bCode);
+        });
+
+        const filtered = query === "" ? sorted : sorted.filter(v => {
+            const c = String(v.code || '').toLowerCase();
+            const n = String(v.name || '').toLowerCase();
+            return c.includes(query) || n.includes(query);
+        });
+
+        if (filtered.length === 0) {
+            aePartyCheckboxesContainer.innerHTML = `
+                <div style="text-align: center; color: var(--text-muted); font-size: 0.78rem; padding: 2rem 1rem;">
+                    No parties found matching "${filterText}".
+                </div>
+            `;
+            updateAePartyCountBadge();
+            return;
+        }
+
+        aePartyCheckboxesContainer.innerHTML = filtered.map(v => {
+            const vCode = String(v.code || '').trim();
+            const isChecked = currentAeSelectedCodes.has(vCode);
+            return `
+                <label class="ae-party-checkbox-item ${isChecked ? 'is-selected' : ''}" data-code="${vCode}" tabindex="0">
+                    <input type="checkbox" class="ae-party-chk" value="${vCode}" ${isChecked ? 'checked' : ''}>
+                    <span class="ae-party-code-badge">${vCode}</span>
+                    <span class="ae-party-name-text" title="${v.name || vCode}">${v.name || vCode}</span>
+                </label>
+            `;
+        }).join('');
+
+        // Attach change listeners to checkboxes
+        aePartyCheckboxesContainer.querySelectorAll('.ae-party-chk').forEach(chk => {
+            chk.addEventListener('change', (e) => {
+                const val = e.target.value;
+                const parentLabel = chk.closest('.ae-party-checkbox-item');
+                if (e.target.checked) {
+                    currentAeSelectedCodes.add(val);
+                    if (parentLabel) parentLabel.classList.add('is-selected');
+                } else {
+                    currentAeSelectedCodes.delete(val);
+                    if (parentLabel) parentLabel.classList.remove('is-selected');
+                }
+                updateAePartyCountBadge();
+            });
+        });
+
+        // Keyboard navigation on party checkbox items
+        aePartyCheckboxesContainer.querySelectorAll('.ae-party-checkbox-item').forEach(item => {
+            item.addEventListener('keydown', (e) => {
+                if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    const chk = item.querySelector('.ae-party-chk');
+                    if (chk) {
+                        chk.checked = !chk.checked;
+                        chk.dispatchEvent(new Event('change'));
+                        item.classList.add('ae-party-just-selected');
+                        setTimeout(() => item.classList.remove('ae-party-just-selected'), 400);
+                    }
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    const next = item.nextElementSibling;
+                    if (next && next.classList.contains('ae-party-checkbox-item')) {
+                        next.focus();
+                    }
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    const prev = item.previousElementSibling;
+                    if (prev && prev.classList.contains('ae-party-checkbox-item')) {
+                        prev.focus();
+                    } else if (aePartySearchInput) {
+                        aePartySearchInput.focus();
+                    }
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    closeAePartyModal();
+                }
+            });
+        });
+
+        updateAePartyCountBadge();
+    }
+
+    function updateAePartyCountBadge() {
+        if (!aePartySelectedCountBadge) return;
+        const vendors = getActiveVendorList();
+        const selCount = currentAeSelectedCodes.size;
+        if (selCount === 0 || selCount === vendors.length) {
+            aePartySelectedCountBadge.innerText = 'All Parties';
+            aePartySelectedCountBadge.style.background = 'rgba(100, 116, 139, 0.1)';
+            aePartySelectedCountBadge.style.color = '#475569';
+        } else {
+            aePartySelectedCountBadge.innerText = `${selCount} of ${vendors.length} Selected`;
+            aePartySelectedCountBadge.style.background = 'rgba(124, 58, 237, 0.1)';
+            aePartySelectedCountBadge.style.color = '#7c3aed';
+        }
+    }
+
+    function openAePartyModal(rowElement) {
+        if (!aePartyModal) return;
+        currentAeTargetRow = rowElement;
+        const existingCodes = Array.isArray(rowElement._selectedPartyCodes) ? rowElement._selectedPartyCodes : [];
+        currentAeSelectedCodes = new Set(existingCodes);
+
+        if (aePartySearchInput) aePartySearchInput.value = '';
+        renderAePartyCheckboxList();
+
+        aePartyModal.style.display = 'flex';
+        if (aePartySearchInput) {
+            setTimeout(() => aePartySearchInput.focus(), 100);
+        }
+    }
+
+    function closeAePartyModal() {
+        if (!aePartyModal) return;
+        aePartyModal.style.display = 'none';
+        currentAeTargetRow = null;
+    }
+
+    if (btnCloseAePartyModal) btnCloseAePartyModal.addEventListener('click', closeAePartyModal);
+    if (aePartyCancelBtn) aePartyCancelBtn.addEventListener('click', closeAePartyModal);
+
+    if (aePartySearchInput) {
+        aePartySearchInput.addEventListener('input', (e) => {
+            renderAePartyCheckboxList(e.target.value);
+        });
+
+        // Press Enter to select matching party directly
+        aePartySearchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const query = aePartySearchInput.value.trim().toLowerCase();
+
+                // If search query is empty, pressing Enter triggers "Apply Selection"
+                if (!query) {
+                    if (aePartyApplyBtn) aePartyApplyBtn.click();
+                    return;
+                }
+
+                // Find visible party items
+                const visibleItems = Array.from(aePartyCheckboxesContainer.querySelectorAll('.ae-party-checkbox-item'));
+                if (visibleItems.length === 0) return;
+
+                // Priority 1: Exact match on party code (e.g. query "127" === code "127")
+                let matchedItem = visibleItems.find(lbl => {
+                    const code = (lbl.getAttribute('data-code') || '').trim().toLowerCase();
+                    return code === query;
+                });
+
+                // Priority 2: Code starts with query (e.g. query "12" matches code "127")
+                if (!matchedItem) {
+                    matchedItem = visibleItems.find(lbl => {
+                        const code = (lbl.getAttribute('data-code') || '').trim().toLowerCase();
+                        return code.startsWith(query);
+                    });
+                }
+
+                // Priority 3: First visible item in filtered list
+                if (!matchedItem) {
+                    matchedItem = visibleItems[0];
+                }
+
+                if (matchedItem) {
+                    const chk = matchedItem.querySelector('.ae-party-chk');
+                    if (chk) {
+                        const code = chk.value;
+                        if (!currentAeSelectedCodes.has(code)) {
+                            currentAeSelectedCodes.add(code);
+                            chk.checked = true;
+                            matchedItem.classList.add('is-selected');
+                        } else {
+                            // If already selected, pressing Enter toggles it
+                            currentAeSelectedCodes.delete(code);
+                            chk.checked = false;
+                            matchedItem.classList.remove('is-selected');
+                        }
+
+                        // Visual highlight pulse animation
+                        matchedItem.classList.add('ae-party-just-selected');
+                        setTimeout(() => matchedItem.classList.remove('ae-party-just-selected'), 500);
+
+                        // Ensure visible on screen
+                        matchedItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+
+                        updateAePartyCountBadge();
+
+                        // Keep text selected so user can see it was selected and immediately type next code
+                        aePartySearchInput.select();
+                    }
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const firstItem = aePartyCheckboxesContainer.querySelector('.ae-party-checkbox-item');
+                if (firstItem) firstItem.focus();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                if (aePartySearchInput.value) {
+                    aePartySearchInput.value = '';
+                    renderAePartyCheckboxList();
+                } else {
+                    closeAePartyModal();
+                }
+            }
+        });
+    }
+
+    if (aePartySelectAllBtn) {
+        aePartySelectAllBtn.addEventListener('click', () => {
+            const vendors = getActiveVendorList();
+            vendors.forEach(v => {
+                if (v && v.code) currentAeSelectedCodes.add(String(v.code).trim());
+            });
+            renderAePartyCheckboxList(aePartySearchInput ? aePartySearchInput.value : '');
+        });
+    }
+
+    if (aePartyDeselectAllBtn) {
+        aePartyDeselectAllBtn.addEventListener('click', () => {
+            currentAeSelectedCodes.clear();
+            renderAePartyCheckboxList(aePartySearchInput ? aePartySearchInput.value : '');
+        });
+    }
+
+    if (aePartyApplyBtn) {
+        aePartyApplyBtn.addEventListener('click', () => {
+            if (currentAeTargetRow) {
+                const vendors = getActiveVendorList();
+                const btnLabel = currentAeTargetRow.querySelector('.ae-party-btn-label');
+                const btn = currentAeTargetRow.querySelector('.ae-select-parties-btn');
+
+                if (currentAeSelectedCodes.size === 0 || currentAeSelectedCodes.size === vendors.length) {
+                    currentAeTargetRow._selectedPartyCodes = [];
+                    if (btnLabel) btnLabel.innerText = 'All Parties';
+                    if (btn) {
+                        btn.classList.remove('has-parties');
+                        btn.title = 'Applies to all parties';
+                    }
+                } else {
+                    currentAeTargetRow._selectedPartyCodes = Array.from(currentAeSelectedCodes);
+                    if (btnLabel) btnLabel.innerText = `${currentAeSelectedCodes.size} Parties Selected`;
+                    if (btn) {
+                        btn.classList.add('has-parties');
+                        btn.title = `Applied to: ${currentAeTargetRow._selectedPartyCodes.join(', ')}`;
+                    }
+                }
+            }
+            closeAePartyModal();
+        });
+    }
+
+    // Setup initial default date range row
+    const initialPartyBtn = document.querySelector('#aeDateRangesContainer .ae-date-range-row .ae-select-parties-btn');
+    if (initialPartyBtn) {
+        const initialRow = initialPartyBtn.closest('.ae-date-range-row');
+        if (initialRow) {
+            initialRow._selectedPartyCodes = [];
+            initialPartyBtn.addEventListener('click', () => openAePartyModal(initialRow));
+        }
+    }
+
     if (aeAddDateRangeBtn && aeDateRangesContainer) {
         aeAddDateRangeBtn.addEventListener('click', () => {
             const row = document.createElement('div');
@@ -9451,19 +9964,33 @@ function doPost(e) {
             row.style.display = 'flex';
             row.style.gap = '0.75rem';
             row.style.alignItems = 'flex-end';
+            row.style.flexWrap = 'wrap';
+            row._selectedPartyCodes = [];
+
             row.innerHTML = `
-                <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1;">
+                <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 120px;">
                     <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">From Date</label>
                     <input type="date" class="ae-from-date" style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.5rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; height: 36px; width: 100%;">
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1;">
+                <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 120px;">
                     <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">To Date</label>
                     <input type="date" class="ae-to-date" style="background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.5rem; color: var(--text-primary); font-family: inherit; font-size: 0.85rem; height: 36px; width: 100%;">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 140px;">
+                    <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Target Parties</label>
+                    <button type="button" class="btn btn-secondary ae-select-parties-btn" style="height: 36px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.78rem; font-weight: 600; border-radius: 8px; width: 100%; padding: 0 0.6rem; border: 1px solid var(--border-color); background: #f8fafc; cursor: pointer;" title="Select specific parties for this date range">
+                        <i class="fa-solid fa-users" style="color: var(--color-primary);"></i>
+                        <span class="ae-party-btn-label">All Parties</span>
+                    </button>
                 </div>
                 <button type="button" class="btn btn-danger remove-ae-range-btn" title="Remove Range" style="height: 36px; width: 36px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; flex-shrink: 0;">
                     <i class="fa-solid fa-trash-can"></i>
                 </button>
             `;
+            const partyBtn = row.querySelector('.ae-select-parties-btn');
+            if (partyBtn) {
+                partyBtn.addEventListener('click', () => openAePartyModal(row));
+            }
             row.querySelector('.remove-ae-range-btn').addEventListener('click', () => row.remove());
             aeDateRangesContainer.appendChild(row);
         });
@@ -9477,12 +10004,35 @@ function doPost(e) {
             const toInp = r.querySelector('.ae-to-date');
             const fVal = fromInp ? fromInp.value : '';
             const tVal = toInp ? toInp.value : '';
-            if (fVal || tVal) {
-                const f = fVal ? new Date(fVal) : null;
-                const t = tVal ? new Date(tVal) : null;
-                if (f) f.setHours(0, 0, 0, 0);
-                if (t) t.setHours(23, 59, 59, 999);
-                ranges.push({ from: f, to: t, fromStr: fVal, toStr: tVal });
+            const selectedPartyCodes = Array.isArray(r._selectedPartyCodes) ? r._selectedPartyCodes : [];
+            if (fVal || tVal || selectedPartyCodes.length > 0) {
+                let f = null;
+                if (fVal) {
+                    const parts = fVal.split('-');
+                    if (parts.length === 3) {
+                        f = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 0, 0, 0, 0);
+                    } else {
+                        f = new Date(fVal);
+                        f.setHours(0, 0, 0, 0);
+                    }
+                }
+                let t = null;
+                if (tVal) {
+                    const parts = tVal.split('-');
+                    if (parts.length === 3) {
+                        t = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 23, 59, 59, 999);
+                    } else {
+                        t = new Date(tVal);
+                        t.setHours(23, 59, 59, 999);
+                    }
+                }
+                ranges.push({
+                    from: f,
+                    to: t,
+                    fromStr: fVal,
+                    toStr: tVal,
+                    selectedPartyCodes: selectedPartyCodes
+                });
             }
         });
         return ranges;
@@ -9566,7 +10116,13 @@ function doPost(e) {
                 // Read active date ranges
                 const activeDateRanges = getAjioActiveDateRanges();
                 if (activeDateRanges.length > 0) {
-                    const rangeLogs = activeDateRanges.map(r => `[${r.fromStr || 'Start'} to ${r.toStr || 'End'}]`).join(', ');
+                    const rangeLogs = activeDateRanges.map(r => {
+                        const datePart = `[${r.fromStr || 'Start'} to ${r.toStr || 'End'}]`;
+                        const partyPart = (r.selectedPartyCodes && r.selectedPartyCodes.length > 0)
+                            ? `(Target Parties: ${r.selectedPartyCodes.join(', ')})`
+                            : `(All Parties)`;
+                        return `${datePart} ${partyPart}`;
+                    }).join('; ');
                     aeLog(`Active Date Ranges for Exclusion (${activeDateRanges.length}): ${rangeLogs}`, 'info');
                 }
 
@@ -9574,27 +10130,12 @@ function doPost(e) {
                 if (aeProgressPercent) aeProgressPercent.innerText = '10%';
                 if (aeProgressStepText) aeProgressStepText.innerText = 'Reading file buffers...';
 
-                // Step 1: Read Files
-                const [detailsBuffer, dataBuffer] = await Promise.all([
-                    readFileAsArrayBuffer(aeDetailsFile),
-                    readFileAsArrayBuffer(aeDataFile)
+                // Step 1: Read Files (Supports both .xlsx/.xls and .csv)
+                const [detailsAoa, dataAoa] = await Promise.all([
+                    parseSpreadsheetOrCsv(aeDetailsFile),
+                    parseSpreadsheetOrCsv(aeDataFile)
                 ]);
-
-                if (aeProgressBar) aeProgressBar.style.width = '30%';
-                if (aeProgressPercent) aeProgressPercent.innerText = '30%';
-                if (aeProgressStepText) aeProgressStepText.innerText = 'Parsing spreadsheets...';
-
-                const detailsWb = XLSX.read(detailsBuffer, { type: 'array' });
-                const dataWb = XLSX.read(dataBuffer, { type: 'array' });
-
-                const detailsSheetName = detailsWb.SheetNames[0];
-                const dataSheetName = dataWb.SheetNames[0];
-
-                const detailsWs = detailsWb.Sheets[detailsSheetName];
-                const dataWs = dataWb.Sheets[dataSheetName];
-
-                const detailsAoa = XLSX.utils.sheet_to_json(detailsWs, { header: 1, defval: "" });
-                const dataAoa = XLSX.utils.sheet_to_json(dataWs, { header: 1, defval: "" });
+                let detailsSheetName = "Details";
 
                 aeLog(`Details file rows: ${detailsAoa.length}`, 'info');
                 aeLog(`Data file rows: ${dataAoa.length}`, 'info');
@@ -9652,20 +10193,72 @@ function doPost(e) {
                         itemCostColDetails = c;
                     } else if (cellVal === "reason") {
                         reasonColDetails = c;
-                    } else if (cellVal.startsWith("zoho stat") || cellVal === "zoho status") {
+                    } else if (cellVal.startsWith("zoho stat") || cellVal === "zoho status" || cellVal === "lookup date" || cellVal === "order date") {
                         targetColDetails = c;
                     }
                 }
 
                 aeLog(`Details File Columns - Invoice: ${invoiceColDetails}, Date: ${invoiceDateColDetails}, Warehouse: ${warehouseNameColDetails}, Cost: ${itemCostColDetails}, Reason: ${reasonColDetails}, Zoho/Target: ${targetColDetails}`, 'info');
 
-                // Locate data header row
+                // Helper to format date cleanly as DD/MM/YYYY
+                function formatAjioDateClean(dt) {
+                    if (dt === undefined || dt === null || dt === "") return "";
+                    if (typeof dt === 'number' && dt > 20000 && dt < 80000) {
+                        const dObj = new Date(Math.round((dt - 25569) * 86400 * 1000));
+                        const pad = n => String(n).padStart(2, '0');
+                        return `${pad(dObj.getDate())}/${pad(dObj.getMonth() + 1)}/${dObj.getFullYear()}`;
+                    }
+                    if (dt instanceof Date && !isNaN(dt.getTime())) {
+                        const pad = n => String(n).padStart(2, '0');
+                        return `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}/${dt.getFullYear()}`;
+                    }
+                    const str = String(dt).trim();
+                    if (/^\d{4,5}(\.\d+)?$/.test(str)) {
+                        const num = parseFloat(str);
+                        if (num > 20000 && num < 80000) {
+                            const dObj = new Date(Math.round((num - 25569) * 86400 * 1000));
+                            const pad = n => String(n).padStart(2, '0');
+                            return `${pad(dObj.getDate())}/${pad(dObj.getMonth() + 1)}/${dObj.getFullYear()}`;
+                        }
+                    }
+                    // Match "18 Sep 2026" or "18-Sep-2026" or "18 September 2026" (with optional time)
+                    const alphaMatch = str.match(/^(\d{1,2})[\s\-\/]([A-Za-z]{3,})[\s\-\/](\d{4})/);
+                    if (alphaMatch) {
+                        const months = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+                        const mKey = alphaMatch[2].substring(0, 3).toLowerCase();
+                        if (months[mKey]) {
+                            const pad = n => String(n).padStart(2, '0');
+                            return `${pad(alphaMatch[1])}/${pad(months[mKey])}/${alphaMatch[3]}`;
+                        }
+                    }
+                    const ymd = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+                    if (ymd) {
+                        const pad = n => String(n).padStart(2, '0');
+                        return `${pad(ymd[3])}/${pad(ymd[2])}/${ymd[1]}`;
+                    }
+                    const dmy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+                    if (dmy) {
+                        const pad = n => String(n).padStart(2, '0');
+                        return `${pad(dmy[1])}/${pad(dmy[2])}/${dmy[3]}`;
+                    }
+                    return str;
+                }
+
+                // Locate data header row (scanning first 15 rows)
                 let dataHeaderRowIndex = -1;
-                for (let i = 0; i < dataAoa.length; i++) {
+                for (let i = 0; i < Math.min(dataAoa.length, 15); i++) {
                     const row = dataAoa[i];
                     if (row && row.some(cell => {
-                        const strVal = String(cell).trim().toLowerCase();
-                        return strVal === "invoice no" || strVal === "invoice number";
+                        const strVal = String(cell || "").trim().toLowerCase();
+                        return strVal.includes("seller invoice") || 
+                               strVal.includes("invoice no") || 
+                               strVal.includes("invoice number") || 
+                               strVal.includes("invoice id") || 
+                               strVal.includes("cust order date") || 
+                               strVal.includes("order date") || 
+                               strVal.includes("customer order") || 
+                               strVal.includes("seller order") ||
+                               strVal.includes("order id");
                     })) {
                         dataHeaderRowIndex = i;
                         break;
@@ -9675,48 +10268,136 @@ function doPost(e) {
                     dataHeaderRowIndex = 0;
                 }
 
-                const dataHeaderRow = dataAoa[dataHeaderRowIndex];
-                // Direct configuration:
-                // Search Details Invoice No directly in Data File Column L (Index 11)
-                // Retrieve corresponding value from Data File Column G (Index 6)
-                let searchColData = 11; // Column L (0-indexed 11)
-                let valueColData = 6;   // Column G (0-indexed 6)
+                const dataHeaderRow = dataAoa[dataHeaderRowIndex] || [];
+                
+                // Smart column detection in Ajio Data file:
+                const invoiceColsData = [];
+                const orderColsData = [];
+                let valueColData = -1;   // Date column (Order date)
 
-                // Check headers for verification and logging
-                if (dataHeaderRow) {
-                    const colLTitle = dataHeaderRow[11] !== undefined && String(dataHeaderRow[11]).trim() !== "" ? String(dataHeaderRow[11]).trim() : "Column L";
-                    const colGTitle = dataHeaderRow[6] !== undefined && String(dataHeaderRow[6]).trim() !== "" ? String(dataHeaderRow[6]).trim() : "Column G";
-                    aeLog(`Data File Config: Search Details Invoice in Column L [${colLTitle}], Fetch Value from Column G [${colGTitle}]`, 'info');
-                } else {
-                    aeLog(`Data File Config: Search Details Invoice in Column L (Index 11), Fetch Value from Column G (Index 6)`, 'info');
+                for (let c = 0; c < dataHeaderRow.length; c++) {
+                    const raw = String(dataHeaderRow[c] || "").trim().toLowerCase();
+                    const clean = raw.replace(/[\._\-\s]+/g, " ");
+
+                    // 1. Invoice column(s) in Data File (Seller Invoice No / MP Invoice No / Invoice No / Invoice ID)
+                    if ((clean.includes("seller invoice") || clean.includes("mp invoice") || clean.includes("invoice no") || clean === "invoice number" || clean === "invoice id" || clean === "invoice") && 
+                        !clean.includes("date")) {
+                        if (!invoiceColsData.includes(c)) invoiceColsData.push(c);
+                    }
+
+                    // 2. Order ID column(s) in Data File (Customer Order No / Seller Order No / Order ID / Order Number / Easy Id)
+                    if ((clean.includes("seller order") || clean.includes("customer order") || clean.includes("cust order") || clean === "order id" || clean === "order no" || clean === "order number" || clean.includes("order number") || clean === "easy id") && 
+                        !clean.includes("date") && !clean.includes("invoice")) {
+                        if (!orderColsData.includes(c)) orderColsData.push(c);
+                    }
+
+                    // 3. Order Date column in Data File (Cust Order Date / Customer Order Date / Order Date)
+                    if (valueColData === -1 && 
+                        (clean === "order date" || clean.includes("cust order date") || clean.includes("customer order date") || clean.includes("order date") || clean.includes("order dt") || (clean.includes("order") && clean.includes("date"))) && 
+                        !clean.includes("invoice") && !clean.includes("delivery") && !clean.includes("po")) {
+                        valueColData = c;
+                    }
                 }
 
-                if (aeProgressBar) aeProgressBar.style.width = '70%';
-                if (aeProgressPercent) aeProgressPercent.innerText = '70%';
-                if (aeProgressStepText) aeProgressStepText.innerText = 'Building data lookup index (Col L -> Col G)...';
-
-                // Step 2: Build Lookup Map from Data AOA
-                const dataMap = new Map();
-                for (let i = dataHeaderRowIndex + 1; i < dataAoa.length; i++) {
-                    const row = dataAoa[i];
-                    if (!row || row.length === 0) continue;
-                    
-                    const rawSearchVal = row[searchColData] !== undefined ? row[searchColData] : "";
-                    const invoiceKey = String(rawSearchVal).trim().toUpperCase();
-                    const copyVal = row[valueColData] !== undefined ? row[valueColData] : "";
-                    
-                    if (invoiceKey !== "") {
-                        if (!dataMap.has(invoiceKey)) {
-                            dataMap.set(invoiceKey, copyVal);
+                // If date column wasn't found specifically as order date, check any date column
+                if (valueColData === -1) {
+                    for (let c = 0; c < dataHeaderRow.length; c++) {
+                        const clean = String(dataHeaderRow[c] || "").trim().toLowerCase();
+                        if (clean.includes("date") && !clean.includes("invoice")) {
+                            valueColData = c;
+                            break;
                         }
-                        const altKey = cleanKey(invoiceKey);
-                        if (altKey !== "" && !dataMap.has(altKey)) {
-                            dataMap.set(altKey, copyVal);
+                    }
+                }
+                if (valueColData === -1) {
+                    for (let c = 0; c < dataHeaderRow.length; c++) {
+                        const clean = String(dataHeaderRow[c] || "").trim().toLowerCase();
+                        if (clean.includes("date")) {
+                            valueColData = c;
+                            break;
                         }
                     }
                 }
 
-                aeLog(`Mapped ${dataMap.size} unique keys from Data File Column L (values from Column G).`, 'info');
+                // Fallbacks if headers weren't detected
+                if (invoiceColsData.length === 0) {
+                    if (dataHeaderRow.length > 11) invoiceColsData.push(11);
+                    else if (dataHeaderRow.length > 7) invoiceColsData.push(7);
+                    else invoiceColsData.push(0);
+                }
+                if (orderColsData.length === 0) {
+                    if (dataHeaderRow.length > 4) orderColsData.push(4);
+                    if (dataHeaderRow.length > 1) orderColsData.push(1);
+                }
+                if (valueColData === -1) {
+                    if (dataHeaderRow.length > 6) valueColData = 6;
+                    else if (dataHeaderRow.length > 2) valueColData = 2;
+                    else valueColData = 1;
+                }
+
+                const invoiceColNames = invoiceColsData.map(c => dataHeaderRow[c] || `Col ${c}`).join(', ');
+                const orderColNames = orderColsData.length > 0 ? orderColsData.map(c => dataHeaderRow[c] || `Col ${c}`).join(', ') : "None";
+                const colDateName = dataHeaderRow[valueColData] || `Col ${valueColData}`;
+                aeLog(`Data File Config: Invoice Col(s) [${invoiceColNames}], Order Col(s) [${orderColNames}], Date Col [${colDateName}]`, 'info');
+
+                if (aeProgressBar) aeProgressBar.style.width = '70%';
+                if (aeProgressPercent) aeProgressPercent.innerText = '70%';
+                if (aeProgressStepText) aeProgressStepText.innerText = 'Building data lookup index...';
+
+                // Step 2: Build Lookup Map from Data AOA
+                const dataMap = new Map();
+                const orderDataMap = new Map();
+
+                for (let i = dataHeaderRowIndex + 1; i < dataAoa.length; i++) {
+                    const row = dataAoa[i];
+                    if (!row || row.length === 0) continue;
+                    
+                    const rawDateVal = valueColData !== -1 && row[valueColData] !== undefined ? row[valueColData] : "";
+                    const formattedDate = formatAjioDateClean(rawDateVal);
+                    if (!formattedDate) continue;
+
+                    // Map all detected invoice columns
+                    for (const colIdx of invoiceColsData) {
+                        const rawSearchVal = row[colIdx] !== undefined ? row[colIdx] : "";
+                        const invoiceKey = String(rawSearchVal).trim().toUpperCase();
+                        if (invoiceKey !== "") {
+                            dataMap.set(invoiceKey, formattedDate);
+                            const altKey = cleanKey(invoiceKey);
+                            if (altKey !== "") dataMap.set(altKey, formattedDate);
+
+                            // Strip state/AJ prefix (e.g. AJ27S101-30850 -> 101-30850)
+                            const stripped = invoiceKey.replace(/^(?:AJ\d{2}S|[A-Z]{2}\d{2}S|AJ[-_ ]?)/i, '').trim();
+                            if (stripped && stripped !== invoiceKey) {
+                                dataMap.set(stripped, formattedDate);
+                                const altStripped = cleanKey(stripped);
+                                if (altStripped !== "") dataMap.set(altStripped, formattedDate);
+                            }
+
+                            // If invoice has dash (e.g. 101-30850 -> 30850)
+                            if (invoiceKey.includes('-')) {
+                                const afterDash = invoiceKey.split('-').pop().trim();
+                                if (afterDash && afterDash.length >= 4) {
+                                    dataMap.set(afterDash, formattedDate);
+                                    const altAfter = cleanKey(afterDash);
+                                    if (altAfter !== "") dataMap.set(altAfter, formattedDate);
+                                }
+                            }
+                        }
+                    }
+
+                    // Map all detected order columns
+                    for (const colIdx of orderColsData) {
+                        const rawOrderVal = row[colIdx] !== undefined ? row[colIdx] : "";
+                        const orderKey = String(rawOrderVal).trim().toUpperCase();
+                        if (orderKey !== "") {
+                            orderDataMap.set(orderKey, formattedDate);
+                            const altOrder = cleanKey(orderKey);
+                            if (altOrder !== "") orderDataMap.set(altOrder, formattedDate);
+                        }
+                    }
+                }
+
+                aeLog(`Mapped ${dataMap.size} unique invoice keys and ${orderDataMap.size} unique order keys from Data File with Order Dates.`, 'info');
 
                 if (aeProgressBar) aeProgressBar.style.width = '85%';
                 if (aeProgressPercent) aeProgressPercent.innerText = '85%';
@@ -9791,6 +10472,10 @@ function doPost(e) {
                 let lookupMatchCount = 0;
                 let lookupMissCount = 0;
 
+                // Track deletions per range for complete transparency
+                const rangeDeletedCounts = activeDateRanges.map(() => 0);
+                const rangeDeletedWarehouses = activeDateRanges.map(() => new Set());
+
                 for (let i = detailsHeaderRowIndex + 1; i < detailsAoa.length; i++) {
                     const row = detailsAoa[i];
                     if (!row || row.length === 0) continue;
@@ -9817,33 +10502,102 @@ function doPost(e) {
                         continue; // Skip/delete this row
                     }
 
-                    // 3. Perform Lookup
+                    // 3. Perform Lookup for Order Date
                     let lookupVal = "";
                     let isMatched = false;
-                    if (dataMap.has(invoiceKey)) {
-                        lookupVal = dataMap.get(invoiceKey);
+
+                    const invUpper = invoiceKey;
+                    const altInv = cleanKey(invoiceKey);
+                    const strippedInv = invoiceKey.replace(/^(?:AJ\d{2}S|[A-Z]{2}\d{2}S|AJ[-_ ]?)/i, '').trim();
+                    const altStripped = cleanKey(strippedInv);
+
+                    const rawOrder = (orderIdColDetails !== -1 && row[orderIdColDetails] !== undefined) ? String(row[orderIdColDetails]).trim() : "";
+                    const ordUpper = rawOrder.toUpperCase();
+                    const altOrd = cleanKey(ordUpper);
+
+                    // Strategy 1: Match by Invoice No directly
+                    if (dataMap.has(invUpper)) {
+                        lookupVal = dataMap.get(invUpper);
                         isMatched = true;
-                    } else {
-                        const altKey = cleanKey(invoiceKey);
-                        if (altKey !== "" && dataMap.has(altKey)) {
-                            lookupVal = dataMap.get(altKey);
+                    } else if (altInv !== "" && dataMap.has(altInv)) {
+                        lookupVal = dataMap.get(altInv);
+                        isMatched = true;
+                    } else if (strippedInv !== "" && dataMap.has(strippedInv)) {
+                        lookupVal = dataMap.get(strippedInv);
+                        isMatched = true;
+                    } else if (altStripped !== "" && dataMap.has(altStripped)) {
+                        lookupVal = dataMap.get(altStripped);
+                        isMatched = true;
+                    } 
+                    // Strategy 2: Match by Order ID
+                    else if (ordUpper !== "" && orderDataMap.has(ordUpper)) {
+                        lookupVal = orderDataMap.get(ordUpper);
+                        isMatched = true;
+                    } else if (altOrd !== "" && orderDataMap.has(altOrd)) {
+                        lookupVal = orderDataMap.get(altOrd);
+                        isMatched = true;
+                    }
+                    // Strategy 3: Invoice suffix after dash (e.g. 101-30850 -> 30850)
+                    else if (invUpper.includes('-')) {
+                        const afterDash = invUpper.split('-').pop().trim();
+                        if (afterDash && afterDash.length >= 4 && dataMap.has(afterDash)) {
+                            lookupVal = dataMap.get(afterDash);
                             isMatched = true;
                         }
                     }
 
-                    // 4. Multi-Date Range Filter against Column W (lookupVal)
+                    // 4. Multi-Date Range Filter against Order Date / Invoice Date with Party Filtering
                     let shouldDeleteByDate = false;
                     if (activeDateRanges.length > 0) {
-                        const parsedDate = parseExcelDate(lookupVal);
-                        if (parsedDate) {
-                            const time = parsedDate.getTime();
-                            for (const rng of activeDateRanges) {
-                                const satisfiesFrom = rng.from ? time >= rng.from.getTime() : true;
-                                const satisfiesTo = rng.to ? time <= rng.to.getTime() : true;
-                                if (satisfiesFrom && satisfiesTo) {
-                                    shouldDeleteByDate = true;
-                                    break;
+                        const parsedOrderDate = parseExcelDate(lookupVal);
+                        const parsedInvoiceDate = (invoiceDateColDetails !== -1 && row[invoiceDateColDetails] !== undefined)
+                            ? parseExcelDate(row[invoiceDateColDetails])
+                            : null;
+                        const rowPartyCodes = extractRowPartyCodes(row, warehouseNameColDetails, invoiceColDetails);
+
+                        for (let rngIdx = 0; rngIdx < activeDateRanges.length; rngIdx++) {
+                            const rng = activeDateRanges[rngIdx];
+                            // If specific parties are selected for this range, only apply if this row belongs to one of those parties
+                            if (rng.selectedPartyCodes && rng.selectedPartyCodes.length > 0) {
+                                const partyMatched = rng.selectedPartyCodes.some(selCode => {
+                                    const normSel = normalizePartyCode(selCode);
+                                    const selUpper = String(selCode).trim().toUpperCase();
+                                    return rowPartyCodes.some(rpc => {
+                                        const normRpc = normalizePartyCode(rpc);
+                                        const rpcUpper = String(rpc).trim().toUpperCase();
+                                        return normRpc === normSel || rpcUpper === selUpper || normRpc === selUpper || rpcUpper === normSel;
+                                    });
+                                });
+                                if (!partyMatched) {
+                                    continue; // Skip this date range for this row (party not targeted)
                                 }
+                            }
+
+                            // If party matched and no date restrictions specified on range, delete row for this target party
+                            if (!rng.from && !rng.to) {
+                                shouldDeleteByDate = true;
+                                rangeDeletedCounts[rngIdx]++;
+                                const whVal = String(row[warehouseNameColDetails] || 'Unknown').trim();
+                                rangeDeletedWarehouses[rngIdx].add(whVal);
+                                break;
+                            }
+
+                            // Check if a date object falls within [rng.from, rng.to] inclusive
+                            const isDateInRange = (dObj) => {
+                                if (!dObj) return false;
+                                const t = dObj.getTime();
+                                const satisfiesFrom = rng.from ? t >= rng.from.getTime() : true;
+                                const satisfiesTo = rng.to ? t <= rng.to.getTime() : true;
+                                return satisfiesFrom && satisfiesTo;
+                            };
+
+                            // Exclude if EITHER looked-up Order Date OR Details Invoice Date falls inside range
+                            if (isDateInRange(parsedOrderDate) || isDateInRange(parsedInvoiceDate)) {
+                                shouldDeleteByDate = true;
+                                rangeDeletedCounts[rngIdx]++;
+                                const whVal = String(row[warehouseNameColDetails] || 'Unknown').trim();
+                                rangeDeletedWarehouses[rngIdx].add(whVal);
+                                break;
                             }
                         }
                     }
@@ -9862,16 +10616,28 @@ function doPost(e) {
                         lookupMissCount++;
                     }
 
+                    const finalOrderDate = lookupVal || (invoiceDateColDetails !== -1 && row[invoiceDateColDetails] ? formatAjioDateClean(row[invoiceDateColDetails]) : "");
                     const newRow = [...row];
                     // Ensure the row has enough cells
                     if (newRow.length <= targetColDetails) {
                         while (newRow.length <= targetColDetails) newRow.push("");
                     }
-                    newRow[targetColDetails] = lookupVal;
+                    newRow[targetColDetails] = finalOrderDate;
                     processedDetailsAoa.push(newRow);
                 }
 
                 aeLog(`Processed: Deleted ${deletedCount} rows (Reason filter: ${deletedCount - deletedByDateCount}, Date filter: ${deletedByDateCount}). Retained ${retainedCount} rows.`, 'success');
+                if (activeDateRanges.length > 0) {
+                    activeDateRanges.forEach((rng, idx) => {
+                        const count = rangeDeletedCounts[idx] || 0;
+                        const whList = Array.from(rangeDeletedWarehouses[idx] || []);
+                        const whStr = whList.length > 0 ? ` (Warehouses: ${whList.join(', ')})` : '';
+                        const partyScope = (rng.selectedPartyCodes && rng.selectedPartyCodes.length > 0)
+                            ? `[Target Parties: ${rng.selectedPartyCodes.join(', ')}]`
+                            : `[All Parties]`;
+                        aeLog(`  • Range ${idx + 1} (${rng.fromStr || 'Start'} to ${rng.toStr || 'End'}) ${partyScope}: Deleted ${count} row(s)${whStr}`, 'info');
+                    });
+                }
                 aeLog(`Lookup Results (for retained rows): ${lookupMatchCount} successful matches, ${lookupMissCount} unmatched invoice(s).`, lookupMissCount > 0 ? 'warning' : 'success');
 
                 if (retainedCount === 0) {
@@ -9952,7 +10718,7 @@ function doPost(e) {
                         "Quantity",
                         "Item Cost",
                         "Reason",
-                        "Lookup Date",
+                        "order date",
                         "Calculated Price",
                         "Remarks"
                     ]);
@@ -9968,7 +10734,11 @@ function doPost(e) {
                         const quantity = row[quantityColDetails];
                         const itemCost = row[itemCostColDetails];
                         const reason = row[reasonColDetails];
-                        const lookupDate = row[targetColDetails];
+                        let rawDate = row[targetColDetails] !== undefined && row[targetColDetails] !== null ? String(row[targetColDetails]).trim() : "";
+                        if (!rawDate && invoiceDateColDetails !== -1 && row[invoiceDateColDetails]) {
+                            rawDate = String(row[invoiceDateColDetails]).trim();
+                        }
+                        const lookupDate = formatAjioDateClean(rawDate);
                         
                         // K Column: Calculated Price (cost - disputeAmt)
                         const calcPrice = calculateDisputeAmount(itemCost, reason);
@@ -10009,7 +10779,7 @@ function doPost(e) {
                         { wch: 10 }, // Quantity
                         { wch: 10 }, // Item Cost
                         { wch: 25 }, // Reason
-                        { wch: 15 }, // Lookup Date
+                        { wch: 15 }, // order date
                         { wch: 15 }, // Calculated Price
                         { wch: 45 }  // Remarks
                     ];
@@ -10109,7 +10879,7 @@ function doPost(e) {
                     aeLog(`Generated merged file: "${mergedFilename}" with all ${warehouseGroups.size} sheet(s).`, 'success');
                 }
 
-                // 3. Generate Cleaned Details File (with Column W cleared)
+                // 3. Generate Filtered Details File (with Order Date populated)
                 const cleanedDetailsAoa = [];
                 // Keep metadata rows
                 for (let i = 0; i < detailsHeaderRowIndex; i++) {
@@ -10120,16 +10890,17 @@ function doPost(e) {
                 if (cleanedHeader.length <= targetColDetails) {
                     while (cleanedHeader.length <= targetColDetails) cleanedHeader.push("");
                 }
-                cleanedHeader[targetColDetails] = "Zoho Status"; // keep header label
+                cleanedHeader[targetColDetails] = "order date"; // Set header label to order date
                 cleanedDetailsAoa.push(cleanedHeader);
 
-                // Clean data rows (remove lookup dates)
+                // Populate data rows with order dates
                 for (let i = detailsHeaderRowIndex + 1; i < processedDetailsAoa.length; i++) {
                     const row = [...processedDetailsAoa[i]];
                     if (row.length <= targetColDetails) {
                         while (row.length <= targetColDetails) row.push("");
                     }
-                    row[targetColDetails] = ""; // clear
+                    const dtVal = row[targetColDetails] || (invoiceDateColDetails !== -1 && row[invoiceDateColDetails] ? formatAjioDateClean(row[invoiceDateColDetails]) : "");
+                    row[targetColDetails] = formatAjioDateClean(dtVal);
                     cleanedDetailsAoa.push(row);
                 }
 
@@ -10152,7 +10923,7 @@ function doPost(e) {
                     rows: cleanedDetailsAoa.length - detailsHeaderRowIndex - 1,
                     blob: detailsBlobOut
                 });
-                aeLog(`Generated cleaned details file: "${cleanedDetailsFilename}" (W column cleared).`, 'success');
+                aeLog(`Generated filtered details file: "${cleanedDetailsFilename}" (with "order date" column).`, 'success');
 
                 // Generate final ZIP Blob
                 aeProcessedBlob = await zip.generateAsync({ type: 'blob' });
@@ -10925,25 +11696,11 @@ function doPost(e) {
                 if (aePurchaseProgressPercent) aePurchaseProgressPercent.innerText = '10%';
                 if (aePurchaseProgressStepText) aePurchaseProgressStepText.innerText = 'Parsing Ajio Data spreadsheet...';
 
-                const dataBuffer = await readFileAsArrayBuffer(aePurchaseDataFile);
-                const dataWb = XLSX.read(dataBuffer, { type: 'array', cellDates: true });
-                
-                // Find sheet with data or default to first
-                let dataSheetName = dataWb.SheetNames[0];
-                for (const sName of dataWb.SheetNames) {
-                    const low = sName.toLowerCase();
-                    if (low.includes('data') || low.includes('ajio')) {
-                        dataSheetName = sName;
-                        break;
-                    }
-                }
-
-                const dataWs = dataWb.Sheets[dataSheetName];
-                const dataAoa = XLSX.utils.sheet_to_json(dataWs, { header: 1, defval: "" });
-                aePurchaseLog(`Loaded Ajio Data sheet [${dataSheetName}] with ${dataAoa.length} rows.`, 'info');
+                const dataAoa = await parseSpreadsheetOrCsv(aePurchaseDataFile);
+                aePurchaseLog(`Loaded Ajio Data [${aePurchaseDataFile.name}] with ${dataAoa.length} rows.`, 'info');
 
                 if (dataAoa.length < 2) {
-                    throw new Error(`Ajio Data sheet [${dataSheetName}] is empty or has no data rows.`);
+                    throw new Error(`Ajio Data file is empty or has no data rows.`);
                 }
 
                 // Locate Data file header row
@@ -11051,11 +11808,15 @@ function doPost(e) {
 
                     aePurchaseLog(`Processing Details File [${fileIdx + 1}/${totalFiles}]: ${fileObj.name}...`, 'info');
 
-                    const detailsBuffer = await readFileAsArrayBuffer(fileObj.file);
-                    const detailsWb = XLSX.read(detailsBuffer, { type: 'array', cellDates: true });
-                    const detailsSheetName = detailsWb.SheetNames[0];
-                    const detailsWs = detailsWb.Sheets[detailsSheetName];
-                    const detailsAoa = XLSX.utils.sheet_to_json(detailsWs, { header: 1, defval: "", raw: false });
+                    const detailsAoa = await parseSpreadsheetOrCsv(fileObj.file);
+                    let detailsSheetName = "Details";
+                    if (!fileObj.file.name.toLowerCase().endsWith('.csv')) {
+                        try {
+                            const detailsBuffer = await readFileAsArrayBuffer(fileObj.file);
+                            const detailsWb = XLSX.read(detailsBuffer, { type: 'array' });
+                            if (detailsWb.SheetNames.length > 0) detailsSheetName = detailsWb.SheetNames[0];
+                        } catch (e) {}
+                    }
 
                     if (detailsAoa.length < 2) {
                         aePurchaseLog(`Skipped [${fileObj.name}]: Sheet has no data rows.`, 'warning');
@@ -13894,24 +14655,11 @@ function doPost(e) {
                 if (leProgressPercent) leProgressPercent.innerText = '10%';
                 if (leProgressStepText) leProgressStepText.innerText = 'Parsing Ajio Data spreadsheet...';
 
-                const dataBuffer = await readFileAsArrayBuffer(leDataFile);
-                const dataWb = XLSX.read(dataBuffer, { type: 'array', cellDates: true });
-                
-                let dataSheetName = dataWb.SheetNames[0];
-                for (const sName of dataWb.SheetNames) {
-                    const low = sName.toLowerCase();
-                    if (low.includes('data') || low.includes('ajio')) {
-                        dataSheetName = sName;
-                        break;
-                    }
-                }
-
-                const dataWs = dataWb.Sheets[dataSheetName];
-                const dataAoa = XLSX.utils.sheet_to_json(dataWs, { header: 1, defval: "" });
-                leLog(`Loaded Ajio Data sheet [${dataSheetName}] with ${dataAoa.length} rows.`, 'info');
+                const dataAoa = await parseSpreadsheetOrCsv(leDataFile);
+                leLog(`Loaded Ajio Data [${leDataFile.name}] with ${dataAoa.length} rows.`, 'info');
 
                 if (dataAoa.length < 2) {
-                    throw new Error(`Ajio Data sheet [${dataSheetName}] is empty or has no data rows.`);
+                    throw new Error(`Ajio Data file is empty or has no data rows.`);
                 }
 
                 // Locate Data file header row
@@ -14019,10 +14767,7 @@ function doPost(e) {
 
                     leLog(`[${fIdx + 1}/${leDetailsFiles.length}] Processing Loss file: "${fileObj.name}"...`, 'process');
 
-                    const fileBuffer = await readFileAsArrayBuffer(fileObj.file);
-                    const fileWb = XLSX.read(fileBuffer, { type: 'array', cellDates: true });
-                    const fileWs = fileWb.Sheets[fileWb.SheetNames[0]];
-                    const fileAoa = XLSX.utils.sheet_to_json(fileWs, { header: 1, defval: "" });
+                    const fileAoa = await parseSpreadsheetOrCsv(fileObj.file);
 
                     if (fileAoa.length === 0) {
                         leLog(`Warning: File "${fileObj.name}" is completely empty. Skipping.`, 'warning');
@@ -14545,6 +15290,29 @@ function doPost(e) {
                     aeStatus.innerText = 'Idle';
                 }
                 if (aeProgressCard) aeProgressCard.classList.add('hidden');
+
+                // Reset Date Ranges to 1 row with All Parties
+                if (aeDateRangesContainer) {
+                    const rows = aeDateRangesContainer.querySelectorAll('.ae-date-range-row');
+                    rows.forEach((r, idx) => {
+                        if (idx === 0) {
+                            const fInp = r.querySelector('.ae-from-date');
+                            const tInp = r.querySelector('.ae-to-date');
+                            if (fInp) fInp.value = '';
+                            if (tInp) tInp.value = '';
+                            r._selectedPartyCodes = [];
+                            const btnLabel = r.querySelector('.ae-party-btn-label');
+                            const btn = r.querySelector('.ae-select-parties-btn');
+                            if (btnLabel) btnLabel.innerText = 'All Parties';
+                            if (btn) {
+                                btn.classList.remove('has-parties');
+                                btn.title = 'Select specific parties for this date range';
+                            }
+                        } else {
+                            r.remove();
+                        }
+                    });
+                }
 
                 // Reset Purchase State
                 aePurchaseDetailsFiles = [];

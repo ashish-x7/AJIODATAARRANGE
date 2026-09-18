@@ -3109,3 +3109,75 @@ input:checked + .slider:before {
     color: #15803d;
     border: 1px solid #86efac;
 }
+
+/* Ajio Error Party Selector Button & Modal */
+.ae-select-parties-btn {
+    transition: all 0.2s ease;
+}
+.ae-select-parties-btn:hover {
+    border-color: #8b5cf6 !important;
+    background: #f3e8ff !important;
+}
+.ae-select-parties-btn.has-parties {
+    background: #ede9fe !important;
+    border-color: #a78bfa !important;
+    color: #6d28d9 !important;
+    font-weight: 700 !important;
+}
+.ae-select-parties-btn.has-parties i {
+    color: #6d28d9 !important;
+}
+
+.ae-party-checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 0.65rem;
+    border-radius: 8px;
+    border: 1px solid #f1f5f9;
+    background: white;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+    outline: none;
+}
+.ae-party-checkbox-item:hover,
+.ae-party-checkbox-item:focus {
+    background: #faf5ff;
+    border-color: #c084fc;
+}
+.ae-party-checkbox-item.is-selected {
+    background: rgba(124, 58, 237, 0.06);
+    border-color: #c084fc;
+}
+.ae-party-checkbox-item.ae-party-just-selected {
+    background: #ede9fe !important;
+    border-color: #7c3aed !important;
+    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.3) !important;
+    transform: scale(1.015);
+}
+.ae-party-checkbox-item input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #7c3aed;
+}
+.ae-party-code-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    background: #ede9fe;
+    color: #6d28d9;
+    border: 1px solid #d8b4fe;
+    flex-shrink: 0;
+}
+.ae-party-name-text {
+    font-size: 0.78rem;
+    color: var(--text-primary);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
