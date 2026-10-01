@@ -15122,7 +15122,7 @@ function doPost(e) {
                         </div>
                     `;
                 }
-                updateUI();
+                updateConverterUI();
                 log('Cleared all files and reset File Converter.', 'info');
                 return;
             }
