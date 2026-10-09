@@ -663,6 +663,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const idxP = 15;   // Col P (FWD AWB)
         const idxDV = 125; // Col DV (POB ID)
 
+        // Find Col AX ("Item Price(Excluding Tax)")
+        let idxAX = 49; // Default Col AX (0-indexed 49)
+        for (let c = 0; c < header.length; c++) {
+            const h = String(header[c] || "").trim().toLowerCase().replace(/\s+/g, "");
+            if (h.includes("itemprice(excludingtax)") || (h.includes("itemprice") && h.includes("excluding"))) {
+                idxAX = c;
+                break;
+            }
+        }
+
         const outRows = [AJIO_OD_44_HEADERS];
 
         for (let r = 1; r < dropShipRows.length; r++) {
@@ -704,10 +714,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const listingMrp = drFields.MRP !== "" ? (Number(drFields.MRP) || drFields.MRP) : "";
             const sellerTd = drFields.Seller_Trade_Discount !== "" ? (Number(drFields.Seller_Trade_Discount) || drFields.Seller_Trade_Discount) : "";
             const sellingPrice = drFields.B2B_Selling_Price !== "" ? (Number(drFields.B2B_Selling_Price) || drFields.B2B_Selling_Price) : "";
-            const totalPrice = drFields.B2B_Base_Price !== "" ? (Number(drFields.B2B_Base_Price) || 0) : 0; // Col AF
             
-            // Col AE (Base Price) = Direct Total Price (Col AF)
-            const basePrice = Math.round(totalPrice * 100) / 100;
+            // Col AE (Base Price) & Col AF (Total Price) taken directly from DT Col AX ("Item Price(Excluding Tax)")
+            let basePrice = 0;
+            if (row[idxAX] !== undefined && row[idxAX] !== null && String(row[idxAX]).trim() !== "") {
+                const parsedAx = parseFloat(String(row[idxAX]).replace(/,/g, '').trim());
+                if (!isNaN(parsedAx)) {
+                    basePrice = Math.round(parsedAx * 100) / 100;
+                }
+            } else if (drFields.B2B_Base_Price !== "") {
+                basePrice = Math.round((Number(drFields.B2B_Base_Price) || 0) * 100) / 100;
+            }
+            const totalPrice = basePrice; // Col AF
 
             // GST Rule: If Base Price < 2500 -> 2.5%, else 9%
             const gstPct = basePrice < 2500 ? 2.5 : 9.0;
