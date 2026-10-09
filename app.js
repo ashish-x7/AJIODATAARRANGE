@@ -715,17 +715,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const sellerTd = drFields.Seller_Trade_Discount !== "" ? (Number(drFields.Seller_Trade_Discount) || drFields.Seller_Trade_Discount) : "";
             const sellingPrice = drFields.B2B_Selling_Price !== "" ? (Number(drFields.B2B_Selling_Price) || drFields.B2B_Selling_Price) : "";
             
-            // Col AE (Base Price) & Col AF (Total Price) taken directly from DT Col AX ("Item Price(Excluding Tax)")
-            let basePrice = 0;
+            // DT Col AX ("Item Price(Excluding Tax)")
+            let totalAxPrice = 0;
             if (row[idxAX] !== undefined && row[idxAX] !== null && String(row[idxAX]).trim() !== "") {
                 const parsedAx = parseFloat(String(row[idxAX]).replace(/,/g, '').trim());
                 if (!isNaN(parsedAx)) {
-                    basePrice = Math.round(parsedAx * 100) / 100;
+                    totalAxPrice = Math.round(parsedAx * 100) / 100;
                 }
             } else if (drFields.B2B_Base_Price !== "") {
-                basePrice = Math.round((Number(drFields.B2B_Base_Price) || 0) * 100) / 100;
+                totalAxPrice = Math.round((Number(drFields.B2B_Base_Price) || 0) * 100) / 100;
             }
-            const totalPrice = basePrice; // Col AF
+
+            // Col AE (Base Price) = Item Price(Excluding Tax) / Order Qty
+            const qtyForDiv = (orderQty && Number(orderQty) > 0) ? Number(orderQty) : 1;
+            const basePrice = Math.round((totalAxPrice / qtyForDiv) * 100) / 100;
+            const totalPrice = totalAxPrice; // Col AF (Total Price for all qty)
 
             // GST Rule: If Base Price < 2500 -> 2.5%, else 9%
             const gstPct = basePrice < 2500 ? 2.5 : 9.0;
@@ -739,8 +743,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const igstPct = "";
             const igstAmt = "";
 
-            // Total Value = Base Price + CGST Amount + SGST Amount
-            const totalValue = Math.round((basePrice + cgstAmt + sgstAmt) * 100) / 100;
+            // Total Value = Total Price + CGST Amount + SGST Amount
+            const totalValue = Math.round((totalPrice + cgstAmt + sgstAmt) * 100) / 100;
             const invoiceValue = totalValue;
 
             // Col AO receives DropShip Col A data previously in Col O
